@@ -1,0 +1,27 @@
+name: Sync wiki
+
+# The GitHub wiki is generated from docs/wiki/ — see CLAUDE.md.
+# Every merged PR that touches docs/wiki/** republishes the wiki.
+# NOTE: the sync OVERWRITES the wiki; never edit wiki pages on GitHub directly.
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/wiki/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish docs/wiki to the GitHub wiki
+        uses: Andrew-Chen-Wang/github-wiki-action@v4
+        with:
+          path: docs/wiki
+          # Falls back to the default token; if the push is rejected, create a
+          # classic PAT with `repo` scope and save it as the WIKI_TOKEN secret.
+          token: ${{ secrets.WIKI_TOKEN || github.token }}

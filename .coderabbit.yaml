@@ -1,0 +1,8 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+language: en-US
+reviews:
+  auto_review:
+    enabled: true
+  path_filters:
+    # Claude Design export — generated artifacts, not hand-written code
+    - "!design/**"
