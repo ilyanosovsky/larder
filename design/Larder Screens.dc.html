@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..600;1,7..72,400..600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f0e9;--paper:#faf8f2;--zebra:#f5f2ea;--rule:#e3ddcf;--rule-2:#cfc7b3;--ink:#2b2820;--mute:#7c7561;--mute-2:#a39b85;--accent:#3c5a4a;--accent-ink:#324c3f;--accent-soft:#e7ede9;--null:#f6ecd2;--null-rule:#e2cf9e;--null-txt:#9a7415;--neg:#a8443a;--ok:#3c5a4a;--ok-soft:#e7ede9;--green-txt:#3c5a4a;--green-rule:#bcccc1;--green-soft:#e7ede9;--blue-txt:#3a5160;--blue-rule:#bcc8ce;--blue-soft:#e7edf0;--amber-txt:#6b5326;--amber-rule:#d8cba6;--amber-soft:#f3ecda;--red-txt:#a8443a;--red-rule:#e0c6c2;--red-soft:#f6e9e7;--toast-accent:#9cc3ad;--scrim:rgba(43,40,32,.4);--font-serif:'Literata',Georgia,serif;--font-sans:'Inter',system-ui,sans-serif;--font-mono:'JetBrains Mono',ui-monospace,monospace;--shadow-sheet:0 1px 0 var(--rule),0 14px 30px -22px rgba(43,40,32,.4);--shadow-bottom-sheet:0 -10px 30px rgba(43,40,32,.3);--shadow-dialog:0 14px 30px -18px rgba(43,40,32,.5)}
+[data-theme="dark"]{--bg:#1f1c16;--paper:#292519;--zebra:#24211a;--rule:#3a352a;--rule-2:#4a4436;--ink:#e8e2d2;--mute:#a39b85;--mute-2:#7c7561;--accent:#8fb39e;--accent-ink:#a3c4b1;--accent-soft:#2e3a32;--null:rgba(216,178,94,.12);--null-rule:#6b5a32;--null-txt:#d8b25e;--neg:#c97a6e;--green-txt:#8fb39e;--green-rule:#3f5147;--green-soft:#2e3a32;--blue-txt:#8fa9b8;--blue-rule:#3a4a54;--blue-soft:#2a343a;--amber-txt:#d8b25e;--amber-rule:#6b5a32;--amber-soft:#3a3222;--scrim:rgba(0,0,0,.5);--shadow-sheet:0 1px 0 var(--rule),0 14px 30px -22px rgba(0,0,0,.55)}
+body{margin:0;background:#e9e5d8;font-family:'Inter',system-ui,sans-serif;color:#2b2820}
+a{color:#3c5a4a}a:hover{color:#324c3f}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:56px;display:flex;flex-direction:column;gap:80px;font-family:var(--font-sans);color:var(--ink)">
+
+  <div style="max-width:720px">
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)">Larder · Paper Ledger · экраны MVP</div>
+    <div style="font-family:var(--font-serif);font-size:34px;margin-top:8px;letter-spacing:-0.01em">Корзина · Импорт · Блюдо · Меню · Кладовая</div>
+    <div style="font-size:13px;line-height:1.55;color:var(--mute);margin-top:8px">Мобайл 390×844, светлая «бумага». Десктопные пары S3+S5 и S6+S7 — ниже. Один кадр в тёмной теме — в конце.</div>
+  </div>
+
+  <!-- ═══ S3 КОРЗИНА ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S3 · Корзина</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1a" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1a" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1a</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">базовое состояние</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;position:relative" data-screen-label="S3 Корзина">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина · 9</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Помидоры</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">6 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥒</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Огурцы</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">4 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍋</span><span style="font-size:15px;flex:1">Лимоны</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥛 Молочное и яйца</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥛</span><span style="font-size:15px;flex:none">Молоко</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--blue-txt);background:var(--blue-soft);border:1px solid var(--blue-rule);padding:2px 6px;white-space:nowrap">Заказано · Wolt</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute);margin-left:auto">1 л</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🧈</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Масло сливочное</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">180 г</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:16px;opacity:.55">🥚</span><span style="font-size:15px;flex:1;text-decoration:line-through;color:var(--mute)">Яйца</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute-2)">10 шт</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥩 Мясо и курица</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">2</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍗</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Куриное филе <span style="font-size:12px;color:var(--mute-2)">· на выходных</span></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">1 кг</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥩</span><span style="font-size:15px;flex:1">Фарш говяжий</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">500 г</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🍝 Бакалея</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🌾</span><span style="font-size:15px;flex:none">Мука</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--blue-txt);background:var(--blue-soft);border:1px solid var(--blue-rule);padding:2px 6px;white-space:nowrap">Заказано · Carrefour</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute);margin-left:auto">1 кг</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍫</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Шоколад тёмный</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 плитки</span></div>
+          </div>
+          <div style="display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--rule-2);background:var(--paper);flex:none">
+            <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">Завершить закупку (2)</div>
+            <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">+ Добавить</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);background:var(--paper);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1b" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1b" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1b</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">реалтайм: партнёр купил</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;position:relative" data-screen-label="S3 реалтайм">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина · 9</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">4</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1">Помидоры</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">6 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥒</span><span style="font-size:15px;flex:1">Огурцы</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">4 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥛 Молочное и яйца</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--accent-soft)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:16px;opacity:.55">🥛</span><span style="font-size:15px;flex:1;text-decoration:line-through;color:var(--mute)">Молоко</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute-2)">1 л</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🧈</span><span style="font-size:15px;flex:1">Масло сливочное</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">180 г</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥩 Мясо и курица</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">2</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍗</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Куриное филе <span style="font-size:12px;color:var(--mute-2)">· на выходных</span></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">1 кг</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥩</span><span style="font-size:15px;flex:1">Фарш говяжий</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">500 г</span></div>
+          </div>
+          <div style="position:absolute;left:16px;right:16px;bottom:150px;background:var(--ink);color:var(--paper);padding:13px 16px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow-dialog)"><span style="color:var(--toast-accent)">✓</span><span style="font-size:13px;flex:1">Аня: куплено молоко</span></div>
+          <div style="display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">Завершить закупку (1)</div>
+            <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">+ Добавить</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1c" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1c" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1c</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">офлайн</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S3 офлайн">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="background:var(--null);border-top:1px solid var(--null-rule);border-bottom:1px solid var(--null-rule);color:var(--null-txt);font-size:12px;padding:8px 16px;text-align:center;flex:none">Нет связи — изменения сохранятся</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина · 10</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">4</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:16px;opacity:.55">🍅</span><span style="font-size:15px;flex:1;text-decoration:line-through;color:var(--mute)">Помидоры</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--null-txt)" title="ждёт синхронизации">🕐</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute-2)">6 шт</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥒</span><span style="font-size:15px;flex:1">Огурцы</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">4 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍋</span><span style="font-size:15px;flex:1">Лимоны</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥛 Молочное и яйца</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥛</span><span style="font-size:15px;flex:none">Молоко</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--blue-txt);background:var(--blue-soft);border:1px solid var(--blue-rule);padding:2px 6px;white-space:nowrap">Заказано · Wolt</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute);margin-left:auto">1 л</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🧈</span><span style="font-size:15px;flex:1">Масло сливочное</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">180 г</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1d" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1d" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1d</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пустая корзина</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S3 пустая">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 40px;text-align:center">
+            <div style="width:96px;height:96px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:40px">🧺</div>
+            <div style="font-size:14px;line-height:1.55;color:var(--mute)">Добавь первый продукт или собери корзину из меню недели</div>
+            <div style="padding:13px 24px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">+ Добавить</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1e" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1e" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1e</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">первая загрузка — скелетон</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S3 скелетон">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="padding:18px 16px 10px;border-bottom:2px solid var(--rule-2)"><div style="width:120px;height:10px;background:var(--rule)"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--rule);flex:none"></div><div style="width:170px;height:12px;background:var(--rule)"></div><div style="width:36px;height:10px;background:var(--zebra);border:1px solid var(--rule);margin-left:auto"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--rule);flex:none"></div><div style="width:120px;height:12px;background:var(--rule)"></div><div style="width:36px;height:10px;background:var(--zebra);border:1px solid var(--rule);margin-left:auto"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--rule);flex:none"></div><div style="width:200px;height:12px;background:var(--rule)"></div><div style="width:36px;height:10px;background:var(--zebra);border:1px solid var(--rule);margin-left:auto"></div></div>
+            <div style="padding:18px 16px 10px;border-bottom:2px solid var(--rule-2)"><div style="width:150px;height:10px;background:var(--rule)"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--rule);flex:none"></div><div style="width:140px;height:12px;background:var(--rule)"></div><div style="width:36px;height:10px;background:var(--zebra);border:1px solid var(--rule);margin-left:auto"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--rule);flex:none"></div><div style="width:180px;height:12px;background:var(--rule)"></div><div style="width:36px;height:10px;background:var(--zebra);border:1px solid var(--rule);margin-left:auto"></div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S4 ДОБАВЛЕНИЕ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S4 · Добавление продукта</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1f" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1f" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1f</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">подсказки из каталога</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);position:relative;overflow:hidden" data-screen-label="S4 подсказки">
+          <div style="padding:20px 16px;opacity:.9">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+              <div style="height:12px;width:200px;background:var(--rule)"></div>
+              <div style="height:12px;width:160px;background:var(--rule)"></div>
+              <div style="height:12px;width:220px;background:var(--rule)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;inset:0;background:var(--scrim)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:var(--paper);box-shadow:var(--shadow-bottom-sheet)">
+            <div style="padding:16px 16px 0"><div style="border:1px solid var(--rule-2);padding:13px 14px;font-size:16px;display:flex;align-items:center;gap:2px"><span>пом</span><span style="width:2px;height:18px;background:var(--accent);display:inline-block"></span></div></div>
+            <div style="padding:8px 0 0">
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1">Помидоры</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.05em">Овощи и фрукты</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1">Помидоры черри</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.05em">Овощи и фрукты</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:15px 16px 26px;color:var(--accent-ink);font-weight:500;font-size:14px"><span style="font-family:var(--font-mono)">+</span>Создать «пом»</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1g" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1g" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1g</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">новый продукт + ИИ</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);position:relative;overflow:hidden" data-screen-label="S4 новый продукт">
+          <div style="padding:20px 16px;opacity:.9">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+              <div style="height:12px;width:200px;background:var(--rule)"></div>
+              <div style="height:12px;width:160px;background:var(--rule)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;inset:0;background:var(--scrim)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:var(--paper);box-shadow:var(--shadow-bottom-sheet)">
+            <div style="padding:16px 16px 0"><div style="border:1px solid var(--rule-2);padding:13px 14px;font-size:16px">буррата</div></div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--rule);background:var(--zebra);padding:14px 16px">
+                <div style="width:22px;height:22px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute-2)">·</div>
+                <div style="flex:1">
+                  <div style="font-size:14px;font-weight:500">Создаю «буррата»</div>
+                  <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute);margin-top:3px">подбираю иконку и отдел…</div>
+                </div>
+              </div>
+              <div style="height:2px;background:var(--rule);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--toast-accent)"></div></div>
+              <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--rule-2);padding:12px 16px">
+                <span style="font-size:16px">🧀</span>
+                <div style="flex:1">
+                  <div style="font-size:15px">Буррата</div>
+                  <div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Молочное и яйца · шт</div>
+                </div>
+                <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--green-rule)">изменить</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px">
+                <div style="display:flex;align-items:center;border:1px solid var(--rule-2)">
+                  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--mute)">−</div>
+                  <div style="width:52px;text-align:center;font-family:var(--font-mono);font-size:14px;border-left:1px solid var(--rule);border-right:1px solid var(--rule);line-height:44px">1 шт</div>
+                  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px">+</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">В корзину</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1h" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1h" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1h</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">без дублей: количество слилось</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;position:relative" data-screen-label="S4 дубль">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина · 10</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">4</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1">Помидоры</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute-2);text-decoration:line-through">6 шт</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent-ink);font-weight:500">8 шт</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥒</span><span style="font-size:15px;flex:1">Огурцы</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">4 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍋</span><span style="font-size:15px;flex:1">Лимоны</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥑</span><span style="font-size:15px;flex:1">Авокадо</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+          </div>
+          <div style="position:absolute;left:16px;right:16px;bottom:150px;background:var(--ink);color:var(--paper);padding:13px 16px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow-dialog)"><span style="color:var(--toast-accent)">✓</span><span style="font-size:13px;flex:1">Помидоры уже в корзине — количество обновлено</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S8 ИМПОРТ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S8 · Импорт рецепта</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1i" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1i" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1i</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S8.1 · выбор источника</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S8.1 источник">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 16px;border-bottom:1px solid var(--rule);flex:none">
+            <span style="font-family:var(--font-mono);font-size:13px;color:var(--mute)">✕</span>
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Новое блюдо</div>
+            <span style="width:13px"></span>
+          </div>
+          <div style="padding:24px 16px;display:flex;flex-direction:column;gap:20px">
+            <div style="border:1px dashed var(--rule-2);background:var(--zebra);padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+              <span style="font-size:36px">📷</span>
+              <div style="font-size:16px;font-weight:500">Загрузить фото или скриншот</div>
+              <div style="font-size:12px;color:var(--mute)">галерея или камера · главный путь для рецептов из Instagram</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px"><div style="flex:1;height:1px;background:var(--rule)"></div><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2)">или</span><div style="flex:1;height:1px;background:var(--rule)"></div></div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🔗 По ссылке</div>
+              <div style="border:1px solid var(--rule-2);padding:13px 14px;font-size:14px;color:var(--mute-2)">https://…</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">📝 Текстом</div>
+              <div style="border:1px solid var(--rule-2);padding:13px 14px;font-size:14px;color:var(--mute-2);height:76px">Вставь текст рецепта…</div>
+            </div>
+            <div style="font-size:13px;color:var(--mute)">Или <span style="color:var(--accent-ink);border-bottom:1px solid var(--green-rule)">создать вручную</span> — пустая форма блюда.</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1j" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1j" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1j</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S8.2 · разбор</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S8.2 разбор">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 16px;border-bottom:1px solid var(--rule);flex:none">
+            <span style="font-family:var(--font-mono);font-size:13px;color:var(--mute)">✕</span>
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Новое блюдо</div>
+            <span style="width:13px"></span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:0 48px;text-align:center">
+            <div style="width:132px;height:176px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border:1px solid var(--rule-2);display:flex;align-items:end;justify-content:center;padding-bottom:10px"><span style="font-family:var(--font-mono);font-size:10px;color:var(--mute-2);letter-spacing:.08em;text-transform:uppercase">скриншот</span></div>
+            <div style="font-family:var(--font-serif);font-size:19px">Разбираю рецепт…</div>
+            <div style="width:200px;height:2px;background:var(--rule);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:40%;background:var(--toast-accent)"></div></div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">обычно 5–10 секунд</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1k" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1k" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1k</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S8.2 · ошибка фото</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S8.2 ошибка фото">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 16px;border-bottom:1px solid var(--rule);flex:none">
+            <span style="font-family:var(--font-mono);font-size:13px;color:var(--mute)">✕</span>
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Новое блюдо</div>
+            <span style="width:13px"></span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 40px;text-align:center">
+            <div style="width:132px;height:176px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border:1px solid var(--rule-2);opacity:.5"></div>
+            <div style="font-size:14px;line-height:1.55;color:var(--ink)">Не получилось разобрать фото. Попробуй другой скриншот или вставь текст рецепта</div>
+            <div style="display:flex;gap:10px;width:100%">
+              <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Другое фото</div>
+              <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">Вставить текст</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1l" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1l" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1l</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S8.2 · ошибка ссылки</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S8.2 ошибка ссылки">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 16px;border-bottom:1px solid var(--rule);flex:none">
+            <span style="font-family:var(--font-mono);font-size:13px;color:var(--mute)">✕</span>
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Новое блюдо</div>
+            <span style="width:13px"></span>
+          </div>
+          <div style="padding:24px 16px;display:flex;flex-direction:column;gap:18px">
+            <div style="font-size:14px;line-height:1.55">Не удалось прочитать страницу. Вставь текст рецепта или скриншот — так надёжнее</div>
+            <div style="border:1px solid var(--rule-2);padding:13px 14px;font-size:14px;color:var(--mute-2);height:110px">Вставь текст рецепта…</div>
+            <div style="border:1px dashed var(--rule-2);background:var(--zebra);padding:24px;display:flex;align-items:center;justify-content:center;gap:10px">
+              <span style="font-size:20px">📷</span><span style="font-size:14px;font-weight:500">Загрузить скриншот</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1m" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1m" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1m</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S8.3 · проверка результата</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S8.3 проверка">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <span style="font-family:var(--font-mono);font-size:13px;color:var(--mute)">✕</span>
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Проверь результат</div>
+            <span style="width:13px"></span>
+          </div>
+          <div style="font-size:12px;color:var(--mute);text-align:center;padding:0 16px 12px;border-bottom:1px solid var(--rule)">ИИ мог ошибиться — проверь количества</div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;gap:14px;padding:16px">
+              <div style="width:72px;height:96px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border:1px solid var(--rule-2);flex:none"></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+                <div style="border:1px solid var(--rule-2);padding:10px 12px;font-family:var(--font-serif);font-size:17px">NYC Cookies</div>
+                <div style="display:flex;gap:8px">
+                  <div style="flex:1;border:1px solid var(--rule-2);padding:8px 10px;font-size:13px"><span style="font-family:var(--font-mono);font-size:9.5px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.06em;display:block">Порции</span>7–8</div>
+                  <div style="flex:1;border:1px solid var(--rule-2);padding:8px 10px;font-size:13px"><span style="font-family:var(--font-mono);font-size:9.5px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.06em;display:block">Время</span>~30 мин</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Ингредиенты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">10</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Мука</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px">285</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;color:var(--mute)">г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--null)"><span style="font-size:15px;flex:1">Кукурузный крахмал</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--null-txt);border:1px solid var(--null-rule);padding:3px 7px;white-space:nowrap">уточнить</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--null-rule);padding:4px 8px;color:var(--mute-2);width:26px;text-align:center">?</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Соль</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px">¾</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;color:var(--mute)">ч.л.</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Масло сливочное <span style="font-size:12px;color:var(--mute-2)">(холодное)</span></span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px">180</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;color:var(--mute)">г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Сахар коричневый</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px">140</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;color:var(--mute)">г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:none">Шоколад крупными кусками</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--green-txt);background:var(--green-soft);border:1px solid var(--green-rule);padding:3px 7px">новый</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;margin-left:auto">150</span><span style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--rule);padding:4px 8px;color:var(--mute)">г</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Шаги</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">6</span></div>
+            <div style="display:flex;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">≡</span><span style="font-family:var(--font-serif);font-size:14px;color:var(--mute)">1</span><span style="font-size:14px;flex:1;line-height:1.45">Смешать сухие ингредиенты</span></div>
+            <div style="display:flex;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">≡</span><span style="font-family:var(--font-serif);font-size:14px;color:var(--mute)">2</span><span style="font-size:14px;flex:1;line-height:1.45">Холодное масло порубить с сахаром, добавить яйца</span></div>
+            <div style="display:flex;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">≡</span><span style="font-family:var(--font-serif);font-size:14px;color:var(--mute)">3</span><span style="font-size:14px;flex:1;line-height:1.45">Соединить, вмешать шоколад — тесто плотное и липкое</span></div>
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Сохранить блюдо</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S7 КАРТОЧКА БЛЮДА ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S7 · Карточка блюда</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1n" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1n" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1n</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">NYC Cookies — импорт с фото</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S7 карточка блюда">
+          <div style="height:170px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule-2);position:relative;flex:none">
+            <span style="position:absolute;left:16px;top:14px;font-family:var(--font-mono);font-size:13px;color:var(--mute)">←</span>
+            <span style="position:absolute;right:16px;top:14px;font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);border-bottom:1px solid var(--green-rule)">Редактировать</span>
+            <span style="position:absolute;left:0;right:0;bottom:10px;text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--mute-2);letter-spacing:.08em;text-transform:uppercase">фото со скриншота</span>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="padding:16px 16px 0">
+              <div style="font-family:var(--font-serif);font-size:24px;letter-spacing:-0.01em">NYC Cookies</div>
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 7px;color:var(--mute)">выпечка</span>
+                <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 7px;color:var(--mute)">духовка</span>
+                <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:3px 0;color:var(--mute-2)">~30 мин · 📷 с фото</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--rule)">
+              <span style="font-size:13px;color:var(--mute);flex:none">Порции: <span style="font-family:var(--font-mono);color:var(--ink);font-weight:500">8</span></span>
+              <div style="flex:1;height:2px;background:var(--rule);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:70%;background:var(--accent)"></div><div style="position:absolute;left:70%;top:-6px;width:14px;height:14px;background:var(--paper);border:2px solid var(--ink);margin-left:-7px"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--green-soft);border-bottom:1px solid var(--green-rule);font-size:13px;color:var(--green-txt)">Нужно: духовка ✓ <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">· переделано под твою духовку</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Ингредиенты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">на 8 порций</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Мука</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">285 г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--null)"><span style="font-size:15px;flex:1">Кукурузный крахмал</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--null-txt);border:1px solid var(--null-rule);padding:3px 7px">уточнить</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Соль <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--green-txt)">· дома есть ✓</span></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">¾ ч.л.</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Разрыхлитель</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">½ ч.л.</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Масло сливочное <span style="font-size:12px;color:var(--mute-2)">(холодное)</span></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">180 г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Сахар белый</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">90 г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Сахар коричневый</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">140 г</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Яйца <span style="font-size:12px;color:var(--mute-2)">(холодные)</span></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:15px;flex:1">Шоколад крупными кусками</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">150 г</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;padding:12px 16px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="display:flex;gap:10px">
+              <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">В меню недели</div>
+              <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">Ингредиенты в корзину</div>
+            </div>
+            <div style="text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Готовить</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S10 МЕНЮ НЕДЕЛИ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S10 · Меню недели</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1o" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1o" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1o</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пул блюд недели</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S10 меню недели">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Меню на неделю</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">4–10 августа</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px">
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:84px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule)"></div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Лазанья болоньезе</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">×4 порции</span><div style="width:18px;height:18px;border:2px solid var(--rule-2)"></div></div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2);background:var(--zebra)">
+                <div style="height:84px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule);opacity:.6"></div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3;color:var(--mute);text-decoration:line-through">NYC Cookies</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">×8 шт · приготовлено</span><div style="width:18px;height:18px;background:var(--accent);color:var(--paper);font-size:11px;display:flex;align-items:center;justify-content:center">✓</div></div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:84px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:28px">🍳</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Шакшука</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">×2 порции</span><div style="width:18px;height:18px;border:2px solid var(--rule-2)"></div></div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:84px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:28px">🍲</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Том-ям</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">×4 порции</span><div style="width:18px;height:18px;border:2px solid var(--rule-2)"></div></div></div>
+              </div>
+              <div style="border:1px dashed var(--rule-2);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--mute)"><span style="font-size:20px">+</span><span style="font-size:13px">Блюдо</span></div>
+            </div>
+            <div style="padding:0 16px 16px"><div style="text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Собрать корзину</div></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 16px;border-top:2px solid var(--ink);border-bottom:1px solid var(--rule)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Прошлые недели</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="flex:1"><div style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">28 июля – 3 августа</div><div style="font-size:13px;color:var(--mute);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Карбонара · Оладьи · Том-ям</div></div><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--green-rule);white-space:nowrap">Повторить</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="flex:1"><div style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">21–27 июля</div><div style="font-size:13px;color:var(--mute);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Лазанья болоньезе · Шакшука</div></div><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--green-rule);white-space:nowrap">Повторить</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1p" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1p" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1p</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">MergePreview «Собрать корзину»</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);position:relative;overflow:hidden" data-screen-label="S10 MergePreview">
+          <div style="padding:20px 16px;opacity:.9">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Меню на неделю</div>
+          </div>
+          <div style="position:absolute;inset:0;background:var(--scrim)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:var(--paper);box-shadow:var(--shadow-bottom-sheet);max-height:790px;display:flex;flex-direction:column">
+            <div style="padding:18px 16px 10px;border-bottom:2px solid var(--ink);flex:none">
+              <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Собрать корзину</div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute);margin-top:4px">+8 позиций · 4 уже дома · 2 уже в корзине</div>
+            </div>
+            <div style="flex:1;overflow:hidden">
+              <div style="padding:12px 16px 6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--green-txt)">Добавим · 8</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🍝</span><span style="font-size:14px;flex:1">Листы лазаньи</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">1 уп</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🧀</span><span style="font-size:14px;flex:1">Пармезан</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">150 г</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🧀</span><span style="font-size:14px;flex:1">Моцарелла</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">200 г</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🧅</span><span style="font-size:14px;flex:1">Лук <span style="font-size:11px;color:var(--mute-2)">· лазанья 2 + шакшука 1</span></span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">3 шт</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🥕</span><span style="font-size:14px;flex:1">Морковь</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">2 шт</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🫑</span><span style="font-size:14px;flex:1">Перец болгарский</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">2 шт</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🌿</span><span style="font-size:14px;flex:1">Кинза</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">1 пучок</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px">🥥</span><span style="font-size:14px;flex:1">Кокосовое молоко</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">1 банка</span></div>
+              <div style="padding:12px 16px 6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Уже дома, не добавляем · 4</div>
+              <div style="padding:0 16px 8px;font-size:13px;color:var(--mute);line-height:1.7">🧄 Чеснок · 🫒 Масло оливковое · 🥫 Томаты в собственном соку · 🧂 Соль</div>
+              <div style="padding:10px 16px 6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--null-txt)">Уже в корзине — реши сам · 2</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--null-rule);background:var(--null)"><span style="font-size:14px">🥛</span><span style="font-size:14px;flex:1">Молоко <span style="font-size:11px;color:var(--mute)">· в корзине 1 л «заказано», для бешамеля нужно ещё</span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);border-bottom:1px solid var(--green-rule);white-space:nowrap">+1 л</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--null)"><span style="font-size:14px">🌾</span><span style="font-size:14px;flex:1">Мука <span style="font-size:11px;color:var(--mute)">· в корзине 1 кг — хватает</span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);white-space:nowrap">не добавлять</span></div>
+            </div>
+            <div style="display:flex;gap:10px;padding:12px 16px 20px;border-top:1px solid var(--rule-2);flex:none">
+              <div style="flex:none;text-align:center;padding:13px 18px;border:1px solid var(--rule-2);font-size:14px;color:var(--mute)">Отмена</div>
+              <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Добавить 8 позиций</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1q" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1q" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1q</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пустое меню</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S10 пустое">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Меню на неделю</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">4–10 августа</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 40px;text-align:center">
+            <div style="width:96px;height:96px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:40px">🗒️</div>
+            <div style="font-size:14px;line-height:1.55;color:var(--mute)">Выбери блюда на неделю — корзина соберётся сама</div>
+            <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+              <div style="padding:13px 24px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">+ Блюдо</div>
+              <div style="padding:9px 16px;border:1px solid var(--rule-2);font-size:13px;color:var(--mute)">🤖 Предложи меню</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S5 КЛАДОВАЯ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S5 · Кладовая</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1r" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1r" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1r</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">что есть дома</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;position:relative" data-screen-label="S5 кладовая">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Корзина · 10</div>
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Кладовая · 7</div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;padding:12px 16px;border-bottom:1px solid var(--rule);flex:none">
+            <div style="padding:8px 14px;border:1px solid var(--ink);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase">Ревизия</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">1</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:16px">🧄</span><span style="font-size:15px;flex:1">Чеснок</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🍝 Бакалея</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">6</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:16px">🍚</span><span style="font-size:15px;flex:1">Рис</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><span style="font-size:16px">🍝</span><span style="font-size:15px;flex:1">Паста</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)"><span style="font-size:16px;opacity:.5">🫒</span><span style="font-size:15px;flex:1;color:var(--mute)">Масло оливковое</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink)">→ в корзине ✓</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><span style="font-size:16px">🥫</span><span style="font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Томаты в собственном соку</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:16px">☕</span><span style="font-size:15px;flex:1">Кофе</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><span style="font-size:16px">🧂</span><span style="font-size:15px;flex:1">Соль</span><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:7px 12px;color:var(--mute)">Кончилось</span></div>
+          </div>
+          <div style="position:absolute;left:16px;right:16px;bottom:80px;background:var(--ink);color:var(--paper);padding:13px 16px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow-dialog)"><span style="color:var(--toast-accent)">✓</span><span style="font-size:13px;flex:1">Масло оливковое — в корзине</span><span style="font-size:13px;color:var(--toast-accent);border-bottom:1px solid var(--toast-accent)">Открыть</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1s" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1s" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1s</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">режим «Ревизия»</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S5 ревизия">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 14px;background:var(--paper);border-bottom:1px solid var(--rule);flex:none">
+            <div style="font-family:var(--font-serif);font-size:19px;font-weight:500">Ревизия</div>
+            <div style="display:flex;align-items:center;gap:14px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">12 из 34</span><span style="font-family:var(--font-mono);font-size:14px;color:var(--mute)">✕</span></div>
+          </div>
+          <div style="height:2px;background:var(--rule);flex:none"><div style="width:35%;height:2px;background:var(--toast-accent)"></div></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 32px">
+            <div style="width:100%;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-dialog);display:flex;flex-direction:column;align-items:center;gap:14px;padding:56px 24px;position:relative">
+              <span style="position:absolute;left:14px;top:50%;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--red-txt);transform:translateY(-50%) rotate(-90deg);transform-origin:center">← кончилось</span>
+              <span style="position:absolute;right:14px;top:50%;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--green-txt);transform:translateY(-50%) rotate(90deg);transform-origin:center">есть →</span>
+              <span style="font-size:64px">🍚</span>
+              <div style="font-family:var(--font-serif);font-size:27px">Рис</div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em">Бакалея</div>
+            </div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2);margin-top:10px">свайп: влево — кончилось · вправо — есть</div>
+          </div>
+          <div style="display:flex;gap:10px;padding:12px 16px 24px;background:var(--paper);border-top:1px solid var(--rule);flex:none">
+            <div style="flex:1;text-align:center;padding:14px;border:1px solid var(--red-rule);color:var(--red-txt);font-size:14px;font-weight:500">Кончилось</div>
+            <div style="flex:1;text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Есть</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1t" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1t" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1t</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пустая кладовая</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S5 пустая">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Корзина · 10</div>
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Кладовая</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 40px;text-align:center">
+            <div style="width:96px;height:96px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:40px">🏺</div>
+            <div style="font-size:14px;line-height:1.55;color:var(--mute)">Кладовая наполнится сама после первой закупки</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S1–S2 ВХОД И ОНБОРДИНГ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S1–S2 · Вход и онбординг</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="2a" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2a" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2a</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S1 · вход</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;overflow:hidden;padding:0 36px" data-screen-label="S1 вход">
+          <div style="width:100%;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;gap:18px;padding:48px 28px;text-align:center">
+            <div style="width:64px;height:64px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:28px">🏺</div>
+            <div>
+              <div style="font-family:var(--font-serif);font-size:34px;letter-spacing:-0.01em">Larder</div>
+              <div style="font-size:14px;color:var(--mute);margin-top:6px">Общая кладовая вашего дома</div>
+            </div>
+            <div style="width:100%;display:flex;flex-direction:column;gap:10px;margin-top:8px">
+              <div style="text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Войти через Google</div>
+              <div style="text-align:center;padding:10px;font-size:13px;color:var(--accent-ink)"><span style="border-bottom:1px solid var(--green-rule)">Войти по почте</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2b" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2b" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2b</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S1 · magic link отправлен</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;padding:0 36px" data-screen-label="S1 письмо отправлено">
+          <div style="width:100%;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;gap:16px;padding:48px 28px;text-align:center">
+            <div style="width:64px;height:64px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:28px">✉️</div>
+            <div style="font-family:var(--font-serif);font-size:24px">Письмо отправлено</div>
+            <div style="font-size:14px;color:var(--mute);line-height:1.55">Открой ссылку из письма на<br><span style="font-family:var(--font-mono);font-size:13px;color:var(--ink)">ilya@gmail.com</span></div>
+            <div style="font-size:13px;color:var(--accent-ink);margin-top:6px"><span style="border-bottom:1px solid var(--green-rule)">Отправить ещё раз</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2c" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2c" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2c</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S2 · два пути</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;justify-content:center;overflow:hidden;padding:0 36px;gap:16px" data-screen-label="S2 онбординг">
+          <div style="font-family:var(--font-serif);font-size:27px;text-align:center;margin-bottom:8px">С чего начнём?</div>
+          <div style="background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);padding:24px 20px;display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:16px;font-weight:600">Создать домохозяйство</div>
+            <div style="font-size:13px;color:var(--mute);line-height:1.5">Придумай название — потом пригласишь своих по ссылке</div>
+            <div style="border:1px solid var(--rule-2);padding:12px 14px;font-size:15px;margin-top:6px">Наш дом</div>
+            <div style="text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500;margin-top:4px">Создать</div>
+          </div>
+          <div style="background:var(--paper);border:1px solid var(--rule-2);padding:20px;display:flex;align-items:center;gap:12px">
+            <div style="flex:1">
+              <div style="font-size:15px;font-weight:500">У меня есть приглашение</div>
+              <div style="font-size:12px;color:var(--mute);margin-top:3px">Перейди по ссылке из сообщения</div>
+            </div>
+            <span style="font-family:var(--font-mono);color:var(--mute)">→</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="2d" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2d" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2d</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S2 · пригласи своих</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;padding:0 36px" data-screen-label="S2 инвайт-ссылка">
+          <div style="width:100%;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px 24px;text-align:center">
+            <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--green-txt);background:var(--green-soft);border:1px solid var(--green-rule);padding:4px 10px">Готово ✓</div>
+            <div style="font-family:var(--font-serif);font-size:24px">«Наш дом» создан</div>
+            <div style="font-size:14px;color:var(--mute);line-height:1.55">Пригласи своих — список и кладовая станут общими</div>
+            <div style="width:100%;display:flex;border:1px solid var(--rule-2)">
+              <div style="flex:1;padding:12px 14px;font-family:var(--font-mono);font-size:12px;color:var(--mute);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">larder.app/join/nash-dom</div>
+              <div style="padding:12px 16px;border-left:1px solid var(--rule-2);font-size:13px;font-weight:500">Копировать</div>
+            </div>
+            <div style="width:100%;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Поделиться ссылкой</div>
+            <div style="font-size:13px;color:var(--mute)"><span style="border-bottom:1px solid var(--rule-2)">Позже</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2e" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2e" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2e</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S2 · вступление по ссылке</span></div>
+        <div style="width:390px;height:844px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;padding:0 36px" data-screen-label="S2 приглашение">
+          <div style="width:100%;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;align-items:center;gap:16px;padding:44px 28px;text-align:center">
+            <div style="width:48px;height:48px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:18px">А</div>
+            <div style="font-family:var(--font-serif);font-size:24px;line-height:1.3">Аня приглашает тебя<br>в «Наш дом»</div>
+            <div style="width:100%;text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500;margin-top:6px">Вступить</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2f" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2f" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2f</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S2 · профиль кухни</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S2 профиль кухни">
+          <div style="padding:24px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:24px">Профиль кухни</div>
+            <div style="font-size:13px;color:var(--mute);margin-top:6px;line-height:1.5">Что есть на кухне? Рецепты будут адаптироваться под твою технику</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:12px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Техника</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">7 из 11</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Духовка</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Микроволновка</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Чайник</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Индукционная плита</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Блендер</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Тёрка</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--paper);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px">Чеснокодавилка</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px;color:var(--mute)">Мультиварка</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px;color:var(--mute)">Миксер</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px;color:var(--mute)">Аэрогриль</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Кухонный комбайн</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--rule)">
+              <span style="font-size:14px">Человек в доме</span>
+              <div style="display:flex;align-items:center;border:1px solid var(--rule-2)">
+                <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--mute)">−</div>
+                <div style="width:44px;text-align:center;font-family:var(--font-mono);font-size:14px;border-left:1px solid var(--rule);border-right:1px solid var(--rule);line-height:40px">2</div>
+                <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:16px">+</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;padding:12px 16px 20px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="flex:none;text-align:center;padding:13px 20px;border:1px solid var(--rule-2);font-size:14px;color:var(--mute)">Пропустить</div>
+            <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Готово</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S6 БЛЮДА ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S6 · Блюда</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="2g" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2g" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2g</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">библиотека</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S6 блюда">
+          <div style="padding:20px 16px 12px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--rule);flex:none">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:var(--font-serif);font-size:21px;font-weight:500">Блюда</span><span style="padding:8px 14px;background:var(--accent);color:var(--paper);font-size:13px;font-weight:500">+ Блюдо</span></div>
+            <div style="border:1px solid var(--rule-2);padding:11px 12px;font-size:14px;color:var(--mute-2)">Поиск по блюдам…</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--ink);padding:4px 9px">все</span>
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:4px 9px;color:var(--mute)">ужин</span>
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:4px 9px;color:var(--mute)">завтрак</span>
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:4px 9px;color:var(--mute)">быстро</span>
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:4px 9px;color:var(--mute)">духовка</span>
+            </div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px">
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule)"></div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Лазанья болоньезе</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">75 мин · ужин, духовка</div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule)"></div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">NYC Cookies</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">30 мин · выпечка, духовка</div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:32px">🍲</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Том-ям</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">40 мин · суп, острое</div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:32px">🍳</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Шакшука</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">25 мин · завтрак, быстро</div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:32px">🍝</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Паста карбонара</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">25 мин · ужин, быстро</div></div>
+              </div>
+              <div style="border:1px solid var(--rule-2)">
+                <div style="height:96px;background:var(--zebra);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:32px">🥞</div>
+                <div style="padding:10px 12px"><div style="font-size:14px;font-weight:500;line-height:1.3">Оладьи</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px">20 мин · завтрак</div></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2h" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2h" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2h</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">«+ Блюдо» — выбор способа</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);position:relative;overflow:hidden" data-screen-label="S6 добавить блюдо">
+          <div style="padding:20px 16px;opacity:.9">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Блюда</div>
+            <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="height:120px;border:1px solid var(--rule);background:var(--zebra)"></div>
+              <div style="height:120px;border:1px solid var(--rule);background:var(--zebra)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;inset:0;background:var(--scrim)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:var(--paper);box-shadow:var(--shadow-bottom-sheet)">
+            <div style="padding:18px 16px 8px;font-family:var(--font-serif);font-size:19px;font-weight:500;border-bottom:2px solid var(--ink)">Новое блюдо</div>
+            <div style="display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--rule)"><span style="font-size:20px">📷</span><div style="flex:1"><div style="font-size:15px;font-weight:500">С фото</div><div style="font-size:12px;color:var(--mute);margin-top:2px">скриншот из Instagram — главный путь</div></div><span style="font-family:var(--font-mono);color:var(--mute-2)">→</span></div>
+            <div style="display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--rule)"><span style="font-size:20px">🔗</span><div style="flex:1"><div style="font-size:15px;font-weight:500">По ссылке</div></div><span style="font-family:var(--font-mono);color:var(--mute-2)">→</span></div>
+            <div style="display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--rule)"><span style="font-size:20px">📝</span><div style="flex:1"><div style="font-size:15px;font-weight:500">Текстом</div></div><span style="font-family:var(--font-mono);color:var(--mute-2)">→</span></div>
+            <div style="display:flex;align-items:center;gap:14px;padding:16px 16px 28px"><span style="font-size:20px">✍️</span><div style="flex:1"><div style="font-size:15px;font-weight:500">Вручную</div><div style="font-size:12px;color:var(--mute);margin-top:2px">пустая форма блюда</div></div><span style="font-family:var(--font-mono);color:var(--mute-2)">→</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2i" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2i" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2i</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пустая библиотека</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S6 пустое">
+          <div style="padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none"><span style="font-family:var(--font-serif);font-size:21px;font-weight:500">Блюда</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 40px;text-align:center">
+            <div style="width:96px;height:96px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:40px">🍳</div>
+            <div style="font-size:14px;line-height:1.55;color:var(--mute)">Добавь первое блюдо — проще всего со скриншота рецепта</div>
+            <div style="padding:13px 24px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">📷 С фото</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S9 ГОТОВКА ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S9 · Режим готовки</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="2j" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2j" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2j</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">шаг с таймером</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S9 готовка">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none">
+            <div style="font-family:var(--font-serif);font-size:17px;color:var(--mute)">NYC Cookies</div>
+            <div style="display:flex;align-items:center;gap:14px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">шаг 5 из 6</span><span style="font-family:var(--font-mono);font-size:14px;color:var(--mute)">✕</span></div>
+          </div>
+          <div style="height:2px;background:var(--rule);flex:none"><div style="width:83%;height:2px;background:var(--toast-accent)"></div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:28px;padding:0 28px">
+            <div style="font-family:var(--font-serif);font-size:64px;color:var(--rule-2);line-height:1">5</div>
+            <div style="font-family:var(--font-serif);font-size:27px;line-height:1.4">Духовка 205 °C, уровень чуть выше середины, двойной противень.</div>
+            <div style="display:inline-flex;align-items:center;gap:12px;border:2px solid var(--ink);padding:16px 20px;align-self:flex-start">
+              <span style="font-size:18px">⏱</span>
+              <span style="font-family:var(--font-mono);font-size:17px;font-weight:500">9–11 мин</span>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase;border-left:1px solid var(--rule-2);padding-left:12px">запустить</span>
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--rule);padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--mute);flex:none">
+            <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase">˄ Ингредиенты</span>
+          </div>
+          <div style="display:flex;gap:10px;padding:12px 16px 24px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="flex:none;text-align:center;padding:14px 22px;border:1px solid var(--rule-2);font-size:14px;color:var(--mute)">← Назад</div>
+            <div style="flex:1;text-align:center;padding:14px;background:var(--accent);color:var(--paper);font-size:14px;font-weight:500">Далее →</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S11 АССИСТЕНТ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S11 · Ассистент</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="2k" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2k" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2k</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">диалог с предложением</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S11 ассистент">
+          <div style="padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none"><span style="font-family:var(--font-serif);font-size:21px;font-weight:500">Ассистент</span></div>
+          <div style="display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--rule);flex-wrap:wrap;flex:none">
+            <span style="font-size:12px;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Меню на неделю</span>
+            <span style="font-size:12px;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Что приготовить из того, что дома?</span>
+            <span style="font-size:12px;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Чем заменить…</span>
+          </div>
+          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:14px;padding:16px">
+            <div style="align-self:flex-end;max-width:280px;background:var(--accent-soft);border:1px solid var(--green-rule);padding:11px 14px;font-size:14px;line-height:1.5">Что приготовить из того, что дома?</div>
+            <div style="align-self:flex-start;max-width:320px;display:flex;flex-direction:column;gap:0;border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet)">
+              <div style="padding:12px 14px;font-size:14px;line-height:1.55;border-bottom:1px solid var(--rule)">Из кладовой соберутся:</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--rule)"><span style="font-size:15px">🍝</span><div style="flex:1"><div style="font-size:14px;font-weight:500">Паста с томатным соусом</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--green-txt);margin-top:2px">всё есть ✓</div></div></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--rule)"><span style="font-size:15px">🍳</span><div style="flex:1"><div style="font-size:14px;font-weight:500">Шакшука</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--null-txt);margin-top:2px">не хватает: перец болгарский</div></div></div>
+              <div style="padding:11px 14px;font-size:13px;color:var(--mute);border-bottom:1px solid var(--rule)">Добавить перец в корзину?</div>
+              <div style="display:flex">
+                <div style="flex:1;text-align:center;padding:12px;background:var(--accent);color:var(--paper);font-size:13px;font-weight:500">Применить</div>
+                <div style="flex:1;text-align:center;padding:12px;border-left:1px solid var(--rule-2);font-size:13px;color:var(--mute)">Изменить</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:0 16px 8px;font-size:11px;color:var(--mute-2);text-align:center;flex:none">Ассистент может ошибаться. Всё можно поправить руками</div>
+          <div style="display:flex;gap:10px;padding:0 16px 14px;flex:none">
+            <div style="flex:1;border:1px solid var(--rule-2);padding:12px 14px;font-size:14px;color:var(--mute-2)">Спросить…</div>
+            <div style="width:46px;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-size:16px">↑</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="2l" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2l" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2l</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">пустой чат</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S11 пустое">
+          <div style="padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none"><span style="font-family:var(--font-serif);font-size:21px;font-weight:500">Ассистент</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 32px;text-align:center">
+            <div style="width:96px;height:96px;border:1px dashed var(--rule-2);display:flex;align-items:center;justify-content:center;font-size:40px">🤖</div>
+            <div style="font-size:14px;line-height:1.55;color:var(--mute)">Привет! Помогу с меню, корзиной и заменами продуктов</div>
+            <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+              <div style="font-size:13px;border:1px solid var(--rule-2);padding:12px;color:var(--ink)">Меню на неделю</div>
+              <div style="font-size:13px;border:1px solid var(--rule-2);padding:12px;color:var(--ink)">Что приготовить из того, что дома?</div>
+              <div style="font-size:13px;border:1px solid var(--rule-2);padding:12px;color:var(--ink)">Чем заменить…</div>
+            </div>
+          </div>
+          <div style="padding:0 16px 8px;font-size:11px;color:var(--mute-2);text-align:center;flex:none">Ассистент может ошибаться. Всё можно поправить руками</div>
+          <div style="display:flex;gap:10px;padding:0 16px 14px;flex:none">
+            <div style="flex:1;border:1px solid var(--rule-2);padding:12px 14px;font-size:14px;color:var(--mute-2)">Спросить…</div>
+            <div style="width:46px;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-size:16px">↑</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ S12 НАСТРОЙКИ ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">S12 · Настройки</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="2m" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#2m" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">2m</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">профиль, household, история</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden" data-screen-label="S12 настройки">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 14px;border-bottom:1px solid var(--rule);flex:none">
+            <span style="font-family:var(--font-serif);font-size:21px;font-weight:500">Настройки</span>
+            <span style="font-family:var(--font-mono);font-size:14px;color:var(--mute)">✕</span>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid var(--rule)">
+              <div style="width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:16px;flex:none">И</div>
+              <div style="flex:1"><div style="font-size:15px;font-weight:500">Илья</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--mute);margin-top:2px">Русский · English — скоро</div></div>
+              <span style="font-family:var(--font-mono);color:var(--mute-2)">→</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Household</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)">
+              <span style="font-size:14px;flex:1">«Наш дом»</span>
+              <div style="display:flex">
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper)">И</div>
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper);margin-left:-7px">А</div>
+              </div>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--accent-ink);letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--green-rule)">Пригласить</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">История закупок</span></div>
+            <div style="border-bottom:1px solid var(--rule)">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 16px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">6 августа</span><span style="font-size:13px;flex:1">2 позиции</span><span style="font-family:var(--font-mono);color:var(--mute-2)">˄</span></div>
+              <div style="padding:0 16px 12px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;gap:10px;font-size:13px;color:var(--mute)"><span>🥚</span><span style="flex:1">Яйца</span><span style="font-family:var(--font-mono);font-size:11px">10 шт</span></div>
+                <div style="display:flex;gap:10px;font-size:13px;color:var(--mute)"><span>🧂</span><span style="flex:1">Разрыхлитель</span><span style="font-family:var(--font-mono);font-size:11px">1 уп</span></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule)"><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">2 августа</span><span style="font-size:13px;flex:1">8 позиций</span><span style="font-family:var(--font-mono);color:var(--mute-2)">˅</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px;flex:1">Профиль кухни</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">7 отмечено · 2 чел.</span><span style="font-family:var(--font-mono);color:var(--mute-2)">→</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">Отделы магазина</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--mute-2)">расставь, как идёшь по залу</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-family:var(--font-mono);color:var(--mute-2)">≡</span><span style="font-size:14px">🥬 Овощи и фрукты</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><span style="font-family:var(--font-mono);color:var(--mute-2)">≡</span><span style="font-size:14px">🥛 Молочное и яйца</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule)"><span style="font-family:var(--font-mono);color:var(--mute-2)">≡</span><span style="font-size:14px">🥩 Мясо и курица</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><span style="font-family:var(--font-mono);color:var(--mute-2)">≡</span><span style="font-size:14px">🥖 Хлеб и выпечка</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><span style="font-size:14px;flex:1">Лимит ИИ</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">$1.20 из $20</span></div>
+            <div style="display:flex;align-items:center;gap:16px;padding:13px 16px"><span style="font-size:13px;color:var(--mute)">Экспорт данных</span><span style="font-size:13px;color:var(--red-txt)">Выход</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ ДЕСКТОП ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">Десктоп ≥1024 · пары панелей</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1u" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1u" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1u</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S3+S5 · Корзина и Кладовая рядом</span></div>
+        <div style="width:1280px;height:800px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;overflow:hidden" data-screen-label="Десктоп S3+S5">
+          <div style="width:220px;background:var(--paper);border-right:1px solid var(--rule-2);display:flex;flex-direction:column;flex:none">
+            <div style="padding:24px 20px 20px;border-bottom:1px solid var(--rule)">
+              <div style="font-family:var(--font-serif);font-size:24px;letter-spacing:-0.01em">Larder</div>
+              <div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px;letter-spacing:.08em;text-transform:uppercase">Наш дом</div>
+            </div>
+            <div style="padding:12px 0;display:flex;flex-direction:column">
+              <div style="padding:11px 20px;font-size:14px;font-weight:600;box-shadow:inset 2px 0 0 var(--ink);background:var(--zebra)">Корзина <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute);float:right">10</span></div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Кладовая <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2);float:right">7</span></div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Меню</div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Блюда</div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Ассистент</div>
+            </div>
+            <div style="margin-top:auto;border-top:1px solid var(--rule);padding:14px 20px;display:flex;align-items:center;gap:10px">
+              <div style="display:flex">
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper)">И</div>
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper);margin-left:-7px">А</div>
+              </div>
+              <span style="font-size:13px;color:var(--mute)">Настройки</span>
+            </div>
+          </div>
+          <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px;overflow:hidden">
+            <div style="background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;padding:18px 18px 12px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-serif);font-size:19px;font-weight:500">Корзина</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">10 позиций</span></div>
+              <div style="flex:1;overflow:hidden">
+                <div style="display:flex;justify-content:space-between;padding:12px 18px 6px"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">4</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🍅</span><span style="font-size:14px;flex:1">Помидоры</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">6 шт</span><div style="width:16px;height:16px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:8px;display:flex;align-items:center;justify-content:center">А</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule);background:var(--zebra)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🥒</span><span style="font-size:14px;flex:1">Огурцы</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">4 шт</span><div style="width:16px;height:16px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:8px;display:flex;align-items:center;justify-content:center">А</div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🍋</span><span style="font-size:14px;flex:1">Лимоны</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">2 шт</span></div>
+                <div style="display:flex;justify-content:space-between;padding:14px 18px 6px"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥛 Молочное и яйца</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🥛</span><span style="font-size:14px;flex:none">Молоко</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--blue-txt);background:var(--blue-soft);border:1px solid var(--blue-rule);padding:2px 6px">Заказано · Wolt</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute);margin-left:auto">1 л</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule);background:var(--zebra)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🧈</span><span style="font-size:14px;flex:1">Масло сливочное</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">180 г</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule)"><div style="width:18px;height:18px;background:var(--accent);color:var(--paper);font-size:11px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:14px;opacity:.55">🥚</span><span style="font-size:14px;flex:1;text-decoration:line-through;color:var(--mute)">Яйца</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2)">10 шт</span></div>
+                <div style="display:flex;justify-content:space-between;padding:14px 18px 6px"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥩 Мясо и курица</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">2</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--rule)"><div style="width:18px;height:18px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:14px">🍗</span><span style="font-size:14px;flex:1">Куриное филе <span style="font-size:11px;color:var(--mute-2)">· на выходных</span></span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">1 кг</span></div>
+              </div>
+              <div style="display:flex;gap:10px;padding:12px 18px;border-top:1px solid var(--rule-2)">
+                <div style="flex:1;text-align:center;padding:11px;border:1px solid var(--ink);font-size:13px;font-weight:500">Завершить закупку (2)</div>
+                <div style="flex:1;text-align:center;padding:11px;background:var(--accent);color:var(--paper);font-size:13px;font-weight:500">+ Добавить</div>
+              </div>
+            </div>
+            <div style="background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;padding:18px 18px 12px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-serif);font-size:19px;font-weight:500">Кладовая</span><span style="padding:6px 12px;border:1px solid var(--ink);font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase">Ревизия</span></div>
+              <div style="flex:1;overflow:hidden">
+                <div style="display:flex;justify-content:space-between;padding:12px 18px 6px"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">1</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule)"><span style="font-size:14px">🧄</span><span style="font-size:14px;flex:1">Чеснок</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;justify-content:space-between;padding:14px 18px 6px"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🍝 Бакалея</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">6</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule)"><span style="font-size:14px">🍚</span><span style="font-size:14px;flex:1">Рис</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule);background:var(--zebra)"><span style="font-size:14px">🍝</span><span style="font-size:14px;flex:1">Паста</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule)"><span style="font-size:14px">🫒</span><span style="font-size:14px;flex:1">Масло оливковое</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule);background:var(--zebra)"><span style="font-size:14px">🥫</span><span style="font-size:14px;flex:1">Томаты в собственном соку</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule)"><span style="font-size:14px">☕</span><span style="font-size:14px;flex:1">Кофе</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 18px;border-top:1px solid var(--rule);background:var(--zebra)"><span style="font-size:14px">🧂</span><span style="font-size:14px;flex:1">Соль</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--rule-2);padding:6px 10px;color:var(--mute)">Кончилось</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1v" style="flex:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1v" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1v</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S6+S7 · библиотека + открытая карточка</span></div>
+        <div style="width:1280px;height:800px;background:var(--bg);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;overflow:hidden" data-screen-label="Десктоп S6+S7">
+          <div style="width:220px;background:var(--paper);border-right:1px solid var(--rule-2);display:flex;flex-direction:column;flex:none">
+            <div style="padding:24px 20px 20px;border-bottom:1px solid var(--rule)">
+              <div style="font-family:var(--font-serif);font-size:24px;letter-spacing:-0.01em">Larder</div>
+              <div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:4px;letter-spacing:.08em;text-transform:uppercase">Наш дом</div>
+            </div>
+            <div style="padding:12px 0;display:flex;flex-direction:column">
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Корзина <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2);float:right">10</span></div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Кладовая <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute-2);float:right">7</span></div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Меню</div>
+              <div style="padding:11px 20px;font-size:14px;font-weight:600;box-shadow:inset 2px 0 0 var(--ink);background:var(--zebra)">Блюда <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute);float:right">6</span></div>
+              <div style="padding:11px 20px;font-size:14px;color:var(--mute)">Ассистент</div>
+            </div>
+            <div style="margin-top:auto;border-top:1px solid var(--rule);padding:14px 20px;display:flex;align-items:center;gap:10px">
+              <div style="display:flex">
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper)">И</div>
+                <div style="width:24px;height:24px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;border:2px solid var(--paper);margin-left:-7px">А</div>
+              </div>
+              <span style="font-size:13px;color:var(--mute)">Настройки</span>
+            </div>
+          </div>
+          <div style="width:360px;background:var(--paper);border-right:1px solid var(--rule-2);display:flex;flex-direction:column;flex:none;overflow:hidden">
+            <div style="padding:18px 18px 12px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--rule)">
+              <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:var(--font-serif);font-size:19px;font-weight:500">Блюда</span><span style="padding:6px 12px;background:var(--accent);color:var(--paper);font-size:12px;font-weight:500">+ Блюдо</span></div>
+              <div style="border:1px solid var(--rule-2);padding:9px 12px;font-size:13px;color:var(--mute-2)">Поиск по блюдам…</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--ink);padding:3px 8px">все</span>
+                <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 8px;color:var(--mute)">ужин</span>
+                <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 8px;color:var(--mute)">завтрак</span>
+                <span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 8px;color:var(--mute)">быстро</span>
+              </div>
+            </div>
+            <div style="flex:1;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule)"><div style="width:44px;height:44px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 5px,var(--paper) 5px,var(--paper) 10px);border:1px solid var(--rule);flex:none"></div><div style="flex:1"><div style="font-size:14px;font-weight:500">Лазанья болоньезе</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">75 мин · ужин, духовка</div></div></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule);background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)"><div style="width:44px;height:44px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 5px,var(--paper) 5px,var(--paper) 10px);border:1px solid var(--rule);flex:none"></div><div style="flex:1"><div style="font-size:14px;font-weight:600">NYC Cookies</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">30 мин · выпечка, духовка</div></div></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule)"><div style="width:44px;height:44px;background:var(--zebra);border:1px solid var(--rule);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🍲</div><div style="flex:1"><div style="font-size:14px;font-weight:500">Том-ям</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">40 мин · суп, острое</div></div></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule)"><div style="width:44px;height:44px;background:var(--zebra);border:1px solid var(--rule);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🍳</div><div style="flex:1"><div style="font-size:14px;font-weight:500">Шакшука</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">25 мин · завтрак, быстро</div></div></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule)"><div style="width:44px;height:44px;background:var(--zebra);border:1px solid var(--rule);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🍝</div><div style="flex:1"><div style="font-size:14px;font-weight:500">Паста карбонара</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">25 мин · ужин, быстро</div></div></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--rule)"><div style="width:44px;height:44px;background:var(--zebra);border:1px solid var(--rule);flex:none;display:flex;align-items:center;justify-content:center;font-size:18px">🥞</div><div style="flex:1"><div style="font-size:14px;font-weight:500">Оладьи</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-top:2px">20 мин · завтрак</div></div></div>
+            </div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+            <div style="height:150px;background:repeating-linear-gradient(45deg,var(--zebra),var(--zebra) 6px,var(--paper) 6px,var(--paper) 12px);border-bottom:1px solid var(--rule-2);position:relative;flex:none">
+              <span style="position:absolute;right:20px;top:16px;font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);border-bottom:1px solid var(--green-rule)">Редактировать</span>
+              <span style="position:absolute;left:0;right:0;bottom:10px;text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--mute-2);letter-spacing:.08em;text-transform:uppercase">фото со скриншота</span>
+            </div>
+            <div style="flex:1;overflow:hidden;background:var(--paper)">
+              <div style="padding:18px 24px 0">
+                <div style="font-family:var(--font-serif);font-size:27px;letter-spacing:-0.01em">NYC Cookies</div>
+                <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+                  <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 7px;color:var(--mute)">выпечка</span>
+                  <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--rule-2);padding:3px 7px;color:var(--mute)">духовка</span>
+                  <span style="font-family:var(--font-mono);font-size:10px;color:var(--mute-2)">~30 мин · 📷 с фото · порции: 8</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 24px;background:var(--green-soft);border-top:1px solid var(--green-rule);border-bottom:1px solid var(--green-rule);font-size:13px;color:var(--green-txt);margin-top:14px">Нужно: духовка ✓ <span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">· переделано под твою духовку</span></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 32px;padding:6px 24px">
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding:12px 0 8px;border-bottom:2px solid var(--ink)">Ингредиенты</div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Мука</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">285 г</span></div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--rule);font-size:13px;background:var(--null)"><span style="padding-left:4px">Кукурузный крахмал</span><span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--null-txt);border:1px solid var(--null-rule);padding:2px 6px;margin-right:4px">уточнить</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Соль <span style="font-family:var(--font-mono);font-size:10px;color:var(--green-txt)">· дома есть ✓</span></span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">¾ ч.л.</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Разрыхлитель</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">½ ч.л.</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Масло сливочное (хол.)</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">180 г</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Сахар белый</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">90 г</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Сахар коричневый</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">140 г</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px"><span>Яйца (холодные)</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">2 шт</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px"><span>Шоколад крупными кусками</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--mute)">150 г</span></div>
+                </div>
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding:12px 0 8px;border-bottom:2px solid var(--ink)">Шаги</div>
+                  <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;line-height:1.5"><span style="font-family:var(--font-serif);color:var(--mute)">1</span><span>Смешать сухие ингредиенты</span></div>
+                  <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;line-height:1.5"><span style="font-family:var(--font-serif);color:var(--mute)">2</span><span>Холодное масло порубить с сахаром, добавить яйца</span></div>
+                  <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;line-height:1.5"><span style="font-family:var(--font-serif);color:var(--mute)">3</span><span>Соединить, вмешать шоколад — тесто плотное и липкое</span></div>
+                  <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;line-height:1.5"><span style="font-family:var(--font-serif);color:var(--mute)">4</span><span>Слепить высокие шары по 140–160 г, НЕ гладкие</span></div>
+                  <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;line-height:1.5;align-items:baseline"><span style="font-family:var(--font-serif);color:var(--mute)">5</span><span style="flex:1">Духовка 205 °C, двойной противень</span><span style="font-family:var(--font-mono);font-size:10px;border:1px solid var(--ink);padding:3px 8px;white-space:nowrap">⏱ 9–11 мин</span></div>
+                  <div style="display:flex;gap:10px;padding:8px 0;font-size:13px;line-height:1.5"><span style="font-family:var(--font-serif);color:var(--mute)">6</span><span>Края золотые, верх с трещинами, центр мягкий</span></div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;padding:14px 24px;border-top:1px solid var(--rule-2);background:var(--paper);flex:none">
+              <div style="text-align:center;padding:11px 20px;border:1px solid var(--ink);font-size:13px;font-weight:500">В меню недели</div>
+              <div style="text-align:center;padding:11px 20px;border:1px solid var(--ink);font-size:13px;font-weight:500">Ингредиенты в корзину</div>
+              <div style="flex:1"></div>
+              <div style="text-align:center;padding:11px 32px;background:var(--accent);color:var(--paper);font-size:13px;font-weight:500">Готовить</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ ТЁМНАЯ ТЕМА ═══ -->
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="font-family:var(--font-serif);font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:8px">Тёмная «night ledger» — превью</div>
+    <div style="display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap">
+
+      <div id="1w" style="flex:none" data-theme="dark">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><a href="#1w" style="font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border:1px solid var(--rule-2);color:var(--mute);text-decoration:none">1w</a><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">S3 · Корзина в тёмной</span></div>
+        <div style="width:390px;height:844px;background:var(--paper);border:1px solid var(--rule-2);box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;color:var(--ink)" data-screen-label="S3 тёмная">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 16px 12px;flex:none">
+            <div style="font-family:var(--font-serif);font-size:21px;font-weight:500">Наш дом</div>
+            <div style="display:flex">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--paper);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper)">И</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;border:2px solid var(--paper);margin-left:-8px">А</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none">
+            <div style="text-align:center;padding:12px;font-size:14px;font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)">Корзина · 10</div>
+            <div style="text-align:center;padding:12px;font-size:14px;color:var(--mute)">Кладовая</div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥬 Овощи и фрукты</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">4</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍅</span><span style="font-size:15px;flex:1">Помидоры</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">6 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥒</span><span style="font-size:15px;flex:1">Огурцы</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">4 шт</span><div style="width:18px;height:18px;border-radius:50%;background:var(--blue-soft);color:var(--blue-txt);font-family:var(--font-mono);font-size:9px;display:flex;align-items:center;justify-content:center;flex:none">А</div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🍋</span><span style="font-size:15px;flex:1">Лимоны</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">2 шт</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:16px 16px 8px;border-bottom:2px solid var(--ink)"><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)">🥛 Молочное и яйца</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--mute-2)">3</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🥛</span><span style="font-size:15px;flex:none">Молоко</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--blue-txt);background:var(--blue-soft);border:1px solid var(--blue-rule);padding:2px 6px;white-space:nowrap">Заказано · Wolt</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute);margin-left:auto">1 л</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);background:var(--zebra)"><div style="width:20px;height:20px;border:2px solid var(--rule-2);flex:none"></div><span style="font-size:16px">🧈</span><span style="font-size:15px;flex:1">Масло сливочное</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute)">180 г</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule)"><div style="width:20px;height:20px;background:var(--accent);color:var(--bg);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">✓</div><span style="font-size:16px;opacity:.55">🥚</span><span style="font-size:15px;flex:1;text-decoration:line-through;color:var(--mute)">Яйца</span><span style="font-family:var(--font-mono);font-size:12px;color:var(--mute-2)">10 шт</span></div>
+          </div>
+          <div style="display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--rule-2);flex:none">
+            <div style="flex:1;text-align:center;padding:13px;border:1px solid var(--ink);font-size:14px;font-weight:500">Завершить закупку (1)</div>
+            <div style="flex:1;text-align:center;padding:13px;background:var(--accent);color:var(--bg);font-size:14px;font-weight:500">+ Добавить</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--rule-2);flex:none">
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;box-shadow:inset 0 2px 0 var(--ink)">Покупки</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Меню</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Блюда</div>
+            <div style="padding:13px 0 16px;text-align:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2)">Ассистент</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
