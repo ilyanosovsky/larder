@@ -1,0 +1,9 @@
+.identity {
+  margin: 0 0 var(--s-4);
+  padding: 0 var(--s-5);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  text-align: center;
+  overflow-wrap: anywhere;
+}

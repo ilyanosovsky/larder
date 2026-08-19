@@ -4,6 +4,8 @@ import { Inter, JetBrains_Mono, Literata, Newsreader } from "next/font/google";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { TRPCReactProvider } from "@/trpc/client";
+
 import "./globals.css";
 
 // TYPE fonts referenced by src/styles/tokens.css (--font-serif/-sans/-mono).
@@ -63,7 +65,11 @@ export default async function RootLayout({
       <body>
         {/* The app shell (tabs + sidebar) lives in the `(app)` route group,
             so the sign-in screen in `(auth)` renders without navigation. */}
-        <NextIntlClientProvider>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider>
+          {/* QueryClient + tRPC client for every client component. Inside the
+              intl provider so the existing dictionary lookup is untouched. */}
+          <TRPCReactProvider>{children}</TRPCReactProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

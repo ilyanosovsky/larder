@@ -33,7 +33,7 @@
 | 0.1 ⚑ | Bootstrap: Next.js 15 (App Router) + TypeScript strict + pnpm; ESLint (flat) + Prettier; vitest; наполнение CI реальными шагами | sonnet | 🟢 | [#2](https://github.com/ilyanosovsky/larder/pull/2) | next 15.5 · react 19.2 · ts 5.9 · eslint 9 flat · vitest 3 |
 | 0.2 ⚑ | БД: Drizzle + Postgres, drizzle-kit миграции, docker-compose для локальной БД, каркас сида | sonnet | 🟢 | [#3](https://github.com/ilyanosovsky/larder/pull/3) | Драйвер: postgres.js (`sql.listen` пригодится в 2.2) |
 | 0.3 ⚑ | Auth: Better Auth (Google OAuth + magic link через Resend), таблицы через CLI (`auth generate`), middleware, экран входа S1 | opus | 🟢 | [#5](https://github.com/ilyanosovsky/larder/pull/5) | better-auth 1.7; CLI `@better-auth/cli` устарел — используется `auth` |
-| 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | ⬜ | — | Конвенция: `.nullable()` вместо `.optional()` |
+| 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | 🟢 | [#6](https://github.com/ilyanosovsky/larder/pull/6) | Интеграция `@trpc/tanstack-react-query`; конвенция `.nullable()` соблюдена |
 | 0.5 | UI-каркас: подключение [design/uploads/tokens.css](design/uploads/tokens.css) (Paper Ledger), next-intl (ru), layout с нижними табами + десктопный каркас (сайдбар ≥1024), PWA manifest + иконки | sonnet | 🟢 | [#4](https://github.com/ilyanosovsky/larder/pull/4) | Выполнена до 0.3/0.4 (см. журнал). SVG-иконка; PNG — в 7.3 |
 | 0.6 | Деплой на Railway: app + Postgres, healthcheck, переменные окружения | sonnet | ⬜ | — | См. wiki: Env-Setup |
 
