@@ -2,11 +2,11 @@
 
 Production topology (decided 2026-08-19):
 
-| Piece | Where | Cost |
-|---|---|---|
-| Next.js app | **Vercel** (Hobby), auto-deploys `main` | $0 |
-| PostgreSQL | **Railway** (Postgres service only) | ~$1–3/mo |
-| DB migrations | **GitHub Action** [`migrate.yml`](https://github.com/ilyanosovsky/larder/blob/main/.github/workflows/migrate.yml) | — |
+| Piece         | Where                                                                                                             | Cost     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
+| Next.js app   | **Vercel** (Hobby), auto-deploys `main`                                                                           | $0       |
+| PostgreSQL    | **Railway** (Postgres service only)                                                                               | ~$1–3/mo |
+| DB migrations | **GitHub Action** [`migrate.yml`](https://github.com/ilyanosovsky/larder/blob/main/.github/workflows/migrate.yml) | —        |
 
 Production URL: https://larder-ecru-mu.vercel.app
 

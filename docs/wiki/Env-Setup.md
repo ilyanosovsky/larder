@@ -2,11 +2,11 @@
 
 Places a value can live:
 
-| Place                                        | What goes there                                                                                                      |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `.env` / `.env.local` (gitignored)           | All variables, local development values. `DATABASE_URL` must stay localhost — see the warning below                  |
-| Vercel → Project → Environment Variables     | All variables, production values (`BETTER_AUTH_URL`/`NEXT_PUBLIC_APP_URL` = the vercel.app domain)                   |
-| GitHub → repo → Actions secrets              | `DATABASE_URL` (Railway Postgres URL) for the migration workflow; `WIKI_TOKEN` only if the default token can't push |
+| Place                                    | What goes there                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `.env` / `.env.local` (gitignored)       | All variables, local development values. `DATABASE_URL` must stay localhost — see the warning below                 |
+| Vercel → Project → Environment Variables | All variables, production values (`BETTER_AUTH_URL`/`NEXT_PUBLIC_APP_URL` = the vercel.app domain)                  |
+| GitHub → repo → Actions secrets          | `DATABASE_URL` (Railway Postgres URL) for the migration workflow; `WIKI_TOKEN` only if the default token can't push |
 
 The test CI runs without secrets by design — tests must never call external services. The only secret-bearing workflow is `migrate.yml`.
 
