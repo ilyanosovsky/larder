@@ -24,6 +24,7 @@ Read before working:
   2. Add/adjust vitest tests for the logic it touches.
   3. Update `docs/wiki/**` when behavior, env vars, or setup change. The GitHub wiki is auto-synced from `docs/wiki/` on merge to main — **never edit the wiki directly on GitHub**.
 - **CodeRabbit** reviews every PR. Every comment must be worked through: implement the fix, or reply with a reasoned rejection — then resolve the thread. Merge is blocked until every thread is resolved. Do not resolve threads without a fix or a reply.
+- **Merging is pre-authorized by the user**: once CI is green and every review thread is resolved, the orchestrator squash-merges the PR without asking and proceeds to the next plan task.
 
 ## Model routing
 

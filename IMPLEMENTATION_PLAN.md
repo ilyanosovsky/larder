@@ -31,7 +31,7 @@
 |---|---|---|---|---|---|
 | 0.0 ⚑ | Каркас проекта: план, CLAUDE.md, CI-заглушка, wiki-sync, лицензия, README, защита main | fable | 🟢 | #1 | Этот PR |
 | 0.1 ⚑ | Bootstrap: Next.js 15 (App Router) + TypeScript strict + pnpm; ESLint (flat) + Prettier; vitest; наполнение CI реальными шагами | sonnet | 🟢 | [#2](https://github.com/ilyanosovsky/larder/pull/2) | next 15.5 · react 19.2 · ts 5.9 · eslint 9 flat · vitest 3 |
-| 0.2 ⚑ | БД: Drizzle + Postgres, drizzle-kit миграции, docker-compose для локальной БД, каркас сида | sonnet | ⬜ | — | |
+| 0.2 ⚑ | БД: Drizzle + Postgres, drizzle-kit миграции, docker-compose для локальной БД, каркас сида | sonnet | 🔵 | — | Драйвер: postgres.js (`sql.listen` пригодится в 2.2) |
 | 0.3 ⚑ | Auth: Better Auth (Google OAuth + magic link через Resend), таблицы через `@better-auth/cli generate`, middleware, экран входа S1 | opus | ⬜ | — | `BETTER_AUTH_SECRET` ≥ 32 симв. |
 | 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | ⬜ | — | Конвенция: `.nullable()` вместо `.optional()` |
 | 0.5 | UI-каркас: подключение [design/uploads/tokens.css](design/uploads/tokens.css) (Paper Ledger), next-intl (ru), layout с нижними табами + десктопный каркас (сайдбар ≥1024), PWA manifest + иконки | sonnet | ⬜ | — | Тёмная тема из токенов пока не используется |
