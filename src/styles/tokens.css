@@ -1,0 +1,205 @@
+/* Runtime copy of design/uploads/tokens.css — verbatim; edit the source file there, not here. */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   WISHKA · PAPER LEDGER — DESIGN TOKENS
+   Light values verbatim from design/uploads/tokens.css (source of truth).
+   Dark theme ("night ledger") authored from the Mini-System doc palette;
+   values missing there (zebra, soft families, shadows) are derived — see
+   IMPLEMENTATION_PLAN.md "Design deviations to resolve".
+   Deviations from the design file, both intentional:
+   1. --font-serif gains Literata (Newsreader has no Cyrillic glyphs).
+   2. Minted tokens absent in the source: --toast-accent, --scrim.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── COLOR · surfaces ── */
+  --bg: #f3f0e9;
+  --paper: #faf8f2;
+  --zebra: #f5f2ea;
+
+  /* ── COLOR · rules (hairlines) ── */
+  --rule: #e3ddcf;
+  --rule-2: #cfc7b3;
+
+  /* ── COLOR · ink (text) ── */
+  --ink: #2b2820;
+  --mute: #7c7561;
+  --mute-2: #a39b85;
+
+  /* ── COLOR · accent (one ledger green) ── */
+  --accent: #3c5a4a;
+  --accent-ink: #324c3f;
+  --accent-soft: #e7ede9;
+
+  /* ── COLOR · NULL (missing value) ── */
+  --null: #f6ecd2;
+  --null-rule: #e2cf9e;
+  --null-txt: #9a7415;
+
+  /* ── COLOR · semantic status ── */
+  --neg: #a8443a;
+  --ok: #3c5a4a;
+  --ok-soft: #e7ede9;
+
+  /* ── COLOR · badge families ── */
+  --green-txt: #3c5a4a;
+  --green-rule: #bcccc1;
+  --green-soft: #e7ede9;
+  --blue-txt: #3a5160;
+  --blue-rule: #bcc8ce;
+  --blue-soft: #e7edf0;
+  --amber-txt: #6b5326;
+  --amber-rule: #d8cba6;
+  --amber-soft: #f3ecda;
+  --red-txt: #a8443a;
+  --red-rule: #e0c6c2;
+  --red-soft: #f6e9e7;
+
+  /* ── COLOR · minted (used in mockups, absent from source tokens) ── */
+  --toast-accent: #9cc3ad; /* undo-toast link + progress fill        */
+  --scrim: rgba(43, 40, 32, 0.4); /* modal backdrop — "40% ink"      */
+
+  /* ── TYPE · families (next/font variables set in layout.tsx) ── */
+  --font-serif: var(--font-newsreader), var(--font-literata), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  /* ── TYPE · scale ── */
+  --t-name: 27px;
+  --t-title: 24px;
+  --t-h2: 19px;
+  --t-h3: 17px;
+  --t-val-lg: 18px;
+  --t-val: 15px;
+  --t-field: 14px;
+  --t-body: 13px;
+  --t-meta: 12px;
+  --t-small: 11px;
+  --t-label: 10.5px;
+
+  /* ── TYPE · weight / tracking / leading ── */
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --track-tight: -0.01em;
+  --track-label: 0.1em;
+  --track-badge: 0.05em;
+  --track-stamp: 0.14em; /* rotated "Мечта" stamp */
+  --lead-tight: 1.05;
+  --lead-body: 1.55;
+  --lead-prose: 1.65;
+
+  /* ── SPACE · 4px base grid ── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 30px;
+  --s-8: 40px;
+
+  /* ── BORDER ── */
+  --bd-hair: 1px;
+  --bd-ink: 2px;
+  --bd-dbl: 3px;
+
+  /* ── RADIUS · HARD RULE: everything square except avatars/dots ── */
+  --radius: 0;
+  --radius-round: 50%;
+
+  /* ── ELEVATION ── */
+  --shadow-sheet: 0 1px 0 var(--rule), 0 14px 30px -22px rgba(43, 40, 32, 0.4);
+  --shadow-line: 0 1px 0 var(--rule);
+  --shadow-bottom-sheet: 0 -10px 30px rgba(43, 40, 32, 0.3);
+  --shadow-dialog: 0 14px 30px -18px rgba(43, 40, 32, 0.5);
+
+  /* ── MOTION ── */
+  --dur-fast: 0.18s;
+  --dur-base: 0.24s;
+  --dur-slow: 0.26s;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── DARK · "night ledger" ─────────────────────────────────────────────
+   Applied when the user chose dark explicitly, or chose system and the
+   OS is dark. Keep both blocks in sync (plain CSS has no mixins). */
+
+[data-theme="dark"] {
+  --bg: #1f1c16;
+  --paper: #292519;
+  --zebra: #24211a;
+  --rule: #3a352a;
+  --rule-2: #4a4436;
+  --ink: #e8e2d2;
+  --mute: #a39b85;
+  --mute-2: #7c7561;
+  --accent: #8fb39e;
+  --accent-ink: #a3c4b1;
+  --accent-soft: #2e3a32;
+  --null: rgba(216, 178, 94, 0.12);
+  --null-rule: #6b5a32;
+  --null-txt: #d8b25e;
+  --neg: #c97a6e;
+  --ok: #8fb39e;
+  --ok-soft: #2e3a32;
+  --green-txt: #8fb39e;
+  --green-rule: #3f5147;
+  --green-soft: #2e3a32;
+  --blue-txt: #8fa9b8;
+  --blue-rule: #3a4a54;
+  --blue-soft: #2a343a;
+  --amber-txt: #d8b25e;
+  --amber-rule: #6b5a32;
+  --amber-soft: #3a3222;
+  --red-txt: #c97a6e;
+  --red-rule: #5a3a35;
+  --red-soft: #3a2a27;
+  --toast-accent: #9cc3ad;
+  --scrim: rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 1px 0 var(--rule), 0 14px 30px -22px rgba(0, 0, 0, 0.55);
+  --shadow-line: 0 1px 0 var(--rule);
+  --shadow-bottom-sheet: 0 -10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-dialog: 0 14px 30px -18px rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
+    --bg: #1f1c16;
+    --paper: #292519;
+    --zebra: #24211a;
+    --rule: #3a352a;
+    --rule-2: #4a4436;
+    --ink: #e8e2d2;
+    --mute: #a39b85;
+    --mute-2: #7c7561;
+    --accent: #8fb39e;
+    --accent-ink: #a3c4b1;
+    --accent-soft: #2e3a32;
+    --null: rgba(216, 178, 94, 0.12);
+    --null-rule: #6b5a32;
+    --null-txt: #d8b25e;
+    --neg: #c97a6e;
+    --ok: #8fb39e;
+    --ok-soft: #2e3a32;
+    --green-txt: #8fb39e;
+    --green-rule: #3f5147;
+    --green-soft: #2e3a32;
+    --blue-txt: #8fa9b8;
+    --blue-rule: #3a4a54;
+    --blue-soft: #2a343a;
+    --amber-txt: #d8b25e;
+    --amber-rule: #6b5a32;
+    --amber-soft: #3a3222;
+    --red-txt: #c97a6e;
+    --red-rule: #5a3a35;
+    --red-soft: #3a2a27;
+    --toast-accent: #9cc3ad;
+    --scrim: rgba(0, 0, 0, 0.5);
+    --shadow-sheet: 0 1px 0 var(--rule), 0 14px 30px -22px rgba(0, 0, 0, 0.55);
+    --shadow-line: 0 1px 0 var(--rule);
+    --shadow-bottom-sheet: 0 -10px 30px rgba(0, 0, 0, 0.45);
+    --shadow-dialog: 0 14px 30px -18px rgba(0, 0, 0, 0.6);
+  }
+}

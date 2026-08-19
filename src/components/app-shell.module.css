@@ -1,0 +1,115 @@
+.shell {
+  display: flex;
+  min-height: 100%;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  /* Leave room above the fixed mobile tab bar. */
+  padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+.content {
+  padding: var(--s-4);
+}
+
+.icon svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+/* ── Mobile bottom tab bar ── */
+
+.tabBar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  border-top: var(--bd-hair) solid var(--rule);
+  background: var(--paper);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tabItem {
+  display: flex;
+  flex: 1;
+  min-height: 44px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--s-2) var(--s-1);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  text-decoration: none;
+}
+
+.tabItemActive {
+  color: var(--accent-ink);
+}
+
+/* ── Desktop sidebar ── */
+
+.sidebar {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .tabBar {
+    display: none;
+  }
+
+  .main {
+    padding-bottom: 0;
+  }
+
+  .content {
+    max-width: 720px;
+    margin-inline: auto;
+    padding: var(--s-6);
+  }
+
+  .sidebar {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    width: 220px;
+    border-right: var(--bd-hair) solid var(--rule);
+    background: var(--paper);
+    padding: var(--s-5) var(--s-3);
+  }
+
+  .sidebarNav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+  }
+
+  .sidebarFooter {
+    margin-top: auto;
+    padding-top: var(--s-4);
+    border-top: var(--bd-hair) solid var(--rule);
+  }
+
+  .sidebarItem {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    color: var(--mute);
+    font-family: var(--font-sans);
+    font-size: var(--t-body);
+    text-decoration: none;
+  }
+
+  .sidebarItemActive {
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+  }
+}

@@ -5,6 +5,7 @@
 Larder — shared household food hub: realtime shopping cart, pantry, recipe library with AI import, weekly menu pool, AI assistant. Mobile-first PWA (Next.js), Russian UI.
 
 Read before working:
+
 - [VISION.md](VISION.md) (ru) — product concept, data model, architecture decisions. Architecture decisions there are settled; don't relitigate them silently.
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (ru) — live task board. Source of truth for what to build next.
 - [DESIGN_BRIEF.md](DESIGN_BRIEF.md) (ru) + [design/](design/) — screens and Paper Ledger design tokens ([design/uploads/tokens.css](design/uploads/tokens.css)).
