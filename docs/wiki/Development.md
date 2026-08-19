@@ -25,6 +25,36 @@
 
 `.github/workflows/wiki-sync.yml` publishes `docs/wiki/**` to this wiki on every merge to `main` that touches those files. The sync overwrites the wiki — never edit pages on GitHub directly. If the sync job fails with a permissions error, create a classic PAT with `repo` scope and add it as the `WIKI_TOKEN` repository secret.
 
+## Auth (Better Auth)
+
+Two ways in, no passwords: **Google OAuth** and a **magic link** emailed through Resend. The OAuth redirect URI to register in Google Cloud Console is `{BETTER_AUTH_URL}/api/auth/callback/google` — see [[Env-Setup]].
+
+Layout of the pieces:
+
+| File                         | Role                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `src/lib/auth.ts`            | Lazy singleton `auth()` — importing it never reads env, so CI builds without secrets |
+| `src/lib/auth-client.ts`     | Shared browser client (`authClient`) for client components                           |
+| `src/lib/session.ts`         | `getSession()` for server components, layouts and server actions                     |
+| `src/app/api/auth/[...all]/` | The Better Auth request handler                                                      |
+| `src/middleware.ts`          | Optimistic cookie check — fast redirect, no database round-trip                      |
+| `src/app/(app)/layout.tsx`   | Authoritative session check for every signed-in screen                               |
+| `src/app/(auth)/login/`      | S1 «Вход» — the only screen rendered without the app shell                           |
+
+**Adding a protected screen:** put it under `src/app/(app)/`. The layout's session check covers it automatically; no middleware change is needed.
+
+### Regenerating the auth tables
+
+The `users` / `sessions` / `accounts` / `verifications` tables are generated — never hand-written, and never hand-edited afterwards. Regenerate them when the Better Auth version or its plugin list changes, pinning the generator to the `better-auth` version in `package.json` (currently 1.7.1):
+
+```bash
+pnpm dlx auth@1.7.1 generate --config better-auth.config.ts --output src/db/auth-schema.ts -y
+pnpm db:generate   # drizzle-kit turns the schema diff into a migration
+pnpm db:migrate
+```
+
+`better-auth.config.ts` in the repository root exists _only_ for that generator: the CLI needs a plain `auth` export, while the runtime instance is a lazy factory. It shares the adapter shape with the runtime through `src/lib/auth-drizzle-config.ts`, so the two cannot drift.
+
 ## Model routing (AI-assisted development)
 
 - **Fable** — orchestration: planning, architecture, task decomposition, reviewing subagent output, plan updates.

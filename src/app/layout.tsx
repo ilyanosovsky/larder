@@ -4,8 +4,6 @@ import { Inter, JetBrains_Mono, Literata, Newsreader } from "next/font/google";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
-import { AppShell } from "@/components/app-shell";
-
 import "./globals.css";
 
 // TYPE fonts referenced by src/styles/tokens.css (--font-serif/-sans/-mono).
@@ -63,9 +61,9 @@ export default async function RootLayout({
       className={`${newsreader.variable} ${literata.variable} ${inter.variable} ${jetBrainsMono.variable}`}
     >
       <body>
-        <NextIntlClientProvider>
-          <AppShell>{children}</AppShell>
-        </NextIntlClientProvider>
+        {/* The app shell (tabs + sidebar) lives in the `(app)` route group,
+            so the sign-in screen in `(auth)` renders without navigation. */}
+        <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>
     </html>
   );
