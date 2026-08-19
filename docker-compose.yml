@@ -4,9 +4,12 @@ services:
     environment:
       POSTGRES_DB: larder
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # Local-dev default; override via POSTGRES_PASSWORD in the shell or an
+      # env file, and keep DATABASE_URL in sync when you do.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      # Bound to loopback only — never exposed to the network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - larder-postgres-data:/var/lib/postgresql/data
     healthcheck:
