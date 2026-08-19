@@ -26,8 +26,6 @@ Architecture details and the reasoning behind every choice: [VISION.md](VISION.m
 
 ## Getting started
 
-> The app bootstrap lands with Phase 0 of the [plan](IMPLEMENTATION_PLAN.md). Until then this section describes the target setup.
-
 Prerequisites: Node.js 22+, pnpm, Docker (for local Postgres) or a Postgres instance.
 
 ```bash
@@ -35,12 +33,12 @@ git clone https://github.com/ilyanosovsky/larder.git
 cd larder
 pnpm install
 cp .env.example .env.local   # fill in the values (see table below)
-docker compose up -d          # local Postgres
-pnpm db:migrate
+docker compose up -d          # local Postgres (from Phase 0.2 on)
+pnpm db:migrate               # from Phase 0.2 on
 pnpm dev
 ```
 
-Scripts (from Phase 0.1 on): `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm db:migrate` · `pnpm db:studio`.
+Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm db:migrate` · `pnpm db:studio` (the last two land from Phase 0.2 on).
 
 ## Environment variables
 

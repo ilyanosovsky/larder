@@ -1,0 +1,11 @@
+.next
+node_modules
+pnpm-lock.yaml
+coverage
+design
+
+# Hand-authored docs outside CLAUDE.md's editing rules; keep formatting
+# changes out of unrelated PRs.
+VISION.md
+DESIGN_BRIEF.md
+IMPLEMENTATION_PLAN.md

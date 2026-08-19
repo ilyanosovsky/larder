@@ -1,0 +1,15 @@
+/*
+ * Minimal reset placeholder.
+ * Paper Ledger design tokens land in task 0.5 (design/uploads/tokens.css).
+ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
