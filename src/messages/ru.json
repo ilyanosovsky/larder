@@ -18,6 +18,9 @@
     "assistant": "Скоро здесь будет ИИ-ассистент.",
     "settings": "Скоро здесь будут настройки."
   },
+  "settings": {
+    "signedInAs": "Вход выполнен: {email}"
+  },
   "auth": {
     "wordmark": "Larder",
     "tagline": "Общая кладовая вашего дома",

@@ -23,6 +23,10 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
+    "@trpc/client": "^11.18.0",
+    "@trpc/server": "^11.18.0",
+    "@trpc/tanstack-react-query": "^11.18.0",
     "better-auth": "^1.7.1",
     "drizzle-orm": "^0.45.2",
     "next": "^15",
@@ -32,6 +36,7 @@
     "react-dom": "^19",
     "resend": "^6.20.0",
     "server-only": "^0.0.1",
+    "superjson": "^2.2.6",
     "zod": "^4"
   },
   "devDependencies": {
