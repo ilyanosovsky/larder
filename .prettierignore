@@ -9,3 +9,6 @@ design
 VISION.md
 DESIGN_BRIEF.md
 IMPLEMENTATION_PLAN.md
+
+# drizzle-kit generated artifacts — never reformatted
+src/db/migrations/
