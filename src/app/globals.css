@@ -1,7 +1,6 @@
-/*
- * Minimal reset placeholder.
- * Paper Ledger design tokens land in task 0.5 (design/uploads/tokens.css).
- */
+/* Paper Ledger design tokens — see src/styles/tokens.css (a verbatim runtime
+   copy of design/uploads/tokens.css). Imported before any other styles. */
+@import "../styles/tokens.css";
 
 * {
   box-sizing: border-box;
@@ -12,4 +11,13 @@
 html,
 body {
   height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lead-body);
+  -webkit-font-smoothing: antialiased;
 }
