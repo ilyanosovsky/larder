@@ -237,7 +237,7 @@ Instagram-ссылка ──► пробуем FireCrawl; не пробилос
 - Все данные изолированы по household; каждый tRPC-запрос проверяет членство.
 - Инвайт-ссылки одноразовые/с TTL (сущность `Invite`). Rate limit на ИИ-эндпоинты.
 - Auth-таблицы Better Auth генерируются CLI (`@better-auth/cli generate`) и версионируются в общем пайплайне миграций Drizzle.
-- Прод-миграции применяет только GitHub Action `migrate.yml` (секрет `DATABASE_URL` в GitHub). Локальный `.env` держит **только** localhost-URL: drizzle-kit сам подгружает `.env` встроенным dotenv, и прод-URL там был бы заряженным футганом. Закомментированная строка `# PROD_DATABASE_URL=` в `.env` — просто заметка, её никто не читает; осознанная прод-операция передаёт URL инлайном: `DATABASE_URL="<prod-url>" pnpm db:migrate` (shell-окружение бьёт env-файлы).
+- Прод-миграции применяет только GitHub Action `migrate.yml` (секрет `DATABASE_URL` в GitHub). Локальный `.env` держит **только** localhost-URL: drizzle-kit сам подгружает `.env` встроенным dotenv, и прод-URL там был бы заряженным футганом. Закомментированная строка `# PROD_DATABASE_URL=` в `.env` — просто заметка, её никто не читает; осознанная прод-операция вводит URL скрытым промптом, чтобы он не оседал в истории шелла: `read -r -s -p 'Prod DATABASE_URL: ' DATABASE_URL && export DATABASE_URL && pnpm db:migrate; unset DATABASE_URL` (shell-окружение бьёт env-файлы).
 - MIT-лицензия; все провайдеры (OpenAI, FireCrawl, UploadThing, Resend) — через env-переменные, self-hosting дружелюбен. README на английском, UI на русском (i18n).
 
 ## 7. Фазы
