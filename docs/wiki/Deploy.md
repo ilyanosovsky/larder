@@ -20,7 +20,7 @@ Production URL: https://larder-ecru-mu.vercel.app
 
 ## Migrations
 
-Vercel never runs migrations. The `migrate.yml` workflow applies them to production when `src/db/migrations/**` changes land on `main` (plus a manual "Run workflow" button). Consequences:
+Vercel never runs migrations. The **standard path** is the `migrate.yml` workflow: it applies migrations to production when `src/db/migrations/**` changes land on `main` (plus a manual "Run workflow" button). A local hidden-prompt run (below) is the explicit exception for emergencies. Consequences:
 
 - Code deploy (Vercel) and migration (Action) are **not atomic** — write backward-compatible, additive migrations (rule in AGENTS.md).
 - Locally, `.env` must keep only the localhost `DATABASE_URL`: **drizzle-kit preloads `.env` with its own bundled dotenv**, so a production URL there would silently point local `pnpm db:migrate` / `db:push` at production. A commented `# PROD_DATABASE_URL=` line in `.env` is storage only — nothing reads it; deliberate prod operations enter the URL via a hidden prompt so it never lands in shell history: `read -r -s -p 'Prod DATABASE_URL: ' DATABASE_URL && export DATABASE_URL && pnpm db:migrate; unset DATABASE_URL` (shell env beats env files).
