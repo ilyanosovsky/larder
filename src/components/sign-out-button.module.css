@@ -1,0 +1,32 @@
+.wrapper {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--s-6);
+}
+
+.button {
+  display: flex;
+  min-height: 44px;
+  min-width: 160px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--red-rule);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-3) var(--s-5);
+  color: var(--neg);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.button:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}

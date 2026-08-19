@@ -17,5 +17,30 @@
     "dishes": "Скоро здесь будет библиотека блюд.",
     "assistant": "Скоро здесь будет ИИ-ассистент.",
     "settings": "Скоро здесь будут настройки."
+  },
+  "auth": {
+    "wordmark": "Larder",
+    "tagline": "Общая кладовая вашего дома",
+    "googleSignIn": "Войти через Google",
+    "googleSignInPending": "Открываем Google…",
+    "or": "или",
+    "emailLabel": "Почта",
+    "emailPlaceholder": "you@example.com",
+    "emailSignIn": "Войти по почте",
+    "emailSignInPending": "Отправляем…",
+    "emailSentTitle": "Письмо отправлено — проверь почту",
+    "emailSentHint": "Ссылка для входа внутри. Она одноразовая.",
+    "error": "Не получилось войти. Попробуй ещё раз.",
+    "signOut": "Выйти",
+    "signOutPending": "Выходим…",
+    "email": {
+      "subject": "Вход в Larder",
+      "heading": "Вход",
+      "intro": "Нажми кнопку ниже, чтобы войти в Larder.",
+      "button": "Войти",
+      "expiry": "Ссылка одноразовая и действует {minutes, plural, one {# минуту} few {# минуты} many {# минут} other {# минуты}}.",
+      "fallback": "Если кнопка не открывается, скопируй ссылку в браузер:",
+      "ignore": "Если вход запрашивал не ты — просто удали это письмо."
+    }
   }
 }
