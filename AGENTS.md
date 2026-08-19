@@ -2,7 +2,7 @@
 
 ## Project
 
-Larder — shared household food hub: realtime shopping cart, pantry, recipe library with AI import, weekly menu pool, AI assistant. Mobile-first PWA (Next.js), Russian UI.
+Larder — shared household food hub: shared shopping cart (refetch sync in MVP, instant push post-MVP), pantry, recipe library with AI import, weekly menu pool, AI assistant. Mobile-first PWA (Next.js), Russian UI.
 
 Read before working:
 

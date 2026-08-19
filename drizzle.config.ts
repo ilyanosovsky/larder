@@ -6,8 +6,9 @@ import { defineConfig } from "drizzle-kit";
 // `.env` with its own bundled dotenv BEFORE this config runs, and loadEnvFile
 // never overrides variables that are already set. Net effect for drizzle-kit:
 // `.env` beats `.env.local` here, and the shell environment beats both. That
-// is why `.env` must only ever hold the localhost DATABASE_URL (the prod URL
-// stays commented out as PROD_DATABASE_URL — see AGENTS.md). The explicit
+// is why `.env` must only ever hold the localhost DATABASE_URL (a commented
+// PROD_DATABASE_URL line is storage only, nothing reads it; deliberate prod
+// runs pass DATABASE_URL inline — the shell environment beats env files). The explicit
 // loads below cover the files drizzle-kit doesn't read (.env.local) and keep
 // a present-but-unreadable file loud: it throws instead of silently falling
 // back to a different database.

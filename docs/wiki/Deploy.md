@@ -2,11 +2,11 @@
 
 Production topology (decided 2026-08-19):
 
-| Piece         | Where                                                                                                             | Cost     |
-| ------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
-| Next.js app   | **Vercel** (Hobby), auto-deploys `main`                                                                           | $0       |
-| PostgreSQL    | **Railway** (Postgres service only)                                                                               | ~$1–3/mo |
-| DB migrations | **GitHub Action** [`migrate.yml`](https://github.com/ilyanosovsky/larder/blob/main/.github/workflows/migrate.yml) | —        |
+| Piece         | Where                                                                                                             | Cost                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Next.js app   | **Vercel** (Hobby), auto-deploys `main`                                                                           | $0                                |
+| PostgreSQL    | **Railway** (Postgres service only, Hobby plan)                                                                   | $5/mo (Hobby, incl. usage credit) |
+| DB migrations | **GitHub Action** [`migrate.yml`](https://github.com/ilyanosovsky/larder/blob/main/.github/workflows/migrate.yml) | —                                 |
 
 Production URL: https://larder-ecru-mu.vercel.app
 
@@ -23,7 +23,7 @@ Production URL: https://larder-ecru-mu.vercel.app
 Vercel never runs migrations. The `migrate.yml` workflow applies them to production when `src/db/migrations/**` changes land on `main` (plus a manual "Run workflow" button). Consequences:
 
 - Code deploy (Vercel) and migration (Action) are **not atomic** — write backward-compatible, additive migrations (rule in AGENTS.md).
-- Locally, `.env` must keep only the localhost `DATABASE_URL`: **drizzle-kit preloads `.env` with its own bundled dotenv**, so a production URL there would silently point local `pnpm db:migrate` / `db:push` at production. The prod URL lives commented-out as `# PROD_DATABASE_URL=` for deliberate use only.
+- Locally, `.env` must keep only the localhost `DATABASE_URL`: **drizzle-kit preloads `.env` with its own bundled dotenv**, so a production URL there would silently point local `pnpm db:migrate` / `db:push` at production. A commented `# PROD_DATABASE_URL=` line in `.env` is storage only — nothing reads it; deliberate prod operations pass the URL inline: `DATABASE_URL="<prod-url>" pnpm db:migrate` (shell env beats env files).
 
 ## External services checklist
 

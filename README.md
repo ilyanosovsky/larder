@@ -3,9 +3,9 @@
 [![CI](https://github.com/ilyanosovsky/larder/actions/workflows/ci.yml/badge.svg)](https://github.com/ilyanosovsky/larder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Shared household food hub.** Plan the week's dishes → the shopping cart assembles itself → shop together in realtime → groceries land in the pantry → cook from your own recipe library → repeat.
+**Shared household food hub.** Plan the week's dishes → the shopping cart assembles itself → shop together → groceries land in the pantry → cook from your own recipe library → repeat.
 
-Larder replaces the shared iPhone note a couple actually uses today: a realtime shopping list without duplicates, a pantry of what's at home, recipes imported from Instagram screenshots and links into one clean format, a weekly menu pool, and an AI assistant that suggests — never dictates.
+Larder replaces the shared iPhone note a couple actually uses today: a shared shopping list without duplicates where every edit saves instantly (instant push sync is planned post-MVP), a pantry of what's at home, recipes imported from Instagram screenshots and links into one clean format, a weekly menu pool, and an AI assistant that suggests — never dictates.
 
 > Status: **in active development.** Live task board: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (ru). UI is Russian (i18n-ready, English planned).
 
@@ -71,7 +71,7 @@ Details and step-by-step setup: [wiki → Env Setup](https://github.com/ilyanoso
 
 ## Deployment
 
-App on **Vercel** (auto-deploys `main`, Hobby tier), PostgreSQL on **Railway** (~$1–3/month). Migrations reach production only through the [`migrate.yml`](.github/workflows/migrate.yml) GitHub Action (triggered by migration changes on `main`), so they must stay backward-compatible. Full setup guide: [wiki → Deploy](https://github.com/ilyanosovsky/larder/wiki/Deploy).
+App on **Vercel** (auto-deploys `main`, Hobby tier, $0), PostgreSQL on **Railway** (Hobby plan, $5/month including its usage credit — Postgres fits inside). Migrations reach production only through the [`migrate.yml`](.github/workflows/migrate.yml) GitHub Action (triggered by migration changes on `main`), so they must stay backward-compatible. Full setup guide: [wiki → Deploy](https://github.com/ilyanosovsky/larder/wiki/Deploy).
 
 ## License
 

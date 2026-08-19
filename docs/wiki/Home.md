@@ -1,6 +1,6 @@
 # Larder
 
-**Shared household food hub** — realtime shopping cart, pantry, recipe library with AI import, weekly menu pool, and an AI assistant. Mobile-first PWA, Russian UI.
+**Shared household food hub** — shared shopping cart (every edit saves instantly; instant push sync is post-MVP), pantry, recipe library with AI import, weekly menu pool, and an AI assistant. Mobile-first PWA, Russian UI.
 
 > ⚠️ This wiki is generated from [`docs/wiki/`](https://github.com/ilyanosovsky/larder/tree/main/docs/wiki) in the main repository and is overwritten on every sync. **Edit pages there via PR, never here.**
 

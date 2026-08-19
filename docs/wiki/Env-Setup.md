@@ -10,7 +10,7 @@ Places a value can live:
 
 The test CI runs without secrets by design — tests must never call external services. The only secret-bearing workflow is `migrate.yml`.
 
-> ⚠️ **drizzle-kit preloads `.env` with its own bundled dotenv** before our config runs, so a production `DATABASE_URL` in `.env` would silently point local `pnpm db:migrate` / `db:push` at production. Keep the prod URL commented out (`# PROD_DATABASE_URL=`), local URL as the active value.
+> ⚠️ **drizzle-kit preloads `.env` with its own bundled dotenv** before our config runs, so a production `DATABASE_URL` in `.env` would silently point local `pnpm db:migrate` / `db:push` at production. Keep the localhost URL as the active value. A commented `# PROD_DATABASE_URL=` line in `.env` is storage only — nothing reads it; a deliberate production operation passes the URL inline: `DATABASE_URL="<prod-url>" pnpm db:migrate` (the shell environment beats env files).
 
 ## Variables
 
