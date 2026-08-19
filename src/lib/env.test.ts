@@ -51,10 +51,35 @@ describe("env", () => {
     expect(() => env()).toThrow(/DATABASE_URL/);
   });
 
+  it("aggregates every missing variable into a single error", async () => {
+    for (const [key, value] of Object.entries(VALID_ENV)) {
+      vi.stubEnv(key, value);
+    }
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+
+    const { env } = await import("./env");
+
+    expect(() => env()).toThrow(/DATABASE_URL[\s\S]*OPENAI_API_KEY/);
+  });
+
+  it("rejects a BETTER_AUTH_SECRET shorter than 32 characters", async () => {
+    for (const [key, value] of Object.entries(VALID_ENV)) {
+      vi.stubEnv(key, value);
+    }
+    vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(31));
+
+    const { env } = await import("./env");
+
+    expect(() => env()).toThrow(/BETTER_AUTH_SECRET/);
+  });
+
   it("defaults AI_MONTHLY_BUDGET_USD to 20 when unset", async () => {
     for (const [key, value] of Object.entries(VALID_ENV)) {
       vi.stubEnv(key, value);
     }
+    // Guard against a value inherited from the shell overriding the default.
+    vi.stubEnv("AI_MONTHLY_BUDGET_USD", undefined);
 
     const { env } = await import("./env");
 

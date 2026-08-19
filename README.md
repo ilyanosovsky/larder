@@ -33,12 +33,12 @@ git clone https://github.com/ilyanosovsky/larder.git
 cd larder
 pnpm install
 cp .env.example .env.local   # fill in the values (see table below)
-docker compose up -d          # local Postgres (from Phase 0.2 on)
-pnpm db:migrate               # from Phase 0.2 on
 pnpm dev
 ```
 
-Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm db:migrate` · `pnpm db:studio` (the last two land from Phase 0.2 on).
+Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm format`.
+
+From Phase 0.2 on (local Postgres + migrations): `docker compose up -d` · `pnpm db:migrate` · `pnpm db:studio`.
 
 ## Environment variables
 

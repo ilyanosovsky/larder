@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No authenticated git operations after checkout; don't leave the
+          # token in .git/config for repository-controlled code to read.
+          persist-credentials: false
 
       # pnpm version comes from the "packageManager" field in package.json —
       # the action forbids specifying it in both places.
