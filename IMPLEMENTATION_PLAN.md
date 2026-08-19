@@ -34,7 +34,7 @@
 | 0.2 ⚑ | БД: Drizzle + Postgres, drizzle-kit миграции, docker-compose для локальной БД, каркас сида | sonnet | 🟢 | [#3](https://github.com/ilyanosovsky/larder/pull/3) | Драйвер: postgres.js (`sql.listen` пригодится в 2.2) |
 | 0.3 ⚑ | Auth: Better Auth (Google OAuth + magic link через Resend), таблицы через `@better-auth/cli generate`, middleware, экран входа S1 | opus | ⬜ | — | `BETTER_AUTH_SECRET` ≥ 32 симв. |
 | 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | ⬜ | — | Конвенция: `.nullable()` вместо `.optional()` |
-| 0.5 | UI-каркас: подключение [design/uploads/tokens.css](design/uploads/tokens.css) (Paper Ledger), next-intl (ru), layout с нижними табами + десктопный каркас (сайдбар ≥1024), PWA manifest + иконки | sonnet | 🔵 | — | Выполняется до 0.3/0.4: экраны входа (S1) требуют словарей next-intl. Тёмная тема из токенов пока не используется |
+| 0.5 | UI-каркас: подключение [design/uploads/tokens.css](design/uploads/tokens.css) (Paper Ledger), next-intl (ru), layout с нижними табами + десктопный каркас (сайдбар ≥1024), PWA manifest + иконки | sonnet | 🟢 | [#4](https://github.com/ilyanosovsky/larder/pull/4) | Выполнена до 0.3/0.4 (см. журнал). SVG-иконка; PNG — в 7.3 |
 | 0.6 | Деплой на Railway: app + Postgres, healthcheck, переменные окружения | sonnet | ⬜ | — | См. wiki: Env-Setup |
 
 ## Фаза 1 — Household и каталог
