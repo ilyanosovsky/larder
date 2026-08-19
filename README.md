@@ -11,7 +11,7 @@ Larder replaces the shared iPhone note a couple actually uses today: a realtime 
 
 ## Features (MVP scope)
 
-- 🛒 **Realtime cart** — two people, different stores, changes visible in under a second. Optimistic UI that survives dead spots near the checkout. Statuses: needed → ordered (delivery: Wolt/Carrefour) → bought. Duplicates are impossible by construction.
+- 🛒 **Shared cart** — two people, different stores: every change saves instantly, and the partner's view catches up on focus, pull-to-refresh, and gentle background polling (instant push is planned post-MVP). Optimistic UI that survives dead spots near the checkout. Statuses: needed → ordered (delivery: Wolt/Carrefour) → bought. Duplicates are impossible by construction.
 - 🏠 **Pantry** — what's at home (presence, no quantity bookkeeping). "Ran out" → one tap → back in the cart. Swipe-through revision mode.
 - 📖 **Recipes** — one clean format: ingredients linked to the product catalog, steps, portions, required equipment. Import from a **photo/screenshot** (primary path), URL (JSON-LD → microdata → FireCrawl cascade), pasted text, or manually. Everything the AI produces is editable.
 - 🗓 **Weekly menu** — a pool of dishes for the week; one button merges all ingredients into the cart, checked against the pantry.
@@ -20,7 +20,7 @@ Larder replaces the shared iPhone note a couple actually uses today: a realtime 
 
 ## Tech stack
 
-Next.js 15 (App Router) · TypeScript strict · PostgreSQL + Drizzle · tRPC v11 + TanStack Query · SSE + Postgres LISTEN/NOTIFY (realtime) · Better Auth (Google + magic link) · OpenAI (vision parsing + assistant) · FireCrawl (fallback scraping) · UploadThing (images) · Resend (email) · next-intl · vitest · Railway (hosting)
+Next.js 15 (App Router) · TypeScript strict · PostgreSQL + Drizzle · tRPC v11 + TanStack Query (optimistic updates + refetch sync; instant realtime is post-MVP) · Better Auth (Google + magic link) · OpenAI (vision parsing + assistant) · FireCrawl (fallback scraping) · UploadThing (images) · Resend (email) · next-intl · vitest · Vercel (app) + Railway (Postgres)
 
 Architecture details and the reasoning behind every choice: [VISION.md](VISION.md) (ru). Screens and design system (Paper Ledger): [DESIGN_BRIEF.md](DESIGN_BRIEF.md) (ru) + [design/](design/).
 
@@ -42,7 +42,7 @@ Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm 
 
 ## Environment variables
 
-Local values go to `.env.local` (gitignored). Production values go to **Railway → your app service → Variables**. CI needs no secrets (tests never call external services).
+Local values go to `.env` / `.env.local` (gitignored; keep `DATABASE_URL` pointing at localhost — drizzle-kit auto-loads `.env`, and a prod URL there would aim local migrations at production). Production values go to **Vercel → Project → Settings → Environment Variables**; the production `DATABASE_URL` additionally lives as a **GitHub Actions secret** for the migration workflow. The test CI needs no secrets.
 
 | Variable                                    | Purpose                            | Where to get it                                                                |
 | ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
@@ -71,7 +71,7 @@ Details and step-by-step setup: [wiki → Env Setup](https://github.com/ilyanoso
 
 ## Deployment
 
-Single Railway project: the Next.js app (always-on Node process — SSE needs it) + Postgres. Realistic cost: $5–10/month. Deploys from `main`; [`railway.json`](railway.json) runs migrations as a pre-deploy step and probes `/api/health`. Full setup guide: [wiki → Deploy-Railway](https://github.com/ilyanosovsky/larder/wiki/Deploy-Railway).
+App on **Vercel** (auto-deploys `main`, Hobby tier), PostgreSQL on **Railway** (~$1–3/month). Migrations reach production only through the [`migrate.yml`](.github/workflows/migrate.yml) GitHub Action (triggered by migration changes on `main`), so they must stay backward-compatible. Full setup guide: [wiki → Deploy](https://github.com/ilyanosovsky/larder/wiki/Deploy).
 
 ## License
 

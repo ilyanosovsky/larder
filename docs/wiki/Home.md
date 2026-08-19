@@ -8,7 +8,7 @@
 
 - [[Development]] — branches, PRs, CodeRabbit, testing, model routing
 - [[Env-Setup]] — every environment variable and where it lives
-- [[Deploy-Railway]] — production deployment: services, variables, domains, verifying a deploy
+- [[Deploy]] — production deployment: Vercel + Railway Postgres, migrations, verifying a deploy
 
 ## Key documents (in the repo)
 
