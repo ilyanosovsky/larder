@@ -25,7 +25,7 @@
 
 ## Фаза 0 — Фундамент
 
-Цель: пустое приложение с авторизацией, задеплоенное на Railway. CI полностью рабочий.
+Цель: пустое приложение с авторизацией, задеплоенное в прод (Vercel + Railway Postgres). CI полностью рабочий.
 
 | ID | Задача | Модель | Статус | PR | Примечания |
 |---|---|---|---|---|---|
@@ -35,7 +35,7 @@
 | 0.3 ⚑ | Auth: Better Auth (Google OAuth + magic link через Resend), таблицы через CLI (`auth generate`), middleware, экран входа S1 | opus | 🟢 | [#5](https://github.com/ilyanosovsky/larder/pull/5) | better-auth 1.7; CLI `@better-auth/cli` устарел — используется `auth` |
 | 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | 🟢 | [#6](https://github.com/ilyanosovsky/larder/pull/6) | Интеграция `@trpc/tanstack-react-query`; конвенция `.nullable()` соблюдена |
 | 0.5 | UI-каркас: подключение [design/uploads/tokens.css](design/uploads/tokens.css) (Paper Ledger), next-intl (ru), layout с нижними табами + десктопный каркас (сайдбар ≥1024), PWA manifest + иконки | sonnet | 🟢 | [#4](https://github.com/ilyanosovsky/larder/pull/4) | Выполнена до 0.3/0.4 (см. журнал). SVG-иконка; PNG — в 7.3 |
-| 0.6 | Деплой на Railway: app + Postgres, healthcheck, переменные окружения | fable | 🔵 | — | Репо-часть готова (railway.json, /api/health, wiki Deploy-Railway); настройка дашборда — за пользователем, затем верификация |
+| 0.6 | Деплой: **Vercel (app) + Railway (Postgres)**, прод-миграции через GH Action `migrate.yml`, healthcheck, wiki Deploy | fable | 🟢 | [#8](https://github.com/ilyanosovsky/larder/pull/8) | Пивот с чистого Railway (журнал 2026-08-19). App задеплоен пользователем: larder-ecru-mu.vercel.app; база мигрирована |
 
 ## Фаза 1 — Household и каталог
 
@@ -50,13 +50,13 @@
 
 ## Фаза 2 — Корзина (ядро продукта)
 
-Цель: два телефона видят изменения друг друга меньше чем за секунду; чекбоксы работают при плохой связи.
+Цель: правки сохраняются мгновенно и не теряются; у партнёра список свежий при каждом взгляде на экран (фокус / «Обновить» / поллинг); чекбоксы работают при плохой связи.
 
 | ID | Задача | Модель | Статус | PR | Примечания |
 |---|---|---|---|---|---|
 | 2.1 ⚑ | Модель корзины: статусы `needed/ordered/bought`, инвариант «одна активная строка на продукт» (partial unique index), правила слияния при повторном добавлении; tRPC-роуты; unit-тесты правил | opus | ⬜ | — | Ядро всей логики |
-| 2.2 ⚑ | Realtime-инфраструктура: SSE-подписки (httpSubscriptionLink), LISTEN/NOTIFY на выделенном соединении, reconnect + re-LISTEN, инвалидация кэша при SSE-реконнекте, `sse.ping` | opus | ⬜ | — | См. VISION §6.3 |
-| 2.3 ⚑ | UI корзины S3: секции-отделы, optimistic-чекбоксы, подсветка чужих изменений, SyncToast, индикатор синка | opus | ⬜ | — | |
+| 2.2 ⚑ | Синхронизация (refetch-модель, VISION §6.3): refetchOnWindowFocus, фоновый интервал ~30–60 с, pull-to-refresh / кнопка «Обновить», мягкая подсветка изменившихся строк после refetch | sonnet | ⬜ | — | Realtime-push — пост-MVP (фаза 2 VISION); задел `splitLink` в коде сохранён |
+| 2.3 ⚑ | UI корзины S3: секции-отделы, optimistic-чекбоксы, индикатор синка | opus | ⬜ | — | |
 | 2.4 | Офлайн-очередь мутаций: персист в IndexedDB, флаш по online/открытию | opus | ⬜ | — | Background Sync на iOS нет |
 | 2.5 | Статус «заказано» (Wolt/Carrefour/другое), «кто берёт», заметки на позиции, «Заказ получен» | sonnet | ⬜ | — | |
 
@@ -123,3 +123,4 @@
 |---|---|
 | 2026-08-08 | План создан (PR #1) |
 | 2026-08-19 | Порядок внутри фазы 0: 0.5 выполняется до 0.3/0.4 — правило «UI-строки только через next-intl» требует словарей раньше первых экранов. PWA-иконки в 0.5 — SVG-плейсхолдер; полноценные PNG/apple-touch — в 7.3 |
+| 2026-08-19 | **Пивот хостинга и синхронизации** (решение пользователя): приложение остаётся на Vercel (задеплоено), Railway — только Postgres. Мгновенный realtime вынесен из MVP в фазу 2 VISION; MVP-синхронизация — refetch-модель (VISION §6.3). Задача 2.2 переопределена (sonnet вместо opus), railway.json удалён, прод-миграции — GH Action `migrate.yml` с секретом `DATABASE_URL`. Better Auth Dash решили не подключать |

@@ -1,14 +1,16 @@
 # Environment variables
 
-Three places a value can live:
+Places a value can live:
 
-| Place                             | What goes there                                                         |
-| --------------------------------- | ----------------------------------------------------------------------- |
-| `.env.local` (gitignored)         | All variables, local development values                                 |
-| Railway → app service → Variables | All variables, production values                                        |
-| GitHub → repo secrets             | Only `WIKI_TOKEN`, and only if the default token can't push to the wiki |
+| Place                                    | What goes there                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `.env` / `.env.local` (gitignored)       | All variables, local development values. `DATABASE_URL` must stay localhost — see the warning below                 |
+| Vercel → Project → Environment Variables | All variables, production values (`BETTER_AUTH_URL`/`NEXT_PUBLIC_APP_URL` = the vercel.app domain)                  |
+| GitHub → repo → Actions secrets          | `DATABASE_URL` (Railway Postgres URL) for the migration workflow; `WIKI_TOKEN` only if the default token can't push |
 
-CI runs without secrets by design — tests must never call external services.
+The test CI runs without secrets by design — tests must never call external services. The only secret-bearing workflow is `migrate.yml`.
+
+> ⚠️ **drizzle-kit preloads `.env` with its own bundled dotenv** before our config runs, so a production `DATABASE_URL` in `.env` would silently point local `pnpm db:migrate` / `db:push` at production. Keep the localhost URL as the active value. A commented `# PROD_DATABASE_URL=` line in `.env` is storage only — nothing reads it; a deliberate production operation enters the URL via a hidden prompt so it never lands in shell history: `read -r -s -p 'Prod DATABASE_URL: ' DATABASE_URL && export DATABASE_URL && pnpm db:migrate; unset DATABASE_URL` (the shell environment beats env files).
 
 ## Variables
 

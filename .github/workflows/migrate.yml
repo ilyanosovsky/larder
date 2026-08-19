@@ -1,0 +1,52 @@
+name: Migrate production DB
+
+# Applies drizzle migrations to the production database (Railway Postgres).
+# The app deploys on Vercel, which never runs migrations — this workflow is
+# the STANDARD path migrations take to production (a manual hidden-prompt
+# run, documented in the wiki, is the explicit exception for emergencies).
+# Code deploy and migration are not atomic, so migrations must be
+# backward-compatible (additive) — see AGENTS.md.
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/db/migrations/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require the DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Repository secret DATABASE_URL is not set (Settings → Secrets and variables → Actions). Use the Railway Postgres public URL."
+            exit 1
+          fi
+
+      # pnpm version comes from the "packageManager" field in package.json.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:migrate

@@ -2,12 +2,16 @@ import { existsSync } from "node:fs";
 
 import { defineConfig } from "drizzle-kit";
 
-// drizzle-kit does not auto-load env files, so load them here before reading
-// process.env. Existence is checked explicitly; a present-but-unreadable file
-// must throw rather than silently fall back to a different DATABASE_URL and
-// point a migration at the wrong database. loadEnvFile never overrides
-// variables that are already set, so .env.local wins over .env, and the shell
-// environment wins over both.
+// Env loading, with a caveat learned the hard way: drizzle-kit ALSO preloads
+// `.env` with its own bundled dotenv BEFORE this config runs, and loadEnvFile
+// never overrides variables that are already set. Net effect for drizzle-kit:
+// `.env` beats `.env.local` here, and the shell environment beats both. That
+// is why `.env` must only ever hold the localhost DATABASE_URL (a commented
+// PROD_DATABASE_URL line is storage only, nothing reads it; deliberate prod
+// runs pass DATABASE_URL inline — the shell environment beats env files). The explicit
+// loads below cover the files drizzle-kit doesn't read (.env.local) and keep
+// a present-but-unreadable file loud: it throws instead of silently falling
+// back to a different database.
 for (const file of [".env.local", ".env"]) {
   if (existsSync(file)) {
     process.loadEnvFile(file);

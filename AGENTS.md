@@ -2,7 +2,7 @@
 
 ## Project
 
-Larder — shared household food hub: realtime shopping cart, pantry, recipe library with AI import, weekly menu pool, AI assistant. Mobile-first PWA (Next.js), Russian UI.
+Larder — shared household food hub: shared shopping cart (refetch sync in MVP, instant push post-MVP), pantry, recipe library with AI import, weekly menu pool, AI assistant. Mobile-first PWA (Next.js), Russian UI.
 
 Read before working:
 
@@ -38,7 +38,8 @@ Read before working:
 - TypeScript strict, no `any`. Zod at every boundary: tRPC inputs/outputs, env parsing, AI structured outputs. For OpenAI strict mode use `.nullable()`, never `.optional()`.
 - DB: Drizzle schema is the single source of truth. Migrations via drizzle-kit; never edit an applied migration. Better Auth tables are generated with `@better-auth/cli generate` and versioned with regular migrations.
 - DB migrations are **pre-authorized by the user**: generate and apply drizzle-kit migrations (local dev DB and Railway) without asking for confirmation.
-- Realtime invariants (VISION §6.3): `LISTEN` runs on a dedicated non-pooled connection with auto-reconnect + re-LISTEN; SSE reconnect ⇒ invalidate the household's query cache.
+- Sync model, MVP (VISION §6.3, decided 2026-08-19): mutations persist immediately; the partner's view catches up via TanStack Query refetch (on focus + background interval + pull-to-refresh). No realtime infra in MVP — SSE/LISTEN-NOTIFY notes in VISION §6.3 are post-MVP.
+- Deploys: app on Vercel, Postgres on Railway. Code deploy and DB migration are NOT atomic (migrations run via the `migrate.yml` GitHub Action) ⇒ migrations must be backward-compatible (additive). `.env` keeps only the localhost DATABASE_URL — drizzle-kit preloads `.env` with its own dotenv, so a prod URL there would make local `db:migrate`/`db:push` hit production.
 - Cart invariant: **one active CartItem per product** — partial unique index `WHERE trip_id IS NULL`. Never bypass it in application code.
 - AI calls: cheap model + `reasoning_effort: "low"` for parsing/normalization. Record cost in `AiJob.costUsd` — always, from the very first AI feature. `AI_MONTHLY_BUDGET_USD` caps the **assistant only** (import and icon-picking keep working at the cap); the check lives in the assistant (task 6.1). AI endpoints are rate-limited from the first one (task 1.3).
 - Tests: vitest, colocated `*.test.ts`. Business logic (cart merge rules, menu→cart summing, parsers, invariants) must be covered. Recipe parsers are tested against saved HTML fixtures (`__fixtures__/`), not live network.
