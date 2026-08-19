@@ -30,7 +30,7 @@
 | ID | Задача | Модель | Статус | PR | Примечания |
 |---|---|---|---|---|---|
 | 0.0 ⚑ | Каркас проекта: план, CLAUDE.md, CI-заглушка, wiki-sync, лицензия, README, защита main | fable | 🟢 | #1 | Этот PR |
-| 0.1 ⚑ | Bootstrap: Next.js 15 (App Router) + TypeScript strict + pnpm; ESLint (flat) + Prettier; vitest; наполнение CI реальными шагами | sonnet | ⬜ | — | Обязательно: поле `"packageManager": "pnpm@<v>"` в package.json (его читает pnpm/action-setup); package.json и pnpm-lock.yaml коммитятся вместе |
+| 0.1 ⚑ | Bootstrap: Next.js 15 (App Router) + TypeScript strict + pnpm; ESLint (flat) + Prettier; vitest; наполнение CI реальными шагами | sonnet | 🟢 | [#2](https://github.com/ilyanosovsky/larder/pull/2) | next 15.5 · react 19.2 · ts 5.9 · eslint 9 flat · vitest 3 |
 | 0.2 ⚑ | БД: Drizzle + Postgres, drizzle-kit миграции, docker-compose для локальной БД, каркас сида | sonnet | ⬜ | — | |
 | 0.3 ⚑ | Auth: Better Auth (Google OAuth + magic link через Resend), таблицы через `@better-auth/cli generate`, middleware, экран входа S1 | opus | ⬜ | — | `BETTER_AUTH_SECRET` ≥ 32 симв. |
 | 0.4 ⚑ | API-каркас: tRPC v11 + TanStack Query + Zod, `splitLink` (задел под SSE), обработка ошибок | opus | ⬜ | — | Конвенция: `.nullable()` вместо `.optional()` |

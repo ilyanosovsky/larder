@@ -10,6 +10,7 @@ next-env.d.ts
 build/
 dist/
 coverage/
+*.tsbuildinfo
 
 # env — secrets never leave the machine
 .env
