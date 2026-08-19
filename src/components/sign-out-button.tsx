@@ -13,17 +13,29 @@ export function SignOutButton() {
   const t = useTranslations("auth");
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   async function signOut() {
     setPending(true);
+    setFailed(false);
 
     try {
-      await authClient.signOut();
+      // Better Auth client methods resolve with { data, error } instead of
+      // rejecting — an error must block navigation, or the login page would
+      // bounce the still-active session straight back home.
+      const { error } = await authClient.signOut();
+      if (error) {
+        setFailed(true);
+        setPending(false);
+        return;
+      }
+
       router.replace(LOGIN_PATH);
       // Drop the cached server-rendered tree so the shell cannot be shown
       // from the router cache after the session cookie is gone.
       router.refresh();
     } catch {
+      setFailed(true);
       setPending(false);
     }
   }
@@ -38,6 +50,11 @@ export function SignOutButton() {
       >
         {pending ? t("signOutPending") : t("signOut")}
       </button>
+      {failed ? (
+        <p className={styles.error} role="alert">
+          {t("error")}
+        </p>
+      ) : null}
     </div>
   );
 }

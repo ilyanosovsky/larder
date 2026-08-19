@@ -35,6 +35,9 @@ function createAuth() {
     plugins: [
       magicLink({
         expiresIn: MAGIC_LINK_EXPIRES_IN_SECONDS,
+        // Store only a hash of the token: a database-read attacker must not
+        // be able to redeem unexpired links from verifications.value.
+        storeToken: "hashed",
         sendMagicLink: async ({ email, url }) => {
           const { subject, html, text } = renderMagicLinkEmail(url);
           const { error } = await resend.emails.send({
