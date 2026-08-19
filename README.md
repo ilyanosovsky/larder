@@ -33,30 +33,30 @@ git clone https://github.com/ilyanosovsky/larder.git
 cd larder
 pnpm install
 cp .env.example .env.local   # fill in the values (see table below)
+docker compose up -d         # local Postgres
+pnpm db:migrate
 pnpm dev
 ```
 
-Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm format`.
-
-From Phase 0.2 on (local Postgres + migrations): `docker compose up -d` · `pnpm db:migrate` · `pnpm db:studio`.
+Scripts: `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` (vitest) · `pnpm format` · `pnpm db:generate` · `pnpm db:migrate` · `pnpm db:push` · `pnpm db:studio` · `pnpm db:seed`.
 
 ## Environment variables
 
 Local values go to `.env.local` (gitignored). Production values go to **Railway → your app service → Variables**. CI needs no secrets (tests never call external services).
 
-| Variable | Purpose | Where to get it |
-|---|---|---|
-| `DATABASE_URL` | Postgres connection string | Railway Postgres plugin / local Docker |
-| `BETTER_AUTH_SECRET` | Auth encryption secret (≥32 chars) | `openssl rand -base64 32` |
-| `BETTER_AUTH_URL` | App base URL for auth callbacks | `http://localhost:3000` locally |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google sign-in | Google Cloud Console → OAuth client (add redirect URIs for localhost and prod) |
-| `RESEND_API_KEY` | Magic-link and invite emails | resend.com (verified custom domain required in prod) |
-| `EMAIL_FROM` | From address for emails | e.g. `Larder <noreply@yourdomain.tld>` |
-| `OPENAI_API_KEY` | Recipe parsing + assistant | platform.openai.com |
-| `AI_MONTHLY_BUDGET_USD` | Hard cap for AI spend (default 20) | — |
-| `FIRECRAWL_API_KEY` | Fallback recipe scraping | firecrawl.dev |
-| `UPLOADTHING_TOKEN` | Image uploads | uploadthing.com |
-| `NEXT_PUBLIC_APP_URL` | Public app URL | `http://localhost:3000` locally |
+| Variable                                    | Purpose                            | Where to get it                                                                |
+| ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`                              | Postgres connection string         | Railway Postgres plugin / local Docker                                         |
+| `BETTER_AUTH_SECRET`                        | Auth encryption secret (≥32 chars) | `openssl rand -base64 32`                                                      |
+| `BETTER_AUTH_URL`                           | App base URL for auth callbacks    | `http://localhost:3000` locally                                                |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google sign-in                     | Google Cloud Console → OAuth client (add redirect URIs for localhost and prod) |
+| `RESEND_API_KEY`                            | Magic-link and invite emails       | resend.com (verified custom domain required in prod)                           |
+| `EMAIL_FROM`                                | From address for emails            | e.g. `Larder <noreply@yourdomain.tld>`                                         |
+| `OPENAI_API_KEY`                            | Recipe parsing + assistant         | platform.openai.com                                                            |
+| `AI_MONTHLY_BUDGET_USD`                     | Hard cap for AI spend (default 20) | —                                                                              |
+| `FIRECRAWL_API_KEY`                         | Fallback recipe scraping           | firecrawl.dev                                                                  |
+| `UPLOADTHING_TOKEN`                         | Image uploads                      | uploadthing.com                                                                |
+| `NEXT_PUBLIC_APP_URL`                       | Public app URL                     | `http://localhost:3000` locally                                                |
 
 Details and step-by-step setup: [wiki → Env Setup](https://github.com/ilyanosovsky/larder/wiki/Env-Setup).
 
