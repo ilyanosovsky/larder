@@ -71,7 +71,7 @@ Details and step-by-step setup: [wiki → Env Setup](https://github.com/ilyanoso
 
 ## Deployment
 
-Single Railway project: the Next.js app (always-on Node process — SSE needs it) + Postgres. Realistic cost: $5–10/month. Deploys from `main`.
+Single Railway project: the Next.js app (always-on Node process — SSE needs it) + Postgres. Realistic cost: $5–10/month. Deploys from `main`; [`railway.json`](railway.json) runs migrations as a pre-deploy step and probes `/api/health`. Full setup guide: [wiki → Deploy-Railway](https://github.com/ilyanosovsky/larder/wiki/Deploy-Railway).
 
 ## License
 
