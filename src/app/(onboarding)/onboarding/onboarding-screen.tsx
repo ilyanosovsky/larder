@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 
-import { HOME_PATH } from "@/lib/auth-redirect";
+import { ONBOARDING_KITCHEN_PATH } from "@/lib/auth-redirect";
 import { isConflictError } from "@/lib/trpc-errors";
 import { useTRPC } from "@/trpc/client";
 
@@ -90,11 +90,12 @@ export function OnboardingScreen() {
     }
   }
 
-  function goToApp() {
+  function continueToKitchenProfile() {
     setLeaving(true);
-    router.push(HOME_PATH);
-    // Drop the cached server tree so the household gate in the (app) layout
-    // re-runs against the membership that now exists.
+    router.push(ONBOARDING_KITCHEN_PATH);
+    // Drop the cached server tree so the next step's own household check
+    // (and eventually the (app) layout's) re-runs against the membership
+    // that now exists.
     router.refresh();
   }
 
@@ -206,7 +207,7 @@ export function OnboardingScreen() {
         <button
           type="button"
           className={styles.primaryButton}
-          onClick={goToApp}
+          onClick={continueToKitchenProfile}
           disabled={leaving}
         >
           {t("continue")}

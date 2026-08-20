@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { AppHeader } from "./app-header";
 import styles from "./app-shell.module.css";
 import { NAV_ICONS } from "./nav-icons";
 import {
@@ -45,7 +46,18 @@ function NavLink({
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  householdName,
+  userName,
+  userImage,
+}: {
+  children: ReactNode;
+  /** Passed down from the `(app)` layout, which already loads it for the gate. */
+  householdName: string;
+  userName: string;
+  userImage: string | null;
+}) {
   const pathname = usePathname();
   const tNav = useTranslations("nav");
   const tCommon = useTranslations("common");
@@ -76,6 +88,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className={styles.main}>
+        <AppHeader
+          householdName={householdName}
+          userName={userName}
+          userImage={userImage}
+        />
         <div className={styles.content}>{children}</div>
       </div>
 

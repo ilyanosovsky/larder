@@ -43,6 +43,13 @@
       "when": 1787214234606,
       "tag": "0005_breezy_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787228197555,
+      "tag": "0006_unusual_argent",
+      "breakpoints": true
     }
   ]
 }

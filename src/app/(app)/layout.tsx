@@ -32,5 +32,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect(ONBOARDING_PATH);
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell
+      householdName={household.household.name}
+      userName={session.user.name}
+      userImage={session.user.image ?? null}
+    >
+      {children}
+    </AppShell>
+  );
 }

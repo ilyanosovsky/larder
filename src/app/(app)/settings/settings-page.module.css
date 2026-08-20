@@ -1,6 +1,83 @@
+/* S12 Settings scaffold (task 1.4) — Paper Ledger: square rules, one
+   ledger green. Page title → section blocks → identity/sign-out footer. */
+
+.screen {
+  padding-bottom: var(--s-8);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-title);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+  line-height: var(--lead-tight);
+}
+
+/* ── Settings sections ── */
+
+.section {
+  margin-top: var(--s-7);
+  border-top: var(--bd-hair) solid var(--rule);
+  padding-top: var(--s-6);
+}
+
+.sectionTitle {
+  margin-bottom: var(--s-5);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  font-weight: var(--w-semibold);
+}
+
+.pending {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.error {
+  margin-top: var(--s-3);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}
+
+.retryButton {
+  min-height: 44px;
+  margin-top: var(--s-3);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.retryButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.toast {
+  margin-top: var(--s-3);
+  color: var(--green-txt);
+  font-size: var(--t-meta);
+}
+
+/* ── Identity + sign-out footer ── */
+
+.footer {
+  margin-top: var(--s-7);
+  border-top: var(--bd-hair) solid var(--rule);
+  padding-top: var(--s-6);
+}
+
 .identity {
   margin: 0 0 var(--s-4);
-  padding: 0 var(--s-5);
   color: var(--mute);
   font-family: var(--font-sans);
   font-size: var(--t-meta);

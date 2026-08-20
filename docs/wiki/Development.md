@@ -219,6 +219,45 @@ The sheet debounces input by 200 ms and keeps the previous list on screen while 
 
 The «Покупки» tab is a deliberately lean catalog view — **task 2.3 replaces it with S3 «Корзина»**, reading from this same router. The quantity stepper DESIGN_BRIEF S4 describes belongs to the cart and lands with it; there is a `TODO(2.3)` on the line where an added product will join it.
 
+## Kitchen profile
+
+A household's equipment checklist + headcount (VISION §3.3, §5) — what a recipe is checked against, and what the assistant reads for "adapt this to what we have" once it exists. Task 1.4 builds the model, the router, the S2 onboarding step and a first S12 settings section; the assistant integration is later.
+
+`kitchen_profiles` (`src/db/schema.ts`) is keyed by `householdId` itself (no separate `id` — the row is 1:1 with the household), plus `householdSize` (default 2) and `equipment` (`text[]`, default `{}`).
+
+**Presets vs. free-form.** `src/server/kitchen/equipment.ts` exports `EQUIPMENT_PRESETS` — the 11 checklist slugs (`oven`, `microwave`, `kettle`, `induction_hob`, `blender`, `grater`, `garlic_press`, `multicooker`, `mixer`, `airfryer`, `food_processor`) DESIGN_BRIEF §5 lists, our own starting profile being the first seven. `equipment` stores a mix of these slugs and whatever free text someone types into the "add your own" field in the same array — the checklist just renders the preset subset as checkboxes.
+
+Recognizing that typed text actually names a preset is a two-layer split:
+
+- **Client** — `resolveEquipmentEntry()` (`src/lib/equipment-entry.ts`, pure, unit-tested) matches an "add your own" entry against both the slug strings and their localized checklist labels (built from the same `kitchenProfile.equipment.*` messages the checkboxes render), case-insensitively. So typing the slug, the checklist's own label for it, or a different casing of either, all resolve to the `oven` box in `kitchen-profile-form.tsx` instead of adding a redundant chip beside it. `withSlugChecked()`, colocated in the same file, also drops any free-form entry that already case-insensitively equals the slug being checked (a stray "Oven" chip, say) before appending the canonical slug — otherwise `normalizeEquipment`'s own dedup would collide with it and the checkbox would silently do nothing.
+- **Server** — `normalizeEquipment()` never sees a localized label, only slugs and free text that already agree with the checklist by the time they reach it. It cleans that up: trim, cap at 40 chars, drop empties, dedupe (exact match for a preset slug, case-insensitive for everything else). Both the client (as chips are added) and the server (on every `update`) run this same function, so the two always agree on the final list.
+
+### `kitchenProfile` router
+
+| Procedure               | Boundary             | Notes                                                                                                                            |
+| ----------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `kitchenProfile.get`    | `householdProcedure` | `{ householdSize, equipment } \| null` — null means never set; the client falls back to size 2, no equipment                     |
+| `kitchenProfile.update` | `householdProcedure` | Upserts via `onConflictDoUpdate` on `householdId` — there is no client-sent id to check, the target is always `ctx.household.id` |
+
+### Screens
+
+| Route                      | What it is                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `/onboarding/kitchen`      | S2 step, reached after a household exists — "Done" or a quiet "Skip", both land on `/`                      |
+| `/settings` (S12 scaffold) | Page title, the kitchen-profile section, then signed-in identity + sign-out — task 7.1 adds the rest of S12 |
+
+Both screens render the same `src/components/kitchen-profile-form.tsx` — checklist, free-form chips, a 1–10 household-size stepper — so the two can never drift. The form is a plain controlled component (no autosave): the caller owns the `kitchenProfile.update` mutation and passes `pending`/`onSubmit` in.
+
+`OnboardingScreen`'s "Continue" action and the invite-accept success path both now land on `/onboarding/kitchen` instead of `/` (`ONBOARDING_KITCHEN_PATH` in `src/lib/auth-redirect.ts`); the kitchen step itself is the one that finally lands on `/`.
+
+**The S2 step reads before it writes.** `/onboarding/kitchen`'s `page.tsx` calls `kitchenProfile.get()` server-side and passes the result into `KitchenOnboardingScreen` as `initialProfile` — it does not default the form to size 2 / no equipment unconditionally. The reason is who actually lands on this step: the household's creator may reach it having already filled the profile in, and the _partner_ accepting the invite lands here right after, on the very same household. A hardcoded blank default would let the partner's first, empty "Done" tap silently overwrite whatever the creator already saved — `initialProfile` is what makes the step idempotent instead.
+
+The S12 section (`kitchen-profile-section.tsx`) makes the equivalent guarantee against its own query state: the form only ever mounts once `kitchenProfile.get` has resolved to a real value (success) or `null` (never set) — `profile.isPending` shows a loading line and `profile.isError` shows a retry button instead, so the Save action can never fire against `DEFAULT_VALUE` while the actual profile failed to load.
+
+### Header avatar entry
+
+`src/components/app-header.tsx`, mounted in `AppShell`: household name on the left, the caller's own avatar (image, or an initial-letter circle) on the right, linking to `/settings` — DESIGN_BRIEF §2's "tapping your own avatar opens Settings". `(app)/layout.tsx` passes `householdName`/`userName`/`userImage` down from the same session/household load the gate already does. This is deliberately the minimal header; the full S3 version (partner avatars, sync indicator) is task 2.3, marked with a `TODO(2.3)` on the component.
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.

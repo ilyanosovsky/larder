@@ -3,7 +3,8 @@
     "metaTitle": "Larder",
     "metaDescription": "Общий продуктовый хаб семьи: корзина, кладовая, рецепты, меню и ИИ-ассистент.",
     "mainNavigation": "Основная навигация",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "openSettingsAria": "Открыть настройки"
   },
   "nav": {
     "purchases": "Покупки",
@@ -15,11 +16,19 @@
   "placeholders": {
     "menu": "Скоро здесь будет меню недели.",
     "dishes": "Скоро здесь будет библиотека блюд.",
-    "assistant": "Скоро здесь будет ИИ-ассистент.",
-    "settings": "Скоро здесь будут настройки."
+    "assistant": "Скоро здесь будет ИИ-ассистент."
   },
   "settings": {
-    "signedInAs": "Вход выполнен: {email}"
+    "title": "Настройки",
+    "signedInAs": "Вход выполнен: {email}",
+    "kitchenProfileTitle": "Профиль кухни",
+    "kitchenProfileLoading": "Загружаем профиль…",
+    "kitchenProfileLoadFailed": "Не удалось загрузить профиль кухни.",
+    "kitchenProfileRetry": "Повторить",
+    "kitchenProfileSave": "Сохранить",
+    "kitchenProfileSavePending": "Сохраняем…",
+    "kitchenProfileSaved": "Профиль кухни сохранён",
+    "kitchenProfileError": "Не получилось сохранить. Попробуй ещё раз."
   },
   "catalog": {
     "title": "Каталог продуктов",
@@ -81,6 +90,37 @@
     "copied": "Скопировано",
     "copyFailed": "Не получилось скопировать — выдели ссылку и скопируй вручную.",
     "continue": "Продолжить"
+  },
+  "kitchenProfile": {
+    "equipmentLegend": "Техника на кухне",
+    "equipment": {
+      "oven": "Духовка",
+      "microwave": "Микроволновка",
+      "kettle": "Чайник",
+      "induction_hob": "Индукционная плита",
+      "blender": "Блендер",
+      "grater": "Тёрка",
+      "garlic_press": "Чеснокодавилка",
+      "multicooker": "Мультиварка",
+      "mixer": "Миксер",
+      "airfryer": "Аэрогриль",
+      "food_processor": "Кухонный комбайн"
+    },
+    "customLabel": "Добавить своё",
+    "customPlaceholder": "Например, соковыжималка",
+    "customAdd": "Добавить",
+    "customRemoveAria": "Убрать «{name}»",
+    "householdSizeLabel": "Человек в доме",
+    "decreaseAria": "Меньше",
+    "increaseAria": "Больше"
+  },
+  "onboardingKitchen": {
+    "title": "Профиль кухни",
+    "subtitle": "Отметь свою технику — рецепты и ассистент будут учитывать её. Это можно пропустить и заполнить позже.",
+    "save": "Готово",
+    "savePending": "Сохраняем…",
+    "skip": "Пропустить",
+    "error": "Не получилось сохранить. Попробуй ещё раз."
   },
   "invite": {
     "heading": "{inviter} приглашает тебя в «{household}»",

@@ -211,6 +211,34 @@ export const products = pgTable(
   ],
 );
 
+/**
+ * A household's kitchen equipment and headcount (VISION §3.3, §5): the
+ * "kitchen profile" a recipe is checked against and the assistant reads for
+ * "adapt this to what we have". Set from S2 onboarding (skippable) and
+ * editable from S12 settings (task 1.4).
+ *
+ * `householdId` is the primary key rather than a separate `id` — the row is
+ * 1:1 with its household by construction, so there is nothing a second key
+ * would ever address that the household id doesn't already. `equipment`
+ * stores a mix of preset slugs (`src/server/kitchen/equipment.ts`) and
+ * free-form strings side by side, matching VISION §5 "checklist + free-form
+ * entry": the presets are just the entries the UI renders as checkboxes
+ * instead of chips.
+ */
+export const kitchenProfiles = pgTable("kitchen_profiles", {
+  householdId: uuid("household_id")
+    .primaryKey()
+    .references(() => households.id, { onDelete: "cascade" }),
+  householdSize: integer("household_size").notNull().default(2),
+  equipment: text("equipment")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const aiJobTypeEnum = pgEnum("ai_job_type", [
   "product_enrich",
   "parse_photo",

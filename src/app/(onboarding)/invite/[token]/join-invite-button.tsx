@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { HOME_PATH } from "@/lib/auth-redirect";
+import { ONBOARDING_KITCHEN_PATH } from "@/lib/auth-redirect";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./invite-screen.module.css";
@@ -24,9 +24,10 @@ export function JoinInviteButton({ token }: { token: string }) {
 
     try {
       await accept.mutateAsync({ token });
-      router.push(HOME_PATH);
-      // The household gate in the (app) layout must see the new membership,
-      // so the cached server tree has to go.
+      router.push(ONBOARDING_KITCHEN_PATH);
+      // The kitchen-profile step's own household check (and eventually the
+      // (app) layout's) must see the new membership, so the cached server
+      // tree has to go.
       router.refresh();
     } catch {
       setFailed(true);
