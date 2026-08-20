@@ -192,10 +192,30 @@ function loadCategories(
 /**
  * The household's own row for a name, if it has one.
  *
- * Matches `lower(name)` — the same expression the unique index uses, so this
- * finds exactly what an insert would collide with — and additionally any row
- * that already lists the name as an alias, since «томаты» and «Помидоры» must
- * not become two products.
+ * Three probes, and the order is the order of importance:
+ *
+ * 1. **`lower(name) = lower(<input>)` — the unique index's own expression**,
+ *    with Postgres evaluating `lower()` on both sides so the comparison is
+ *    byte-for-byte the one the index makes. This is the only probe that is
+ *    guaranteed to find whatever an insert would collide with, which is what
+ *    makes `insertProduct`'s recovery-after-23505 actually recover.
+ * 2. `lower(name) = <normalizeProductName(input)>` — the application's wider
+ *    notion of "the same product". Finds a stored «Мед» when «Мёд» is typed,
+ *    which probe 1 alone would happily let through as a second row.
+ * 3. `<normalized> = ANY(aliases)` — «томаты» has to find «Помидоры».
+ *
+ * **Probe 1 cannot be folded into probe 2.** They disagree on exactly the
+ * names that contain ё or a doubled space, because normalization folds those
+ * and `lower()` does not. Without probe 1, a repeat create of a stored «Мёд»
+ * misses the pre-check, collides on the index, misses the recovery lookup for
+ * the same reason, and surfaces as an INTERNAL_SERVER_ERROR — on the
+ * `source: "new"` path after an AI call that was already billed.
+ *
+ * Residual, deliberate: the ё-folding is one-way. A stored «Мёд» is not found
+ * by typing «мед», because that needs `translate(lower(name), 'ё', 'е')`,
+ * which no index can serve. It costs a near-duplicate rather than an error,
+ * and the UI does not reach it — `searchCatalog` normalizes both sides, so
+ * «мед» matches «Мёд» exactly and «Создать „…“» is never offered.
  */
 async function findExistingProduct(
   db: Database,
@@ -211,6 +231,7 @@ async function findExistingProduct(
       and(
         eq(products.householdId, householdId),
         or(
+          sql`lower(${products.name}) = lower(${name})`,
           sql`lower(${products.name}) = ${normalized}`,
           sql`${normalized} = ANY(${products.aliases})`,
         ),
@@ -503,9 +524,14 @@ export const productRouter = createTRPCRouter({
         });
       } catch (error) {
         // `enrichProduct` itself never throws; this catches `ctx.openai()`
-        // failing to build a client at all — a missing or malformed
-        // OPENAI_API_KEY. Same outcome as any other enrichment failure: the
-        // product still gets created, with defaults.
+        // failing to build a client at all — a malformed OPENAI_API_KEY, say.
+        // Same outcome as any other enrichment failure: the product still
+        // gets created, with defaults.
+        //
+        // A *missing* key never reaches here: `env()` validates the whole
+        // schema on its first call and `db()` calls `env()`, so the request
+        // dies building its context. That is the intended behaviour for an
+        // absent required variable, not something to paper over.
         result = {
           ok: false,
           error: error instanceof Error ? error.message : String(error),

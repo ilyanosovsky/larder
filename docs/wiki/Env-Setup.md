@@ -31,4 +31,9 @@ The test CI runs without secrets by design — tests must never call external se
 
 Adding a new variable? Update `.env.example`, the README table, and this page — in the same PR (rule in [CLAUDE.md](https://github.com/ilyanosovsky/larder/blob/main/CLAUDE.md)).
 
-**Missing `OPENAI_API_KEY` is not fatal.** It is declared required, but the app never reads it until an AI call happens, and the one AI path that exists (`product.create` with `source: "new"`) treats a client it cannot build exactly like any other enrichment failure: the product is still created, with 🛒 / «Бакалея» / «шт», and the `ai_jobs` row records the error. So a deployment without the key loses icon-picking, not product creation — and `pnpm build`, which runs with no environment at all, is unaffected.
+**A missing `OPENAI_API_KEY` takes the whole app down — a broken one does not.** The two cases are worth keeping apart:
+
+- **Missing (or empty).** `env()` validates the _entire_ schema on its first call and throws naming every absent variable at once. `db()` calls `env()`, and every request builds a tRPC context that calls `db()` — so a deployment without the key fails on **every request**, not just AI ones, long before any fallback could run. This is deliberate: the variable is declared required, and a required variable being absent is a deployment error, not a degraded mode.
+- **Present but invalid, revoked or rate-limited by OpenAI.** Here the graceful path applies. `product.create` with `source: "new"` treats the failure like any other enrichment failure: the product is still created, with 🛒 / «Бакалея» / «шт», and the `ai_jobs` row records the error. Icon-picking stops working; product creation does not.
+
+`pnpm build` is unaffected either way — it runs with no environment at all, and nothing reads `env()` at import time.

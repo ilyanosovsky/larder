@@ -122,9 +122,13 @@ function hasCode(code: TRPCError["code"]) {
 }
 
 /** Compiles a recorded clause so a test can assert on the real SQL. */
-function compile(clause: unknown): string {
+function compileQuery(clause: unknown): { sql: string; params: unknown[] } {
   expect(isSQLWrapper(clause)).toBe(true);
-  return new PgDialect().sqlToQuery((clause as SQLWrapper).getSQL()).sql;
+  return new PgDialect().sqlToQuery((clause as SQLWrapper).getSQL());
+}
+
+function compile(clause: unknown): string {
+  return compileQuery(clause).sql;
 }
 
 /**
@@ -298,20 +302,59 @@ describe("product.create — an existing product", () => {
     expect(stub.statements).toHaveLength(3);
   });
 
-  it("matches an existing product on lower(name) or an alias", async () => {
+  it("probes the index expression, the normalized name and the aliases", async () => {
     const { caller, stub } = callerWith([
       [membershipRow],
       CATEGORY_ROWS,
       [productRow()],
     ]);
 
-    await caller.product.create({ source: "reference", name: "Молоко" });
+    await caller.product.create({ source: "reference", name: "Мёд" });
 
     const lookup = stub.statements[2];
     expectScopedByHousehold(lookup);
-    const where = compile(lookup?.wheres[0]);
-    expect(where).toContain("lower(");
+    const { sql: where, params } = compileQuery(lookup?.wheres[0]);
+
+    // Probe 1 lowers *both* sides in Postgres, so the comparison is the
+    // unique index's own expression rather than an approximation of it.
+    expect(where).toContain("lower($");
     expect(where).toContain("ANY(");
+    // …and it is bound with the raw name, not the normalized one: those two
+    // differ exactly where the bug lived.
+    expect(params).toContain("Мёд");
+    expect(params).toContain("мед");
+  });
+
+  it("returns the existing row for a repeat create of a ё-name", async () => {
+    // The regression this guards: stored «Мёд» has no aliases, and
+    // `lower('Мёд')` is 'мёд', which the normalized probe ('мед') never
+    // equals. With only the normalized probe this create missed the
+    // pre-check, collided on the unique index, missed the recovery lookup
+    // for exactly the same reason, and surfaced as INTERNAL_SERVER_ERROR —
+    // on `source: "new"`, after an AI call that had already been billed.
+    const honey = productRow({
+      id: OTHER_PRODUCT_ID,
+      name: "Мёд",
+      icon: "🍯",
+      categoryId: GROCERY_ID,
+      defaultUnit: "банка",
+    });
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      CATEGORY_ROWS,
+      [honey],
+    ]);
+
+    await expect(
+      caller.product.create({ source: "new", name: "Мёд" }),
+    ).resolves.toMatchObject({
+      product: { id: OTHER_PRODUCT_ID, name: "Мёд" },
+      enriched: false,
+      aiFailed: false,
+    });
+    // No rate-limit count, no ai_jobs row, no insert — and no AI call, since
+    // the context's `openai` throws.
+    expect(stub.statements).toHaveLength(3);
   });
 });
 

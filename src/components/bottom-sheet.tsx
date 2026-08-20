@@ -1,18 +1,33 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import styles from "./bottom-sheet.module.css";
+
+/** Everything that can hold focus inside a sheet. Disabled controls cannot. */
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 
 /**
  * The bottom sheet every "add / edit a thing" flow opens from
  * (DESIGN_BRIEF §3): scrim, square paper panel, closes on scrim tap or Esc.
  *
- * Shared rather than re-implemented per screen, because the dismissal
- * behaviour is the part that is easy to get subtly wrong — an Esc listener
- * that outlives the sheet, or a scrim that swallows taps meant for the panel.
- * Both S4 «Добавление продукта» and the «изменить продукт» mini-sheet sit on
- * this.
+ * Shared rather than re-implemented per screen, because none of the modal
+ * behaviour is where a feature's interest lies and all of it is easy to get
+ * subtly wrong — an Esc listener that outlives the sheet, focus escaping to
+ * the page behind, the page scrolling under a lifted finger. Both S4
+ * «Добавление продукта» and the «изменить продукт» mini-sheet sit on this.
+ *
+ * `aria-modal="true"` is a promise to assistive technology that the rest of
+ * the page is inert, so this component has to keep it: focus moves in on
+ * open, Tab cycles within the panel, and the element that opened the sheet
+ * gets focus back on close.
  */
 export function BottomSheet({
   open,
@@ -27,20 +42,121 @@ export function BottomSheet({
   closeLabel: string;
   children: ReactNode;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Held in a ref so the effect below can depend on `open` alone. Callers
+  // pass inline arrows (`onClose={() => setEditing(null)}`), so a dependency
+  // on `onClose` would re-run the whole effect on every parent render —
+  // restoring and re-taking focus each time, which yanks the caret out of
+  // whatever the user is typing in.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  /**
+   * The control that opened the sheet, so focus can go back to it on close.
+   *
+   * Captured during the render that flips `open` to true — the last moment
+   * at which `document.activeElement` is still the opener. Neither effects
+   * nor layout effects can be used for this: React applies `autoFocus` in
+   * the commit phase, before both, so by the time either runs the active
+   * element is already the sheet's own search field. Restoring focus to
+   * *that* is a silent no-op against a detached node, and the user lands on
+   * `<body>`.
+   *
+   * A focus-event listener kept while closed was the other candidate and is
+   * worse: browsers that do not focus a `<button>` on click (Safari) would
+   * leave it holding some unrelated earlier element, and focus would be
+   * restored to the wrong place rather than to none.
+   */
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  if (open && !wasOpenRef.current && typeof document !== "undefined") {
+    const active = document.activeElement;
+    // `<body>` means nothing had focus — restoring to it is meaningless, so
+    // record nothing and leave focus alone on close.
+    openerRef.current =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+  }
+  wasOpenRef.current = open;
+
   useEffect(() => {
     if (!open) {
       return;
     }
 
+    const panel = panelRef.current;
+    const opener = openerRef.current;
+
+    // Only claim focus if nothing inside has it yet: the S4 search field
+    // autofocuses itself during the commit, and landing there beats landing
+    // on the close button.
+    if (panel && !panel.contains(document.activeElement)) {
+      panel.focus();
+    }
+
+    // One sheet is open at a time in this app, so a plain save/restore is
+    // enough — no depth counter.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
+        return;
+      }
+
+      if (event.key !== "Tab" || !panel) {
+        return;
+      }
+
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (!first || !last) {
+        // Nothing to tab to — keep focus on the panel rather than letting it
+        // fall through to the page behind the scrim.
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const active = document.activeElement;
+      const inside = panel.contains(active);
+
+      if (event.shiftKey) {
+        if (!inside || active === first || active === panel) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (!inside || active === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      // Skipped if the opener was unmounted in the meantime (a catalog row
+      // replaced by a refetch, say): focusing a detached node silently drops
+      // focus on `<body>`, so leaving it where the browser put it is no
+      // worse and the check keeps the intent honest.
+      if (opener?.isConnected) {
+        opener.focus();
+      }
+    };
+  }, [open]);
 
   if (!open) {
     return null;
@@ -58,10 +174,13 @@ export function BottomSheet({
         data-testid="sheet-scrim"
       />
       <div
+        ref={panelRef}
         className={styles.sheet}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        // Focusable as a container, but never a tab stop of its own.
+        tabIndex={-1}
       >
         <div className={styles.header}>
           <h2 className={styles.title}>{title}</h2>

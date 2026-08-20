@@ -90,6 +90,16 @@
 
 .body {
   overflow-y: auto;
+  /* Keeps a scroll gesture that reaches the end of this list from chaining
+     to the page behind the scrim. */
+  overscroll-behavior: contain;
   flex: 1;
   padding: var(--s-4);
+}
+
+/* The panel takes focus programmatically (tabindex="-1"), which must not
+   draw a focus ring — the sheet appearing is the visible feedback. Real
+   focus rings on the controls inside are untouched. */
+.sheet:focus {
+  outline: none;
 }

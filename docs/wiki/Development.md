@@ -174,7 +174,9 @@ Reference entries carry a `categorySlug`; `resolveCategoryIdForSlug()` (`src/ser
 - **`categoryId` is re-checked against the ids we actually sent**, after parsing. Strict mode constrains the shape of the field, never its value, and a hallucinated uuid would otherwise file the product into nothing. The icon is checked for being plausibly a single emoji.
 - **The function never throws.** Network error, refusal, malformed JSON, invented department — all come back as `ok: false`.
 
-**Failure is not an error the user sees as one.** Whatever goes wrong, the product is still created, with 🛒 / «Бакалея» / «шт», and `aiFailed: true` tells the sheet to show a calm amber "проверь иконку и отдел" (DESIGN_BRIEF §6: yellow, not red). VISION §3.1 is explicit that the AI is a helper and everything is editable — one tap opens the edit form. This covers a missing `OPENAI_API_KEY` too: the router catches `ctx.openai()` failing to build a client and treats it the same way.
+**Failure is not an error the user sees as one.** Whatever goes wrong, the product is still created, with 🛒 / «Бакалея» / «шт», and `aiFailed: true` tells the sheet to show a calm amber "проверь иконку и отдел" (DESIGN_BRIEF §6: yellow, not red). VISION §3.1 is explicit that the AI is a helper and everything is editable — one tap opens the edit form. The router also catches `ctx.openai()` itself throwing and treats that the same way, which covers an **invalid or revoked** key.
+
+It does **not** cover a **missing** one: `env()` validates the whole schema on first call and `db()` calls `env()`, so a deployment without `OPENAI_API_KEY` fails every request at context construction, well before the enrichment fallback is reachable. That is the intended behaviour for an absent required variable — see [[Env-Setup]].
 
 ### `AiJob` lifecycle and cost
 

@@ -104,20 +104,47 @@ export function AutocompleteSheet({
 
   const hits = suggestions.data ?? [];
 
-  /** The results on screen are the ones for what is currently typed. */
-  const settled = trimmedQuery === query.trim() && !suggestions.isFetching;
+  /**
+   * The results on screen are a *successful* search for what is currently
+   * typed — not a stale list, not a half-loaded one, and not an empty list
+   * that is really a failed request.
+   */
+  const settled =
+    trimmedQuery === query.trim() &&
+    !suggestions.isFetching &&
+    suggestions.isSuccess;
 
-  // «Создать „…“» appears only once the search has settled *and* nothing in
-  // it already **is** what was typed. Both halves matter: offering it beside
-  // an exact match is how duplicates get made, and offering it while the
-  // list is still loading puts it under the thumb of someone whose product
-  // the reference catalog was about to supply for free — one hasty tap and
-  // they have paid for an AI call and a second row.
+  // «Создать „…“» is offered only once the search has settled and nothing in
+  // it already **is** what was typed. Every clause is load-bearing, because
+  // this row is the one that spends money:
+  //
+  // - beside an exact match, it makes the duplicate this feature exists to
+  //   prevent;
+  // - while the list is still loading, it sits under the thumb of someone
+  //   whose product the reference catalog was about to supply for free;
+  // - after a *failed* search, "no hits" means "we don't know", not "it does
+  //   not exist" — offering to create then funnels the user into a paid call
+  //   for a product they may already own. That case shows the error below
+  //   instead.
   const normalizedQuery = normalizeProductName(query);
   const offerCreate =
     normalizedQuery.length > 0 &&
     settled &&
     !hits.some((hit) => normalizeProductName(hit.name) === normalizedQuery);
+
+  /**
+   * The search could not answer, and the sheet has to say so.
+   *
+   * `isPaused` is not a nicety: with the default `networkMode: "online"`,
+   * TanStack Query **pauses** a retry when it thinks the browser is offline
+   * rather than failing it, so the query sits at `status: "pending"`
+   * indefinitely and never reaches `isError`. Treating only `isError` as
+   * failure leaves someone on a dropped connection staring at «Ищем…»
+   * forever, with no explanation and no way forward — the same dead end this
+   * whole guard exists to remove, just reached from the other side.
+   */
+  const searchFailed =
+    (suggestions.isError || suggestions.isPaused) && normalizedQuery.length > 0;
 
   async function pick(hit: ProductSearchHitOutput) {
     setError(null);
@@ -229,7 +256,20 @@ export function AutocompleteSheet({
             ) : null}
           </ul>
 
-          {!settled && normalizedQuery.length > 0 && hits.length === 0 ? (
+          {searchFailed ? (
+            // Says why the list is empty. Without it an empty sheet after a
+            // failed request looks exactly like "nothing matches", and the
+            // only thing left to do would be to create a product that may
+            // well already exist.
+            <p className={styles.warning} role="alert">
+              {suggestions.isPaused ? t("searchOffline") : t("searchFailed")}
+            </p>
+          ) : null}
+
+          {!settled &&
+          !searchFailed &&
+          normalizedQuery.length > 0 &&
+          hits.length === 0 ? (
             <p className={styles.pending} role="status">
               {t("searching")}
             </p>

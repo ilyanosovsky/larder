@@ -147,6 +147,10 @@
   bottom: calc(56px + var(--s-4) + 52px + env(safe-area-inset-bottom));
   left: 50%;
   z-index: 20;
+  /* A long product name must not push the toast past the viewport: it stays
+     one line and truncates. `max-width` is what the ellipsis needs to have
+     something to clip against. */
+  overflow: hidden;
   max-width: calc(100% - 2 * var(--s-4));
   border: var(--bd-hair) solid var(--rule-2);
   background: var(--paper);
@@ -155,6 +159,7 @@
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--t-meta);
+  text-overflow: ellipsis;
   white-space: nowrap;
   transform: translateX(-50%);
 }
