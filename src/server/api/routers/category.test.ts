@@ -248,4 +248,39 @@ describe("category.reorder", () => {
       expectScopedByHousehold(update);
     }
   });
+
+  it("locks the existing-ids read ordered by id, to avoid a concurrent-reorder deadlock", async () => {
+    // Two overlapping reorders of the same household must lock its category
+    // rows in the same fixed order, or Postgres can abort one as a
+    // deadlock — see the doc comment on `reorder`. `.for()` takes a plain
+    // string rather than a SQL fragment, so its strength is asserted
+    // directly; `.orderBy()`'s argument is a real column reference, so it's
+    // compiled the same way `wheres` are to prove it is really `id` (not,
+    // say, the caller-controlled `orderedIds`, which would defeat the
+    // point).
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ id: CAT_1.id }, { id: CAT_2.id }, { id: CAT_3.id }],
+      [],
+      [],
+      [],
+    ]);
+
+    await caller.category.reorder({
+      orderedIds: [CAT_3.id, CAT_1.id, CAT_2.id],
+    });
+
+    const existingIdsSelect = stub.statements[1];
+    expect(existingIdsSelect?.lock).toEqual({
+      strength: "update",
+      config: undefined,
+    });
+
+    const orderByColumn = existingIdsSelect?.orderBys[0];
+    expect(isSQLWrapper(orderByColumn)).toBe(true);
+    const { sql: text } = new PgDialect().sqlToQuery(
+      (orderByColumn as SQLWrapper).getSQL(),
+    );
+    expect(text).toContain('"id"');
+  });
 });

@@ -64,6 +64,19 @@ export interface RecordedStatement {
    * actually covers — see the invite claim tests.
    */
   wheres: unknown[];
+  /**
+   * Columns/expressions handed to `.orderBy()`, in call order. Same idea as
+   * `wheres`: compile one with `PgDialect` to assert which column a sort —
+   * or a locking read that must walk rows in a fixed order — actually uses.
+   */
+  orderBys: unknown[];
+  /**
+   * The lock strength and config handed to `.for()` (e.g.
+   * `.for("update")`), or `null` if the statement never locked. `for()`
+   * takes a plain string rather than a SQL fragment, so this is asserted
+   * directly instead of compiled.
+   */
+  lock: { strength: unknown; config: unknown } | null;
 }
 
 /**
@@ -98,6 +111,8 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       table: table === null ? null : getTableName(table),
       values: undefined,
       wheres: [],
+      orderBys: [],
+      lock: null,
     };
     statements.push(statement);
 
@@ -120,9 +135,15 @@ export function createDbStub(results: StubResult[] = []): DbStub {
         statement.wheres.push(condition);
         return chain;
       },
-      orderBy: () => chain,
+      orderBy(...columns: unknown[]) {
+        statement.orderBys.push(...columns);
+        return chain;
+      },
       limit: () => chain,
-      for: () => chain,
+      for(strength: unknown, config?: unknown) {
+        statement.lock = { strength, config };
+        return chain;
+      },
       returning: () => chain,
       then<TResult>(
         resolve: (rows: unknown[]) => TResult,

@@ -79,9 +79,11 @@ function hasEmojiPresentation(icon: string): boolean {
 }
 
 describe("REFERENCE_PRODUCTS", () => {
-  it("has between 160 and 200 entries", () => {
-    expect(REFERENCE_PRODUCTS.length).toBeGreaterThanOrEqual(160);
-    expect(REFERENCE_PRODUCTS.length).toBeLessThanOrEqual(200);
+  it("has exactly 189 entries", () => {
+    // Exact, not a range: any intentional catalog edit (task 1.2's
+    // 160–200 target) must change this number in the same diff, so a
+    // reviewer sees the count move rather than it drifting silently.
+    expect(REFERENCE_PRODUCTS.length).toBe(189);
   });
 
   it("has unique names after normalization", () => {
