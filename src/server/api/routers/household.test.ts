@@ -9,6 +9,7 @@ import {
   unusableDb,
   type StubResult,
 } from "@/server/api/test-support";
+import { DEFAULT_CATEGORIES } from "@/server/catalog/default-categories";
 
 const HOUSEHOLD = {
   id: "3f1a6d0e-0000-4000-8000-000000000001",
@@ -86,8 +87,8 @@ describe("household.create", () => {
   });
 
   it("trims the name before storing it", async () => {
-    // membership pre-check → household insert → membership insert
-    const { caller, stub } = callerWith([[], [HOUSEHOLD], []]);
+    // membership pre-check → household insert → membership insert → categories insert
+    const { caller, stub } = callerWith([[], [HOUSEHOLD], [], []]);
 
     await caller.household.create({ name: "  Наш дом  " });
 
@@ -99,7 +100,7 @@ describe("household.create", () => {
   });
 
   it("makes the creator the first member", async () => {
-    const { caller, stub } = callerWith([[], [HOUSEHOLD], []]);
+    const { caller, stub } = callerWith([[], [HOUSEHOLD], [], []]);
 
     await expect(caller.household.create({ name: "Наш дом" })).resolves.toEqual(
       HOUSEHOLD,
@@ -109,6 +110,25 @@ describe("household.create", () => {
       table: "household_members",
       values: { householdId: HOUSEHOLD.id, userId: "user_1" },
     });
+  });
+
+  it("seeds the 7 default departments, in route order", async () => {
+    const { caller, stub } = callerWith([[], [HOUSEHOLD], [], []]);
+
+    await caller.household.create({ name: "Наш дом" });
+
+    expect(stub.statements[3]).toMatchObject({
+      kind: "insert",
+      table: "categories",
+    });
+    expect(stub.statements[3]?.values).toEqual(
+      DEFAULT_CATEGORIES.map((category, index) => ({
+        householdId: HOUSEHOLD.id,
+        name: category.name,
+        icon: category.icon,
+        sortOrder: index,
+      })),
+    );
   });
 
   it("refuses a second household with CONFLICT", async () => {

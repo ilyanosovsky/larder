@@ -1,5 +1,6 @@
 import {
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -93,4 +94,38 @@ export const invites = pgTable(
     }),
   },
   (table) => [index("invites_householdId_idx").on(table.householdId)],
+);
+
+/**
+ * A store department a household's product catalog is grouped by (VISION
+ * §3.1, §5), e.g. "Овощи и фрукты". Seeded with 7 defaults for every new
+ * household (`src/server/catalog/default-categories.ts`, hooked into
+ * `household.create`); `sortOrder` is user-editable per household so the
+ * list can be reordered to match a real store's walking route
+ * (`category.reorder`, task 7.1 for the drag UI).
+ */
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    icon: text("icon").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("categories_householdId_name_uidx").on(
+      table.householdId,
+      table.name,
+    ),
+    index("categories_householdId_sortOrder_idx").on(
+      table.householdId,
+      table.sortOrder,
+    ),
+  ],
 );

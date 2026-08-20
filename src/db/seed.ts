@@ -12,13 +12,18 @@ type Database = PostgresJsDatabase<typeof schema>;
 /**
  * Seeds baseline data into a fresh database.
  *
- * TODO(1.2): insert the default category/product catalog once it exists.
- * Task 0.2 only wires up the migration pipeline and the `pnpm db:seed`
- * entry point, so this is intentionally a no-op for now.
+ * Deliberately still a no-op after task 1.2: the default 7 departments are
+ * per-household data, not global rows, so they are inserted by
+ * `household.create` (and backed into existing households by migration
+ * `0003_true_tigra`) rather than by this script — see
+ * `src/server/catalog/default-categories.ts`. The reference product catalog
+ * (`src/server/catalog/reference-products.ts`) is static in-code data for
+ * the task 1.3 autocomplete, never rows in the database, so there is
+ * nothing for a seed script to write for it either.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- db will be used once the task-1.2 catalog seed lands
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept so main() can still call seed(db); nothing here needs it, see above
 export async function seed(db: Database): Promise<void> {
-  // Nothing to seed yet.
+  // Nothing to seed: see the comment above.
 }
 
 async function main(): Promise<void> {
