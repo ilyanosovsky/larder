@@ -2,8 +2,9 @@ import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { HOME_PATH, LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth-redirect";
+import { HOME_PATH, loginPathFor, ONBOARDING_PATH } from "@/lib/auth-redirect";
 import { getSession } from "@/lib/session";
+import { invitePath } from "@/server/invites";
 import { caller } from "@/trpc/server";
 
 import styles from "./invite-screen.module.css";
@@ -24,12 +25,15 @@ export default async function InvitePage({
   params: Promise<{ token: string }>;
 }) {
   const session = await getSession();
+  const { token } = await params;
 
   if (!session) {
-    redirect(LOGIN_PATH);
+    // Come back here afterwards. Landing on the cart instead would send them
+    // to onboarding, where creating a household of their own makes this
+    // invitation permanently unusable (one household per user, no way out).
+    redirect(loginPathFor(invitePath(token)));
   }
 
-  const { token } = await params;
   const [t, preview] = await Promise.all([
     getTranslations("invite"),
     caller.invite.preview({ token }),

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { HOME_PATH, LOGIN_PATH } from "@/lib/auth-redirect";
+import { HOME_PATH, loginPathFor, ONBOARDING_PATH } from "@/lib/auth-redirect";
 import { getSession } from "@/lib/session";
 import { caller } from "@/trpc/server";
 
@@ -19,7 +19,7 @@ export default async function OnboardingPage() {
   const session = await getSession();
 
   if (!session) {
-    redirect(LOGIN_PATH);
+    redirect(loginPathFor(ONBOARDING_PATH));
   }
 
   const current = await caller.household.current();
