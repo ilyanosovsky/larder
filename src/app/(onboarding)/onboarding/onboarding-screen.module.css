@@ -1,0 +1,183 @@
+/* S2 «Онбординг household» — Paper Ledger: square corners, hairline rules,
+   one ledger green. Same centred sheet as S1 «Вход». */
+
+.screen {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6) var(--s-4);
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  border: var(--bd-hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-sheet);
+  padding: var(--s-7) var(--s-6);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-title);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+  line-height: var(--lead-tight);
+  text-align: center;
+}
+
+.subtitle {
+  margin-top: var(--s-2);
+  color: var(--mute);
+  font-size: var(--t-body);
+  line-height: var(--lead-body);
+  text-align: center;
+}
+
+/* ── Create form ── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-7);
+}
+
+.label {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.input {
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.input::placeholder {
+  color: var(--mute-2);
+}
+
+.primaryButton,
+.secondaryButton {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  padding: var(--s-3) var(--s-4);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.primaryButton {
+  margin-top: var(--s-2);
+  border: var(--bd-hair) solid var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.secondaryButton {
+  border: var(--bd-hair) solid var(--rule-2);
+  background: transparent;
+  color: var(--ink);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.input:focus-visible,
+.linkField:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── «У меня есть приглашение» ── */
+
+.aside {
+  margin-top: var(--s-7);
+  border-top: var(--bd-hair) solid var(--rule);
+  padding-top: var(--s-4);
+}
+
+.asideTitle {
+  color: var(--ink);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+}
+
+.asideHint {
+  margin-top: var(--s-1);
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* ── «Пригласи своих» ── */
+
+.readyHint {
+  margin-top: var(--s-2);
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.linkBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-5);
+}
+
+.linkField {
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--zebra);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  text-overflow: ellipsis;
+}
+
+.copied {
+  color: var(--green-txt);
+  font-size: var(--t-meta);
+}
+
+.pending {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.error {
+  margin-top: var(--s-4);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}

@@ -4,13 +4,18 @@ import { useTranslations } from "next-intl";
 import { useId, useState, type FormEvent } from "react";
 
 import { authClient } from "@/lib/auth-client";
-import { HOME_PATH } from "@/lib/auth-redirect";
 
 import styles from "./login-screen.module.css";
 
 type Pending = "google" | "email" | null;
 
-export function LoginScreen() {
+/**
+ * `next` is where to land after signing in — already validated by
+ * `sanitizeNextPath` in the page above, so it is safe to hand straight to
+ * Better Auth as a callback URL. It is what carries someone who tapped an
+ * invite link while signed out back to that invitation.
+ */
+export function LoginScreen({ next }: { next: string }) {
   const t = useTranslations("auth");
   const emailFieldId = useId();
 
@@ -28,7 +33,7 @@ export function LoginScreen() {
     try {
       const { error } = await authClient.signIn.social({
         provider: "google",
-        callbackURL: HOME_PATH,
+        callbackURL: next,
       });
 
       if (error) {
@@ -52,7 +57,7 @@ export function LoginScreen() {
     try {
       const { error } = await authClient.signIn.magicLink({
         email,
-        callbackURL: HOME_PATH,
+        callbackURL: next,
       });
 
       if (error) {

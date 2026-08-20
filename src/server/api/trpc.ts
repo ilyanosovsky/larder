@@ -1,8 +1,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
 import superjson from "superjson";
 import { z, ZodError } from "zod";
 
 import type { db } from "@/db";
+import { householdMembers, households } from "@/db/schema";
 import type { Session } from "@/lib/session";
 
 type Database = ReturnType<typeof db>;
@@ -70,3 +72,45 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
     },
   });
 });
+
+/**
+ * Requires a signed-in user who belongs to a household, and puts that
+ * household on the context.
+ *
+ * This is the membership check VISION §6.7 asks every data request to make.
+ * Build every household-scoped procedure on it rather than re-deriving the
+ * household from an input field — a `householdId` coming from the client is
+ * an authorization hole, `ctx.household.id` is not.
+ *
+ * A signed-in user without a household is FORBIDDEN, not UNAUTHORIZED: they
+ * are authenticated, they simply have not finished onboarding (S2). The UI
+ * gate in `src/app/(app)/layout.tsx` normally redirects them before any
+ * procedure runs; this is the backstop for direct API calls.
+ */
+export const householdProcedure = protectedProcedure.use(
+  async ({ ctx, next }) => {
+    const [row] = await ctx.db
+      .select({
+        membership: householdMembers,
+        household: households,
+      })
+      .from(householdMembers)
+      .innerJoin(households, eq(households.id, householdMembers.householdId))
+      .where(eq(householdMembers.userId, ctx.user.id))
+      .limit(1);
+
+    if (!row) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "No household membership",
+      });
+    }
+
+    return next({
+      ctx: {
+        membership: row.membership,
+        household: row.household,
+      },
+    });
+  },
+);
