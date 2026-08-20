@@ -75,6 +75,16 @@ describe("withSlugChecked", () => {
     ]);
   });
 
+  it("collapses a stale case-variant chip even when the canonical slug is already present", () => {
+    // Early-return branch: `oven` is already checked, but a stray "Oven"
+    // chip sits beside it. The exactly-once contract must hold here too.
+    expect(withSlugChecked(["oven", "Oven"], "oven")).toEqual(["oven"]);
+    expect(withSlugChecked(["kettle", "oven", "OVEN"], "oven")).toEqual([
+      "kettle",
+      "oven",
+    ]);
+  });
+
   it("replaces a stray case-insensitive free-form duplicate with the canonical slug", () => {
     // The form-specific invariant this whole helper exists for: a chip like
     // "Oven" (typed before the checklist caught it, or before

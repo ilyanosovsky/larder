@@ -68,7 +68,10 @@ export function withSlugChecked(
   slug: EquipmentSlug,
 ): string[] {
   if (current.includes(slug)) {
-    return current;
+    // The canonical slug is already checked, but a stale case-variant chip
+    // ("Oven" next to "oven") may still sit beside it — normalize so the
+    // exactly-once contract holds on this branch too.
+    return normalizeEquipment(current);
   }
   const withoutCaseInsensitiveDuplicate = current.filter(
     (item) => item.toLowerCase() !== slug.toLowerCase(),
