@@ -1,0 +1,214 @@
+/* S4 «Добавление продукта» — Paper Ledger: square rows, hairline rules,
+   one ledger green, and an AI state with no sparks (DESIGN_BRIEF §7). */
+
+.label {
+  display: block;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s-2);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.input::placeholder {
+  color: var(--mute-2);
+}
+
+.input:focus-visible,
+.result:focus-visible,
+.createRow:focus-visible,
+.inlineButton:focus-visible,
+.primaryButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Suggestions ── */
+
+.results {
+  margin-top: var(--s-3);
+  list-style: none;
+}
+
+.result,
+.createRow {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border: 0;
+  border-bottom: var(--bd-hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-2) var(--s-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.result:disabled,
+.createRow:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.resultIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.resultName {
+  overflow: hidden;
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultMeta {
+  flex: none;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.createRow {
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+}
+
+.pending {
+  margin-top: var(--s-3);
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+/* ── AiProgress: a quiet paper pulse, never a spinner of sparks ── */
+
+.aiProgress {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-6) var(--s-1);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+}
+
+.aiPulse {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  background: var(--accent);
+  animation: breathe 1.4s var(--ease-out) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aiPulse {
+    opacity: 0.6;
+    animation: none;
+  }
+}
+
+/* ── The created product ── */
+
+.created {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.createdTitle {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.createdRow {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--zebra);
+  padding: var(--s-2) var(--s-3);
+}
+
+.inlineButton {
+  flex: none;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-2) var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  cursor: pointer;
+}
+
+.warning {
+  border-left: var(--bd-ink) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.primaryButton {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: var(--s-3) var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.error {
+  margin-top: var(--s-3);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}

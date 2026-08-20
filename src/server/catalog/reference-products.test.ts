@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CATEGORY_SLUGS } from "@/server/catalog/default-categories";
+import { normalizeProductName as normalize } from "@/server/catalog/normalize";
 import { REFERENCE_PRODUCTS } from "@/server/catalog/reference-products";
 import { UNITS } from "@/lib/units";
-
-/** trim/lower/ё→е — the normalization the catalog and search (task 1.3) share. */
-function normalize(value: string): string {
-  return value.trim().toLowerCase().replaceAll("ё", "е");
-}
 
 // A representative sample of DESIGN_BRIEF §5's example content — not
 // exhaustive of every word in the doc, but enough to prove the catalog was

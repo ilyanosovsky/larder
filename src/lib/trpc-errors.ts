@@ -25,3 +25,12 @@ export function trpcErrorCode(error: unknown): string | null {
 export function isConflictError(error: unknown): boolean {
   return trpcErrorCode(error) === "CONFLICT";
 }
+
+/**
+ * Whether a failed call was refused by a rate limit — the AI endpoints
+ * (`src/server/ai/rate-limit.ts`). Worth telling apart from a generic
+ * failure: "подожди минуту" is actionable, "не получилось" is not.
+ */
+export function isRateLimitedError(error: unknown): boolean {
+  return trpcErrorCode(error) === "TOO_MANY_REQUESTS";
+}

@@ -14,19 +14,21 @@ The test CI runs without secrets by design — tests must never call external se
 
 ## Variables
 
-| Variable                | Required | Notes                                                                                                                                                                |
-| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | ✅       | Local: `docker compose up -d` gives `postgresql://postgres:postgres@localhost:5432/larder`. Prod: reference the Railway Postgres service                             |
-| `BETTER_AUTH_SECRET`    | ✅       | ≥ 32 chars; `openssl rand -base64 32`                                                                                                                                |
-| `BETTER_AUTH_URL`       | ✅       | Base URL: `http://localhost:3000` locally, the public domain in prod                                                                                                 |
-| `GOOGLE_CLIENT_ID`      | ✅       | Google Cloud Console → APIs & Services → Credentials → OAuth client (Web). Add redirect URI `{BETTER_AUTH_URL}/api/auth/callback/google` for both localhost and prod |
-| `GOOGLE_CLIENT_SECRET`  | ✅       | Same OAuth client                                                                                                                                                    |
-| `RESEND_API_KEY`        | ✅       | resend.com → API Keys. **Prod requires a verified custom domain** (magic links won't send to arbitrary addresses without it) — this is a launch prerequisite         |
-| `EMAIL_FROM`            | ✅       | e.g. `Larder <noreply@yourdomain.tld>`; the domain must be the one verified in Resend                                                                                |
-| `OPENAI_API_KEY`        | ✅       | platform.openai.com. Cheap model + `reasoning_effort: low` for parsing; assistant respects the budget cap                                                            |
-| `AI_MONTHLY_BUDGET_USD` | —        | Default 20. At the cap the assistant switches off until next month; import keeps working                                                                             |
-| `FIRECRAWL_API_KEY`     | ✅       | firecrawl.dev — fallback recipe scraping only (~1000 free credits/month)                                                                                             |
-| `UPLOADTHING_TOKEN`     | ✅       | uploadthing.com (2 GB free tier — images are client-compressed to ~300 KB before upload)                                                                             |
-| `NEXT_PUBLIC_APP_URL`   | ✅       | Public app URL, exposed to the client                                                                                                                                |
+| Variable                | Required | Notes                                                                                                                                                                                          |
+| ----------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | ✅       | Local: `docker compose up -d` gives `postgresql://postgres:postgres@localhost:5432/larder`. Prod: reference the Railway Postgres service                                                       |
+| `BETTER_AUTH_SECRET`    | ✅       | ≥ 32 chars; `openssl rand -base64 32`                                                                                                                                                          |
+| `BETTER_AUTH_URL`       | ✅       | Base URL: `http://localhost:3000` locally, the public domain in prod                                                                                                                           |
+| `GOOGLE_CLIENT_ID`      | ✅       | Google Cloud Console → APIs & Services → Credentials → OAuth client (Web). Add redirect URI `{BETTER_AUTH_URL}/api/auth/callback/google` for both localhost and prod                           |
+| `GOOGLE_CLIENT_SECRET`  | ✅       | Same OAuth client                                                                                                                                                                              |
+| `RESEND_API_KEY`        | ✅       | resend.com → API Keys. **Prod requires a verified custom domain** (magic links won't send to arbitrary addresses without it) — this is a launch prerequisite                                   |
+| `EMAIL_FROM`            | ✅       | e.g. `Larder <noreply@yourdomain.tld>`; the domain must be the one verified in Resend                                                                                                          |
+| `OPENAI_API_KEY`        | ✅       | platform.openai.com. **Used at runtime since task 1.3** — `product.create` calls it to pick an icon and a department. Cheap model + `reasoning_effort: low`; assistant respects the budget cap |
+| `AI_MONTHLY_BUDGET_USD` | —        | Default 20. At the cap the assistant switches off until next month; import keeps working                                                                                                       |
+| `FIRECRAWL_API_KEY`     | ✅       | firecrawl.dev — fallback recipe scraping only (~1000 free credits/month)                                                                                                                       |
+| `UPLOADTHING_TOKEN`     | ✅       | uploadthing.com (2 GB free tier — images are client-compressed to ~300 KB before upload)                                                                                                       |
+| `NEXT_PUBLIC_APP_URL`   | ✅       | Public app URL, exposed to the client                                                                                                                                                          |
 
 Adding a new variable? Update `.env.example`, the README table, and this page — in the same PR (rule in [CLAUDE.md](https://github.com/ilyanosovsky/larder/blob/main/CLAUDE.md)).
+
+**Missing `OPENAI_API_KEY` is not fatal.** It is declared required, but the app never reads it until an AI call happens, and the one AI path that exists (`product.create` with `source: "new"`) treats a client it cannot build exactly like any other enrichment failure: the product is still created, with 🛒 / «Бакалея» / «шт», and the `ai_jobs` row records the error. So a deployment without the key loses icon-picking, not product creation — and `pnpm build`, which runs with no environment at all, is unaffected.

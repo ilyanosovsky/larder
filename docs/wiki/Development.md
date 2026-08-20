@@ -127,6 +127,88 @@ Every household groups its cart and catalog by department — "отдел" — (
 
 `reorder` validates `orderedIds` with `checkReorderPermutation()` (`src/server/catalog/reorder.ts`, pure and unit-tested on its own) before writing anything: it must be exactly the household's own category ids, each appearing once — a missing id, an extra/foreign id, or a duplicate all reject with `BAD_REQUEST` and touch no row. There is no create/delete endpoint yet and no drag UI (task 7.1 adds the screen for this router).
 
+## Product catalog & AI enrichment
+
+The household's own product list (VISION §3.1, §5). **Everything that will ever go into the cart resolves to a row here first** — that is what makes "одна активная строка на продукт" expressible at all, and what keeps «помидоры» from appearing twice in one list.
+
+`products` (`src/db/schema.ts`): `householdId`, `categoryId` (FK `restrict` — a department with products in it must not vanish), `name`, `icon`, `defaultUnit`, `aliases[]`, `createdBy` (`set null`). The unique index is on **`(householdId, lower(name))`**, not on `name`: "Молоко" and "молоко" are one product.
+
+### Normalization
+
+`normalizeProductName()` (`src/server/catalog/normalize.ts`) is the single definition of "the same product": trim, lower-case, **ё → е**, collapse whitespace. Every comparison in the feature goes through it — ranking, the reference merge, the duplicate check, and the reference-catalog invariants test. Only case-insensitivity is also enforced in the database; the rest is matching, and a near-duplicate that slips past it stays editable.
+
+The module is pure string code with no server dependencies, so the S4 sheet imports it too — that is how the client and the server agree on when to offer «Создать „…“».
+
+### Search (`src/server/catalog/search.ts`, pure, unit-tested)
+
+`searchCatalog({ query, products, categories })` ranks the household's rows and the built-in 189-item reference catalog **by the same rules**, and the sheet renders both identically. That sameness is the feature: a shopper typing «пом» should not care whether «Помидоры» already exists in their catalog.
+
+Tiers, best first: exact name → name prefix → word-boundary prefix → substring, then the same four again for aliases. Every name match beats every alias match. Ties break by source (the household's own row first), then shorter name, then alphabetically. At most 10 results; an empty query returns nothing.
+
+Two things worth not breaking:
+
+- **Matching is `indexOf`/`startsWith`, never a regex built from the query.** A regex would need escaping, and «сыр (твёрдый)» would otherwise be a `SyntaxError` in the middle of someone's shopping.
+- **A reference entry is dropped when the household already owns it under any spelling** — names _and_ aliases compared in both directions. Without that, someone who created «Помидорки» with the alias «помидоры» would see their row next to the built-in «Помидоры», and picking the wrong one makes the exact duplicate this design exists to prevent.
+
+Reference entries carry a `categorySlug`; `resolveCategoryIdForSlug()` (`src/server/catalog/resolve-category.ts`) maps it onto the household's own department **by name**, because `categories` rows carry no slug — a household may rename or reorder them. A department that no longer matches falls back to «Бакалея», and failing that to the first department by walking order. That same `fallbackCategoryId()` is what the AI failure path uses.
+
+### `product` router
+
+| Procedure        | Boundary             | Notes                                                                        |
+| ---------------- | -------------------- | ---------------------------------------------------------------------------- |
+| `product.search` | `householdProcedure` | `{ query }` → ≤ 10 hits; `productId` is `null` for a reference hit           |
+| `product.list`   | `householdProcedure` | The whole catalog, ordered by department `sortOrder` then name               |
+| `product.create` | `householdProcedure` | `{ source: "reference" \| "new", name }` → `{ product, enriched, aiFailed }` |
+| `product.update` | `householdProcedure` | Partial patch; `categoryId` is checked against the caller's own departments  |
+
+**`create` never trusts the client with anything but a name.** `source: "reference"` re-resolves the entry out of `REFERENCE_PRODUCTS` server-side and takes the icon, department, unit and aliases from there — a tampered request cannot file a product under an arbitrary category. `source: "new"` is the only path that spends money.
+
+**`create` is idempotent by name.** It looks for an existing row first (`lower(name)` _or_ an alias match), so a repeat create returns the existing product without an AI call; and if a concurrent insert wins the `lower(name)` unique index, the loser reads the winner's row back instead of surfacing a violation. Two taps, two tabs and two partners all end with one product.
+
+### AI enrichment
+
+`enrichProduct()` (`src/server/ai/enrich-product.ts`) asks for `{ icon, categoryId, unit }` in one structured-output call.
+
+- Model and prices live in `src/server/ai/pricing.ts` — `gpt-5-mini`, `reasoning_effort: "low"` (VISION §6.5: invisible reasoning tokens are billed as output and would multiply a sub-cent call).
+- The JSON schema comes from the Zod schema through **Zod v4's own `z.toJSONSchema`**, not the OpenAI SDK's `zodResponseFormat` helper — that helper targets Zod v3 internals. One schema both describes the response and validates it, so the two cannot drift. Schemas for AI use `.nullable()`, never `.optional()`: strict mode cannot express an optional property.
+- **`categoryId` is re-checked against the ids we actually sent**, after parsing. Strict mode constrains the shape of the field, never its value, and a hallucinated uuid would otherwise file the product into nothing. The icon is checked for being plausibly a single emoji.
+- **The function never throws.** Network error, refusal, malformed JSON, invented department — all come back as `ok: false`.
+
+**Failure is not an error the user sees as one.** Whatever goes wrong, the product is still created, with 🛒 / «Бакалея» / «шт», and `aiFailed: true` tells the sheet to show a calm amber "проверь иконку и отдел" (DESIGN_BRIEF §6: yellow, not red). VISION §3.1 is explicit that the AI is a helper and everything is editable — one tap opens the edit form. This covers a missing `OPENAI_API_KEY` too: the router catches `ctx.openai()` failing to build a client and treats it the same way.
+
+### `AiJob` lifecycle and cost
+
+`ai_jobs` is written for **every** AI call, from this first one (AGENTS.md):
+
+1. Insert `status: "running"`, `type: "product_enrich"`, `inputRef: <product name>` — **before** the call, so the rate limiter counts requests that are still in flight.
+2. On success: `status: "done"`, `outputJson`, `costUsd`, `finishedAt`.
+3. On failure: `status: "error"`, `error`, `costUsd`, `finishedAt`.
+
+`costUsd` is recorded on the failure branch too whenever a response came back: a validation failure after a successful HTTP call **was billed**, and a ledger that only counts successes under-reports exactly when things go wrong. `numeric(10, 6)` — six decimals, so a $0.0002 icon lookup does not round to zero.
+
+`AI_MONTHLY_BUDGET_USD` is **not** checked here. It caps the assistant only (task 6.1); icon-picking and recipe import keep working at the cap.
+
+### Rate limiting
+
+`src/server/ai/rate-limit.ts`: **10 per minute and 100 per day, per user**, applied to the enrichment path only (the free reference path is never limited).
+
+Counted with one indexed `count(*)` over `ai_jobs` — the day's rows counted once, the minute's counted again with a `FILTER` over the same scan. **In the database, not in memory**, because the app is serverless: two requests a second apart routinely land in different Vercel instances, so an in-process counter would limit nothing. Windows slide, so nobody gets a fresh allowance at the top of the minute. The decision itself is a pure `checkRateLimit()`; the router turns a refusal into `TOO_MANY_REQUESTS`, and `isRateLimitedError()` (`src/lib/trpc-errors.ts`) is how the sheet tells it apart from a generic failure.
+
+One trap worth knowing: a bare `Date` interpolated into a raw `sql` fragment is bound **without its column's type**, and postgres.js rejects it at bind time. The `FILTER` predicate therefore goes through `gte(aiJobs.createdAt, …)`, which reuses the column's encoder. A stub-based test cannot see this — the regression test compiles the projection and asserts no parameter is still a `Date`.
+
+### Screens
+
+| File                                    | Role                                                                 |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| `src/components/bottom-sheet.tsx`       | Shared sheet shell: scrim, Esc, square paper panel                   |
+| `src/components/autocomplete-sheet.tsx` | S4 «Добавление продукта» — search, «Создать „…“», AiProgress, result |
+| `src/components/product-edit-form.tsx`  | «Изменить продукт»: emoji, name, department, unit                    |
+| `src/app/(app)/catalog-screen.tsx`      | The catalog grouped by department, with the FAB that opens S4        |
+
+The sheet debounces input by 200 ms and keeps the previous list on screen while the next one loads, so it never blinks empty between keystrokes. «Создать „…“» appears only when nothing already _is_ what was typed.
+
+The «Покупки» tab is a deliberately lean catalog view — **task 2.3 replaces it with S3 «Корзина»**, reading from this same router. The quantity stepper DESIGN_BRIEF S4 describes belongs to the cart and lands with it; there is a `TODO(2.3)` on the line where an added product will join it.
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.
@@ -134,7 +216,7 @@ tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The 
 | File                               | Role                                                                               |
 | ---------------------------------- | ---------------------------------------------------------------------------------- |
 | `src/server/api/trpc.ts`           | `initTRPC` — superjson transformer, `errorFormatter`, the three procedure builders |
-| `src/server/api/context.ts`        | `createTRPCContext()` — `{ session, user, db }` for one request                    |
+| `src/server/api/context.ts`        | `createTRPCContext()` — `{ session, user, db, openai }` for one request            |
 | `src/server/api/root.ts`           | `appRouter`, the `AppRouter` type, `createCaller`                                  |
 | `src/server/api/routers/*.ts`      | One router per feature, with its Zod output schemas next to it                     |
 | `src/app/api/trpc/[trpc]/route.ts` | The single HTTP endpoint (`fetchRequestHandler`)                                   |
@@ -159,6 +241,8 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 - `protectedProcedure` — throws `UNAUTHORIZED` (HTTP 401) without a session, and narrows the context so `ctx.user` is non-null in the resolver. No `!` assertions downstream.
 - `householdProcedure` — additionally loads the caller's membership and throws `FORBIDDEN` (HTTP 403) when there is none, narrowing the context with `ctx.household` and `ctx.membership`. This is the per-request membership check VISION §6.7 asks for.
 
+`ctx.openai` is a **factory**, not a client: building one reads `OPENAI_API_KEY`, and only a procedure that actually makes an AI call should need it (`next build` runs with no environment at all). It is on the context for the same reason `db` is — so an AI procedure is testable without a network.
+
 **Build every household-scoped procedure on `householdProcedure`, and scope its queries by `ctx.household.id`.** A `householdId` arriving in the input is an authorization hole; `ctx.household.id` is derived from the session and cannot be forged.
 
 `FORBIDDEN` rather than `UNAUTHORIZED` for a household-less caller is deliberate: they are authenticated, they simply have not finished onboarding. The UI gate normally redirects them long before a procedure runs; this is the backstop for direct API calls.
@@ -168,8 +252,9 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 `src/server/api/test-support.ts` holds the fixtures — it is imported by tests only, never by application code:
 
 - `unusableDb` — a Proxy that throws on any property access, so a test can prove a procedure rejected _before_ it queried.
-- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order.
-- `anonymousContext(db)` / `signedInContext(db)` — the two contexts to hand `createCaller`.
+- `unusableOpenai` — the same idea for `ctx.openai()`. It is the default in both contexts below, so a test that unexpectedly reaches an AI call fails loudly instead of dialing a paid API.
+- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters.
+- `anonymousContext(db, openai?)` / `signedInContext(db, openai?)` — the two contexts to hand `createCaller`.
 
 Business rules that do not need a query at all (invite validity, accept decisions) live as pure functions and are tested directly. No test opens a database connection.
 

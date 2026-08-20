@@ -1,0 +1,95 @@
+/* Bottom sheet — Paper Ledger: square corners, hairline rules, one accent. */
+
+.overlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+
+.sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  max-height: 85dvh;
+  flex-direction: column;
+  border-top: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-bottom-sheet);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: rise var(--dur-base) var(--ease-out);
+}
+
+@media (min-width: 1024px) {
+  /* Centred over the desktop content column rather than edge to edge. */
+  .sheet {
+    right: 50%;
+    left: auto;
+    width: 480px;
+    transform: translateX(50%);
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-4);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.close {
+  display: flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  font-size: var(--t-val);
+  cursor: pointer;
+}
+
+.close:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.body {
+  overflow-y: auto;
+  flex: 1;
+  padding: var(--s-4);
+}

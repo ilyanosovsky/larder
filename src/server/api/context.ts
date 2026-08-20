@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "@/db";
 import { getSession } from "@/lib/session";
+import { openaiClient } from "@/server/ai/openai";
 
 import type { TRPCContext } from "./trpc";
 
@@ -26,5 +27,8 @@ export async function createTRPCContext(): Promise<TRPCContext> {
     session: session?.session ?? null,
     user: session?.user ?? null,
     db: db(),
+    // Passed uncalled on purpose: building the client reads OPENAI_API_KEY,
+    // and only the procedures that actually make an AI call should need it.
+    openai: openaiClient,
   };
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isConflictError, trpcErrorCode } from "./trpc-errors";
+import {
+  isConflictError,
+  isRateLimitedError,
+  trpcErrorCode,
+} from "./trpc-errors";
 
 /** The shape `errorFormatter` produces, as a TRPCClientError carries it. */
 function clientError(code: string) {
@@ -36,5 +40,21 @@ describe("isConflictError", () => {
     expect(isConflictError(clientError("UNAUTHORIZED"))).toBe(false);
     // A dropped connection has no code at all, and must re-show the form.
     expect(isConflictError(new Error("Failed to fetch"))).toBe(false);
+  });
+});
+
+describe("isRateLimitedError", () => {
+  it("recognises the refusal the AI rate limit produces", () => {
+    // The sheet says "подожди немного" for this one and "не получилось" for
+    // everything else, so the two must not be confused.
+    expect(isRateLimitedError(clientError("TOO_MANY_REQUESTS"))).toBe(true);
+  });
+
+  it("does not mistake another failure for it", () => {
+    expect(isRateLimitedError(clientError("INTERNAL_SERVER_ERROR"))).toBe(
+      false,
+    );
+    expect(isRateLimitedError(clientError("CONFLICT"))).toBe(false);
+    expect(isRateLimitedError(new Error("Failed to fetch"))).toBe(false);
   });
 });

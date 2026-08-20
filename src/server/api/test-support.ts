@@ -1,5 +1,7 @@
 import { getTableName, type Table } from "drizzle-orm";
 
+import type { AiChatClient } from "@/server/ai/openai";
+
 import type { TRPCContext } from "./trpc";
 
 /**
@@ -43,12 +45,28 @@ export const testUser: UserData = {
   image: null,
 };
 
-export function anonymousContext(db: TRPCContext["db"]): TRPCContext {
-  return { session: null, user: null, db };
+/**
+ * OpenAI must never be reached either — same idea as `unusableDb`. Every
+ * procedure that makes an AI call takes its client from the context, so a
+ * test that forgets to supply a fake one fails loudly instead of dialing out
+ * to a paid API.
+ */
+export const unusableOpenai = (): AiChatClient => {
+  throw new Error("ctx.openai() must not be called in unit tests");
+};
+
+export function anonymousContext(
+  db: TRPCContext["db"],
+  openai: TRPCContext["openai"] = unusableOpenai,
+): TRPCContext {
+  return { session: null, user: null, db, openai };
 }
 
-export function signedInContext(db: TRPCContext["db"]): TRPCContext {
-  return { session: testSession, user: testUser, db };
+export function signedInContext(
+  db: TRPCContext["db"],
+  openai: TRPCContext["openai"] = unusableOpenai,
+): TRPCContext {
+  return { session: testSession, user: testUser, db, openai };
 }
 
 /** One statement the router ran, in the order it ran it. */
@@ -58,6 +76,14 @@ export interface RecordedStatement {
   table: string | null;
   /** Payload handed to `.values()` or `.set()`. */
   values: unknown;
+  /**
+   * The projection handed to `.select({ … })`, or `undefined` for a bare
+   * `.select()`. Same idea as `wheres`: a computed column (an aggregate, a
+   * `FILTER`) can be compiled with `PgDialect` to check the SQL *and the
+   * parameters* it produces — which is the only way a stub-based test can
+   * catch a value bound without its column's type.
+   */
+  fields: unknown;
   /**
    * Conditions handed to `.where()`. The stub cannot evaluate them, but a
    * test can compile one with `PgDialect` to assert which columns a guard
@@ -105,11 +131,16 @@ export function createDbStub(results: StubResult[] = []): DbStub {
   const queue = [...results];
   const statements: RecordedStatement[] = [];
 
-  function begin(kind: RecordedStatement["kind"], table: Table | null) {
+  function begin(
+    kind: RecordedStatement["kind"],
+    table: Table | null,
+    fields?: unknown,
+  ) {
     const statement: RecordedStatement = {
       kind,
       table: table === null ? null : getTableName(table),
       values: undefined,
+      fields,
       wheres: [],
       orderBys: [],
       lock: null,
@@ -160,7 +191,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
   }
 
   const db = {
-    select: () => begin("select", null),
+    select: (fields?: unknown) => begin("select", null, fields),
     insert: (table: Table) => begin("insert", table),
     update: (table: Table) => begin("update", table),
     delete: (table: Table) => begin("delete", table),

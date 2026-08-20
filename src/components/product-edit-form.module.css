@@ -1,0 +1,110 @@
+/* «Изменить продукт» — Paper Ledger form: square fields, hairline rules. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.row {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.iconField {
+  display: flex;
+  width: 72px;
+  flex: none;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.nameField {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.label {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.input,
+.iconInput {
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.iconInput {
+  font-size: var(--t-val-lg);
+  text-align: center;
+}
+
+.input:focus-visible,
+.iconInput:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.primaryButton,
+.secondaryButton {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  padding: var(--s-3) var(--s-4);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.primaryButton {
+  border: var(--bd-hair) solid var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.secondaryButton {
+  border: var(--bd-hair) solid var(--rule-2);
+  background: transparent;
+  color: var(--ink);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.error {
+  margin-top: var(--s-2);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}
