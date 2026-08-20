@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AutocompleteSheet } from "@/components/autocomplete-sheet";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ProductEditForm } from "@/components/product-edit-form";
+import { useSheetOpener } from "@/components/use-sheet-opener";
 import { groupProductsByCategory } from "@/lib/group-products";
 import type { ProductListItemOutput } from "@/server/api/routers/product";
 import { useTRPC } from "@/trpc/client";
@@ -36,6 +37,11 @@ export function CatalogScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<ProductListItemOutput | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // One per sheet, so closing either returns focus to the control that opened
+  // that one — the FAB, or the row that was tapped.
+  const addOpener = useSheetOpener();
+  const editOpener = useSheetOpener();
 
   const products = useQuery(trpc.product.list.queryOptions());
 
@@ -76,8 +82,13 @@ export function CatalogScreen() {
         <p className={styles.empty}>{t("empty")}</p>
       ) : null}
 
-      {sections.map((section) => (
-        <div key={section.categoryId} className={styles.section}>
+      {/* Keyed by position as well as department: `groupProductsByCategory`
+          starts a new section every time the run changes, so a list that
+          arrives with a department split across two runs — two rows sharing a
+          `sortOrder`, say — yields two sections with the same id, and React
+          would see duplicate keys. */}
+      {sections.map((section, index) => (
+        <div key={`${index}-${section.categoryId}`} className={styles.section}>
           <h2 className={styles.sectionHeader}>
             <span aria-hidden="true">{section.icon}</span>
             <span className={styles.sectionName}>{section.name}</span>
@@ -92,7 +103,10 @@ export function CatalogScreen() {
                 <button
                   type="button"
                   className={styles.row}
-                  onClick={() => setEditing(item)}
+                  onClick={(event) => {
+                    editOpener.captureOpener(event.currentTarget);
+                    setEditing(item);
+                  }}
                   aria-label={t("editAria", { name: item.name })}
                 >
                   <span className={styles.rowIcon} aria-hidden="true">
@@ -110,7 +124,10 @@ export function CatalogScreen() {
       <button
         type="button"
         className={styles.fab}
-        onClick={() => setSheetOpen(true)}
+        onClick={(event) => {
+          addOpener.captureOpener(event.currentTarget);
+          setSheetOpen(true);
+        }}
         aria-label={t("addAria")}
       >
         + {t("add")}
@@ -125,6 +142,7 @@ export function CatalogScreen() {
       <AutocompleteSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
+        restoreFocusTo={addOpener.restoreFocusTo}
         onAdded={(product) => {
           // TODO(2.3): this is where the product joins the cart. Until the
           // cart exists, landing in the catalog is the whole outcome.
@@ -138,6 +156,7 @@ export function CatalogScreen() {
         onClose={() => setEditing(null)}
         title={tEdit("title")}
         closeLabel={tCommon("close")}
+        restoreFocusTo={editOpener.restoreFocusTo}
       >
         {editing === null ? null : (
           <ProductEditForm

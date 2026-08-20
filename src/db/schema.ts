@@ -143,11 +143,20 @@ export const categories = pgTable(
  * construction: a name resolves to one row, and the cart's own partial unique
  * index (task 2.1) then allows one active item per row.
  *
- * The unique index is on `lower(name)`, not on `name`: "Молоко" and "молоко"
- * are the same product to a human, so they must be the same row. Search
- * normalizes further (ё→е, collapsed spaces — `normalizeProductName`), but
- * only case-insensitivity is cheap enough to enforce in an index; the rest is
- * the matcher's job, and a near-duplicate that slips through stays editable.
+ * Uniqueness is on `normalizedName` — a stored, canonical form of `name`
+ * written by every insert and every rename — rather than on an expression
+ * over `name`. The point is that the database enforces **the application's
+ * own** definition of "the same product" (`normalizeProductName`: lower-case,
+ * ё→е, collapsed whitespace), not a weaker approximation of it. A `lower(name)`
+ * index would happily admit «Сёмга» and «Семга» as two rows, which the
+ * autocomplete treats as one product — the duplicate this whole feature
+ * exists to prevent, minted permanently and only reachable through an edit.
+ *
+ * The column is redundant with `name` by construction, and that is the trade:
+ * a canonical value can be indexed and compared exactly, while a normalization
+ * this specific cannot be expressed as an index expression Postgres would
+ * still use for lookups. Writes go through `product.create`/`product.update`,
+ * which set the two together; nothing else may write `name` alone.
  *
  * `categoryId` is `restrict`, not `cascade`: a department that still groups
  * products must not be deletable out from under them (there is no delete
@@ -166,6 +175,11 @@ export const products = pgTable(
       .notNull()
       .references(() => categories.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
+    /**
+     * `normalizeProductName(name)` — the canonical form uniqueness is on.
+     * Always written together with `name`; never edited on its own.
+     */
+    normalizedName: text("normalized_name").notNull(),
     /** A single emoji — picked from the reference catalog or by the AI. */
     icon: text("icon").notNull(),
     /** One of `UNITS` (`src/lib/units.ts`), stored as text. */
@@ -186,9 +200,9 @@ export const products = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("products_householdId_lowerName_uidx").on(
+    uniqueIndex("products_householdId_normalizedName_uidx").on(
       table.householdId,
-      sql`lower(${table.name})`,
+      table.normalizedName,
     ),
     index("products_householdId_categoryId_idx").on(
       table.householdId,

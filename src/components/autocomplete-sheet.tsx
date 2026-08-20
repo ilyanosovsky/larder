@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type RefObject } from "react";
 
 import { isRateLimitedError } from "@/lib/trpc-errors";
 import type {
@@ -50,11 +50,14 @@ export function AutocompleteSheet({
   open,
   onClose,
   onAdded,
+  restoreFocusTo,
 }: {
   open: boolean;
   onClose: () => void;
   /** Fired for every product that ended up in the catalog, once each. */
   onAdded: (product: { name: string; icon: string }) => void;
+  /** The control that opened the sheet — see `useSheetOpener()`. */
+  restoreFocusTo?: RefObject<HTMLElement | null>;
 }) {
   const t = useTranslations("autocomplete");
   const tCommon = useTranslations("common");
@@ -146,7 +149,19 @@ export function AutocompleteSheet({
   const searchFailed =
     (suggestions.isError || suggestions.isPaused) && normalizedQuery.length > 0;
 
+  /**
+   * Both handlers below bail while a create is already in flight.
+   *
+   * `disabled={create.isPending}` on the buttons is not enough on its own:
+   * `isPending` only becomes true on the *next* render, so two taps landing
+   * in the same tick both get through — two requests, and on the paid path
+   * two AI calls and two `ai_jobs` rows. Reading the mutation's own state at
+   * call time closes that window.
+   */
   async function pick(hit: ProductSearchHitOutput) {
+    if (create.isPending) {
+      return;
+    }
     setError(null);
 
     // A product the household already has needs no write at all — the cart
@@ -173,7 +188,7 @@ export function AutocompleteSheet({
 
   async function createNew() {
     const name = query.trim();
-    if (name.length === 0) {
+    if (name.length === 0 || create.isPending) {
       return;
     }
 
@@ -200,6 +215,7 @@ export function AutocompleteSheet({
       onClose={onClose}
       title={t("title")}
       closeLabel={tCommon("close")}
+      restoreFocusTo={restoreFocusTo}
     >
       {phase.kind === "search" ? (
         <>

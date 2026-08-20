@@ -192,30 +192,12 @@ function loadCategories(
 /**
  * The household's own row for a name, if it has one.
  *
- * Three probes, and the order is the order of importance:
- *
- * 1. **`lower(name) = lower(<input>)` — the unique index's own expression**,
- *    with Postgres evaluating `lower()` on both sides so the comparison is
- *    byte-for-byte the one the index makes. This is the only probe that is
- *    guaranteed to find whatever an insert would collide with, which is what
- *    makes `insertProduct`'s recovery-after-23505 actually recover.
- * 2. `lower(name) = <normalizeProductName(input)>` — the application's wider
- *    notion of "the same product". Finds a stored «Мед» when «Мёд» is typed,
- *    which probe 1 alone would happily let through as a second row.
- * 3. `<normalized> = ANY(aliases)` — «томаты» has to find «Помидоры».
- *
- * **Probe 1 cannot be folded into probe 2.** They disagree on exactly the
- * names that contain ё or a doubled space, because normalization folds those
- * and `lower()` does not. Without probe 1, a repeat create of a stored «Мёд»
- * misses the pre-check, collides on the index, misses the recovery lookup for
- * the same reason, and surfaces as an INTERNAL_SERVER_ERROR — on the
- * `source: "new"` path after an AI call that was already billed.
- *
- * Residual, deliberate: the ё-folding is one-way. A stored «Мёд» is not found
- * by typing «мед», because that needs `translate(lower(name), 'ё', 'е')`,
- * which no index can serve. It costs a near-duplicate rather than an error,
- * and the UI does not reach it — `searchCatalog` normalizes both sides, so
- * «мед» matches «Мёд» exactly and «Создать „…“» is never offered.
+ * The first probe is `normalizedName = normalizeProductName(input)` — **the
+ * unique index's expression, exactly**, not an approximation of it. That
+ * equality is what makes `insertProduct`'s recovery-after-23505 reliable: a
+ * lookup that could disagree with the index would miss precisely the row the
+ * insert just collided with, and the conflict would surface as a 500. The
+ * second probe covers aliases, so «томаты» finds «Помидоры».
  */
 async function findExistingProduct(
   db: Database,
@@ -231,8 +213,7 @@ async function findExistingProduct(
       and(
         eq(products.householdId, householdId),
         or(
-          sql`lower(${products.name}) = lower(${name})`,
-          sql`lower(${products.name}) = ${normalized}`,
+          eq(products.normalizedName, normalized),
           sql`${normalized} = ANY(${products.aliases})`,
         ),
       ),
@@ -256,10 +237,14 @@ interface NewProduct {
  * Inserts a product, or reads back the row that beat us to it.
  *
  * Two taps on «Создать», two open tabs, or both partners adding «буррата» at
- * once all end here. The `lower(name)` unique index decides the winner, and
- * the loser returns the winner's row: creating a product is idempotent by
- * name, which is what lets the sheet retry without ever producing the
- * duplicate this whole feature exists to prevent.
+ * once all end here. The `(householdId, normalizedName)` unique index decides
+ * the winner, and the loser returns the winner's row: creating a product is
+ * idempotent by name, which is what lets the sheet retry without ever
+ * producing the duplicate this whole feature exists to prevent.
+ *
+ * `normalizedName` is derived here rather than by the callers, so the column
+ * the index is built on cannot drift from the `name` beside it — there is one
+ * place that writes both, and it is this one.
  */
 async function insertProduct(
   db: Database,
@@ -268,7 +253,10 @@ async function insertProduct(
   try {
     const [inserted] = await db
       .insert(products)
-      .values(values)
+      .values({
+        ...values,
+        normalizedName: normalizeProductName(values.name),
+      })
       .returning(productColumns);
 
     if (inserted) {
@@ -618,7 +606,15 @@ export const productRouter = createTRPCRouter({
         const [updated] = await ctx.db
           .update(products)
           .set({
-            ...(input.name === undefined ? {} : { name: input.name }),
+            // A rename rewrites the canonical column in the same statement:
+            // they are one value in two forms, and a `name` that outran its
+            // `normalizedName` would silently disable the uniqueness guard.
+            ...(input.name === undefined
+              ? {}
+              : {
+                  name: input.name,
+                  normalizedName: normalizeProductName(input.name),
+                }),
             ...(input.icon === undefined ? {} : { icon: input.icon }),
             ...(input.categoryId === undefined
               ? {}
@@ -649,8 +645,8 @@ export const productRouter = createTRPCRouter({
           throw error;
         }
         if (isUniqueViolation(error)) {
-          // The new name collides with another product in this household —
-          // the `lower(name)` unique index caught it.
+          // The new name normalizes onto another product in this household —
+          // the `(householdId, normalizedName)` unique index caught it.
           throw new TRPCError({
             code: "CONFLICT",
             message: "A product with this name already exists",

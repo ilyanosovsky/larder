@@ -131,11 +131,17 @@ Every household groups its cart and catalog by department — "отдел" — (
 
 The household's own product list (VISION §3.1, §5). **Everything that will ever go into the cart resolves to a row here first** — that is what makes "одна активная строка на продукт" expressible at all, and what keeps «помидоры» from appearing twice in one list.
 
-`products` (`src/db/schema.ts`): `householdId`, `categoryId` (FK `restrict` — a department with products in it must not vanish), `name`, `icon`, `defaultUnit`, `aliases[]`, `createdBy` (`set null`). The unique index is on **`(householdId, lower(name))`**, not on `name`: "Молоко" and "молоко" are one product.
+`products` (`src/db/schema.ts`): `householdId`, `categoryId` (FK `restrict` — a department with products in it must not vanish), `name`, `normalizedName`, `icon`, `defaultUnit`, `aliases[]`, `createdBy` (`set null`).
+
+The unique index is on **`(householdId, normalizedName)`** — a stored canonical column, not an expression over `name`. That is the whole point: the database enforces **the application's own** definition of "the same product" rather than a weaker approximation of it. An index on `lower(name)` folds case and nothing else, so it would happily admit «Сёмга» and «Семга» as two rows that the autocomplete treats as one — a permanent duplicate, mintable through a rename or a concurrent create, which is exactly what this feature exists to prevent.
+
+The column is redundant with `name` by construction, and that is the trade: a canonical value can be indexed and compared exactly, while a normalization this specific is not something Postgres would still use an index for. **Nothing may write `name` without writing `normalizedName` in the same statement** — `insertProduct()` derives it centrally so no create path can forget, and `product.update` rewrites both together on a rename. A `name` that outran its canonical form would leave the row indexed under its old identity, silently switching uniqueness off for it.
 
 ### Normalization
 
-`normalizeProductName()` (`src/server/catalog/normalize.ts`) is the single definition of "the same product": trim, lower-case, **ё → е**, collapse whitespace. Every comparison in the feature goes through it — ranking, the reference merge, the duplicate check, and the reference-catalog invariants test. Only case-insensitivity is also enforced in the database; the rest is matching, and a near-duplicate that slips past it stays editable.
+`normalizeProductName()` (`src/server/catalog/normalize.ts`) is the single definition of "the same product": trim, lower-case, **ё → е**, collapse whitespace. Every comparison in the feature goes through it — ranking, the reference merge, the duplicate check, and the reference-catalog invariants test — and so does the database, via the stored `normalizedName` its unique index is built on. There is one definition of product identity and both layers use it.
+
+Migration `0005_breezy_shaman` carries a SQL twin of the function for its backfill (`regexp_replace` + `translate(lower(…), 'ё', 'е')`). If the normalization ever changes, that backfill is a snapshot of the old rule, not a live copy — existing rows need a fresh backfill migration.
 
 The module is pure string code with no server dependencies, so the S4 sheet imports it too — that is how the client and the server agree on when to offer «Создать „…“».
 
@@ -163,7 +169,9 @@ Reference entries carry a `categorySlug`; `resolveCategoryIdForSlug()` (`src/ser
 
 **`create` never trusts the client with anything but a name.** `source: "reference"` re-resolves the entry out of `REFERENCE_PRODUCTS` server-side and takes the icon, department, unit and aliases from there — a tampered request cannot file a product under an arbitrary category. `source: "new"` is the only path that spends money.
 
-**`create` is idempotent by name.** It looks for an existing row first (`lower(name)` _or_ an alias match), so a repeat create returns the existing product without an AI call; and if a concurrent insert wins the `lower(name)` unique index, the loser reads the winner's row back instead of surfacing a violation. Two taps, two tabs and two partners all end with one product.
+**`create` is idempotent by name.** It looks for an existing row first (`normalizedName` _or_ an alias match), so a repeat create returns the existing product without an AI call; and if a concurrent insert wins the unique index, the loser reads the winner's row back instead of surfacing a violation. Two taps, two tabs and two partners all end with one product.
+
+The lookup probes **the indexed column itself**, so it and the index can never disagree about what a duplicate is. That equality is load-bearing: a probe that could miss what the index catches would miss precisely the row an insert just collided with, and the conflict would surface as a 500 — on the paid path, after the AI call was already billed.
 
 ### AI enrichment
 

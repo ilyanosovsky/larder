@@ -54,6 +54,14 @@ export function ProductEditForm({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // `disabled={update.isPending}` on the button only takes effect on the
+    // next render, so two submits in one tick would both go through. Reading
+    // the mutation's state at call time closes that window.
+    if (update.isPending) {
+      return;
+    }
+
     setError(null);
 
     try {

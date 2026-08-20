@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import styles from "./bottom-sheet.module.css";
 
@@ -34,12 +34,19 @@ export function BottomSheet({
   onClose,
   title,
   closeLabel,
+  restoreFocusTo,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   closeLabel: string;
+  /**
+   * The control that opened the sheet, from `useSheetOpener()`. Focus returns
+   * to it on close. Optional: without it the sheet still traps focus, it just
+   * leaves it wherever the browser puts it afterwards.
+   */
+  restoreFocusTo?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -54,41 +61,15 @@ export function BottomSheet({
     onCloseRef.current = onClose;
   });
 
-  /**
-   * The control that opened the sheet, so focus can go back to it on close.
-   *
-   * Captured during the render that flips `open` to true — the last moment
-   * at which `document.activeElement` is still the opener. Neither effects
-   * nor layout effects can be used for this: React applies `autoFocus` in
-   * the commit phase, before both, so by the time either runs the active
-   * element is already the sheet's own search field. Restoring focus to
-   * *that* is a silent no-op against a detached node, and the user lands on
-   * `<body>`.
-   *
-   * A focus-event listener kept while closed was the other candidate and is
-   * worse: browsers that do not focus a `<button>` on click (Safari) would
-   * leave it holding some unrelated earlier element, and focus would be
-   * restored to the wrong place rather than to none.
-   */
-  const openerRef = useRef<HTMLElement | null>(null);
-  const wasOpenRef = useRef(false);
-
-  if (open && !wasOpenRef.current && typeof document !== "undefined") {
-    const active = document.activeElement;
-    // `<body>` means nothing had focus — restoring to it is meaningless, so
-    // record nothing and leave focus alone on close.
-    openerRef.current =
-      active instanceof HTMLElement && active !== document.body ? active : null;
-  }
-  wasOpenRef.current = open;
-
   useEffect(() => {
     if (!open) {
       return;
     }
 
     const panel = panelRef.current;
-    const opener = openerRef.current;
+    // Filled by `useSheetOpener().captureOpener` in the event that opened the
+    // sheet, and only read here — after the commit, never during a render.
+    const opener = restoreFocusTo?.current ?? null;
 
     // Only claim focus if nothing inside has it yet: the S4 search field
     // autofocuses itself during the commit, and landing there beats landing
@@ -156,7 +137,9 @@ export function BottomSheet({
         opener.focus();
       }
     };
-  }, [open]);
+    // `restoreFocusTo` is a ref object from `useSheetOpener`, so it is stable
+    // across renders and listing it costs no extra runs.
+  }, [open, restoreFocusTo]);
 
   if (!open) {
     return null;

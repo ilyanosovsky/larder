@@ -302,7 +302,7 @@ describe("product.create — an existing product", () => {
     expect(stub.statements).toHaveLength(3);
   });
 
-  it("probes the index expression, the normalized name and the aliases", async () => {
+  it("looks a product up by the unique index's own column, plus aliases", async () => {
     const { caller, stub } = callerWith([
       [membershipRow],
       CATEGORY_ROWS,
@@ -315,22 +315,22 @@ describe("product.create — an existing product", () => {
     expectScopedByHousehold(lookup);
     const { sql: where, params } = compileQuery(lookup?.wheres[0]);
 
-    // Probe 1 lowers *both* sides in Postgres, so the comparison is the
-    // unique index's own expression rather than an approximation of it.
-    expect(where).toContain("lower($");
+    // The probe is `normalized_name = $n` — the indexed column compared to
+    // the same canonical form the write stores, so the lookup and the index
+    // can never disagree about what counts as a duplicate.
+    expect(where).toContain('"normalized_name" = $');
     expect(where).toContain("ANY(");
-    // …and it is bound with the raw name, not the normalized one: those two
-    // differ exactly where the bug lived.
-    expect(params).toContain("Мёд");
+    // Bound with the normalized name, never the raw one.
     expect(params).toContain("мед");
+    expect(params).not.toContain("Мёд");
   });
 
   it("returns the existing row for a repeat create of a ё-name", async () => {
-    // The regression this guards: stored «Мёд» has no aliases, and
-    // `lower('Мёд')` is 'мёд', which the normalized probe ('мед') never
-    // equals. With only the normalized probe this create missed the
-    // pre-check, collided on the unique index, missed the recovery lookup
-    // for exactly the same reason, and surfaced as INTERNAL_SERVER_ERROR —
+    // The regression this guards: «Мёд» and «мед» are one product to the
+    // application, so a repeat create must find the existing row rather than
+    // mint a second one. Before `normalizedName` the index only folded case,
+    // so the pre-check missed, the insert collided, the recovery lookup
+    // missed for the same reason, and it surfaced as INTERNAL_SERVER_ERROR —
     // on `source: "new"`, after an AI call that had already been billed.
     const honey = productRow({
       id: OTHER_PRODUCT_ID,
@@ -356,6 +356,23 @@ describe("product.create — an existing product", () => {
     // the context's `openai` throws.
     expect(stub.statements).toHaveLength(3);
   });
+
+  it("dedupes a ё-name from either spelling", async () => {
+    // Both directions now collapse to one lookup value, so a stored «Мёд» is
+    // found by typing «мед» and vice versa. Under the old `lower(name)` index
+    // that was one-way: the reverse minted a permanent near-duplicate.
+    const lookupParams = async (name: string) => {
+      const { caller, stub } = callerWith([
+        [membershipRow],
+        CATEGORY_ROWS,
+        [productRow({ name: "Мёд" })],
+      ]);
+      await caller.product.create({ source: "reference", name });
+      return compileQuery(stub.statements[2]?.wheres[0]).params;
+    };
+
+    expect(await lookupParams("Мёд")).toEqual(await lookupParams("мед"));
+  });
 });
 
 describe("product.create — the reference path", () => {
@@ -380,11 +397,36 @@ describe("product.create — the reference path", () => {
       householdId: HOUSEHOLD_ID,
       // The reference entry's own capitalization, not the query's.
       name: "Помидоры",
+      // Written in the same statement as `name`: the column the unique index
+      // is built on must never lag behind the name beside it.
+      normalizedName: "помидоры",
       icon: reference.icon,
       defaultUnit: reference.unit,
       categoryId: PRODUCE_ID,
       aliases: [...reference.aliases],
       createdBy: "user_1",
+    });
+  });
+
+  it("normalizes the stored canonical name, not just its case", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      CATEGORY_ROWS,
+      [],
+      [productRow({ name: "Шоколад тёмный" })],
+    ]);
+
+    await caller.product.create({
+      source: "reference",
+      name: "шоколад  темный",
+    });
+
+    // ё folded and the doubled space collapsed — the same value
+    // `findExistingProduct` probes with, which is what keeps the index and
+    // the lookup from ever disagreeing about what a duplicate is.
+    expect(stub.statements[3]?.values).toMatchObject({
+      name: "Шоколад тёмный",
+      normalizedName: "шоколад темный",
     });
   });
 
@@ -604,7 +646,9 @@ describe("product.create — the AI path", () => {
   });
 
   it("degrades gracefully when the client cannot even be built", async () => {
-    // A missing OPENAI_API_KEY must not turn «Создать» into a 500.
+    // An invalid OPENAI_API_KEY must not turn «Создать» into a 500. (A
+    // *missing* one never reaches here — `env()` fails the whole request at
+    // context construction.)
     const { caller } = callerWith(
       [
         ...preamble(),
@@ -754,6 +798,31 @@ describe("product.update", () => {
       table: "products",
       values: { name: "Буррата", icon: "🧀", defaultUnit: "уп" },
     });
+  });
+
+  it("rewrites the canonical name whenever the name changes", async () => {
+    // A `name` that outran its `normalizedName` would leave the row indexed
+    // under its old identity — uniqueness silently stops covering it, and the
+    // next create of the new name mints the duplicate instead of merging.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [productRow({ name: "Мёд гречишный" })],
+    ]);
+
+    await caller.product.update({ id: PRODUCT_ID, name: "Мёд  гречишный" });
+
+    expect(stub.statements[1]?.values).toMatchObject({
+      name: "Мёд  гречишный",
+      normalizedName: "мед гречишный",
+    });
+  });
+
+  it("leaves the canonical name alone when the name is not being changed", async () => {
+    const { caller, stub } = callerWith([[membershipRow], [productRow()]]);
+
+    await caller.product.update({ id: PRODUCT_ID, icon: "🧀" });
+
+    expect(stub.statements[1]?.values).not.toHaveProperty("normalizedName");
   });
 
   it("scopes the update to the caller's own household", async () => {
