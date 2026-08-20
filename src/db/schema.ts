@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+import { users } from "./auth-schema";
 
 /**
  * Better Auth tables (`users`, `sessions`, `accounts`, `verifications`) are
@@ -20,3 +29,68 @@ export const households = pgTable("households", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Membership of a user in a household — the row every household-scoped
+ * request is authorized against (VISION §6.7, `householdProcedure`).
+ *
+ * The unique index on `user_id` is the MVP invariant "one household per
+ * user" (VISION §5) expressed in the database rather than in application
+ * code, so a concurrent create/accept race ends in a constraint violation
+ * instead of a second membership. Application code maps that violation to a
+ * CONFLICT; it must never work around it.
+ */
+export const householdMembers = pgTable(
+  "household_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("household_members_userId_uidx").on(table.userId),
+    index("household_members_householdId_idx").on(table.householdId),
+  ],
+);
+
+/**
+ * A one-time invite link with a TTL (VISION §5, §6.7).
+ *
+ * The row is the whole security model: `token` is the unguessable secret,
+ * `expires_at` the TTL, and `used_at`/`used_by` the one-time stamp. Accepting
+ * claims the invite with `UPDATE ... WHERE used_at IS NULL`, so two people
+ * opening the same link race on the database rather than on a read.
+ *
+ * Both user references cascade rather than blocking a user deletion:
+ * `created_by` takes the invite with it, `used_by` merely forgets who
+ * redeemed it (the membership row is the record that matters).
+ */
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    usedBy: text("used_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [index("invites_householdId_idx").on(table.householdId)],
+);

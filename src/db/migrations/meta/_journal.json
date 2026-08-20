@@ -15,6 +15,13 @@
       "when": 1787137969700,
       "tag": "0001_closed_banshee",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787202863370,
+      "tag": "0002_nostalgic_agent_brand",
+      "breakpoints": true
     }
   ]
 }
