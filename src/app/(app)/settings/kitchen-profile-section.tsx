@@ -22,7 +22,7 @@ const DEFAULT_VALUE: KitchenProfileFormValue = {
 };
 
 /**
- * The S12 «Профиль кухни» settings section (task 1.4) — a light wrapper
+ * The S12 kitchen-profile settings section (task 1.4) — a light wrapper
  * around the shared form: reads `kitchenProfile.get` (prefetched by the
  * server component), writes through `kitchenProfile.update`, and shows a
  * toast on success. Full S12 assembly (household, invite, purchase history,
@@ -70,8 +70,8 @@ export function KitchenProfileSection() {
       ) : profile.isError ? (
         // A savable form must never mount on an unknown state: `data` would
         // be `undefined` here, and `profile.data ?? DEFAULT_VALUE` would
-        // silently show empty defaults that «Сохранить» then writes over
-        // whatever the household's real profile actually is.
+        // silently show empty defaults that the Save button then writes
+        // over whatever the household's real profile actually is.
         <div className={styles.error} role="alert">
           <p>{t("kitchenProfileLoadFailed")}</p>
           <button

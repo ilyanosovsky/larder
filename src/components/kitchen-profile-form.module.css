@@ -1,4 +1,4 @@
-/* «Профиль кухни» form — Paper Ledger: square fields, hairline rules. */
+/* Kitchen-profile form — Paper Ledger: square fields, hairline rules. */
 
 .form {
   display: flex;
@@ -49,7 +49,7 @@
   accent-color: var(--accent);
 }
 
-/* ── Free-form «Добавить своё» ── */
+/* ── Free-form "add your own" ── */
 
 .customRow {
   display: flex;

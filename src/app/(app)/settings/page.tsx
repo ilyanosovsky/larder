@@ -7,12 +7,12 @@ import { KitchenProfileSection } from "./kitchen-profile-section";
 import styles from "./settings-page.module.css";
 
 /**
- * S12 «Настройки» — a minimal scaffold (task 1.4): a page title, the first
- * real settings block («Профиль кухни»), then signed-in identity + sign-out.
+ * S12 Settings — a minimal scaffold (task 1.4): a page title, the first
+ * real settings block (kitchen profile), then signed-in identity + sign-out.
  * Full S12 assembly (household/members, invite link, purchase history,
  * departments, AI budget) is task 7.1, which extends this same section
  * structure — the identity/sign-out block is expected to move into a
- * «Household» section then, not stay pinned at the bottom forever.
+ * "Household" section then, not stay pinned at the bottom forever.
  */
 export default async function SettingsPage() {
   const t = await getTranslations("settings");

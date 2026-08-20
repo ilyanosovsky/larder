@@ -11,7 +11,7 @@ import { caller } from "@/trpc/server";
 import { KitchenOnboardingScreen } from "./kitchen-onboarding-screen";
 
 /**
- * S2 «Профиль кухни» step (DESIGN_BRIEF §4 S2, task 1.4). Lives outside the
+ * S2 kitchen-profile step (DESIGN_BRIEF §4 S2, task 1.4). Lives outside the
  * `(app)` group, next to `/onboarding`: it is only ever reached partway
  * through onboarding, not as a screen the household gate should send anyone
  * back to.
@@ -26,8 +26,8 @@ import { KitchenOnboardingScreen } from "./kitchen-onboarding-screen";
  * value. This is not just prefill: whoever created the household may already
  * have filled the profile in (S12, or a first pass through this very step),
  * and the *partner* accepting the invite lands here next. Defaulting the
- * form to size 2 / no equipment regardless would let the partner's «Готово»
- * silently overwrite what the creator already saved.
+ * form to size 2 / no equipment regardless would let the partner's "Done"
+ * tap silently overwrite what the creator already saved.
  */
 export default async function OnboardingKitchenPage() {
   const session = await getSession();

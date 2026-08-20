@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 
-import { resolveEquipmentEntry } from "@/lib/equipment-entry";
+import { resolveEquipmentEntry, withSlugChecked } from "@/lib/equipment-entry";
 import {
   EQUIPMENT_PRESETS,
   normalizeEquipment,
@@ -17,35 +17,16 @@ const MAX_HOUSEHOLD_SIZE = 10;
 
 const PRESET_SET: ReadonlySet<string> = new Set(EQUIPMENT_PRESETS);
 
-/**
- * Ensures `slug` is present in `current`, exactly once.
- *
- * A free-form chip can already case-insensitively equal a slug — someone
- * typed "Oven" before the checklist existed, or before `resolveEquipmentEntry`
- * caught it — and `normalizeEquipment`'s dedup would otherwise drop the
- * *appended* canonical slug (it runs into the existing chip's key first),
- * leaving the checkbox visibly doing nothing. Dropping that stale duplicate
- * first is what makes checking the box actually check it.
- */
-function withSlugChecked(current: string[], slug: EquipmentSlug): string[] {
-  if (current.includes(slug)) {
-    return current;
-  }
-  const withoutCaseInsensitiveDuplicate = current.filter(
-    (item) => item.toLowerCase() !== slug.toLowerCase(),
-  );
-  return normalizeEquipment([...withoutCaseInsensitiveDuplicate, slug]);
-}
-
 export interface KitchenProfileFormValue {
   householdSize: number;
   equipment: string[];
 }
 
 /**
- * «Профиль кухни»: the equipment checklist + free-form input + household
- * size stepper (VISION §3.3, §5; DESIGN_BRIEF S2 «шаг „Профиль кухни“», S12
- * settings section) — shared between the two so they can never drift.
+ * Kitchen-profile form: the equipment checklist + free-form input +
+ * household size stepper (VISION §3.3, §5; DESIGN_BRIEF S2's kitchen-profile
+ * step, S12 settings section) — shared between the two so they can never
+ * drift.
  *
  * Deliberately owns no mutation: the caller passes `pending` back in and
  * gets a value on `onSubmit`, so this stays a plain controlled form the S2
@@ -78,7 +59,7 @@ export function KitchenProfileForm({
   const customItems = equipment.filter((item) => !PRESET_SET.has(item));
 
   // The checklist's own labels, keyed by slug — what `resolveEquipmentEntry`
-  // matches a «Добавить своё» entry against, on top of the slugs themselves.
+  // matches an "add your own" entry against, on top of the slugs themselves.
   const labels = Object.fromEntries(
     EQUIPMENT_PRESETS.map((slug) => [slug, t(`equipment.${slug}`)]),
   ) as Record<EquipmentSlug, string>;

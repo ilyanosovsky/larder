@@ -5,8 +5,8 @@ import styles from "./app-header.module.css";
 
 /**
  * The slim household-context header (task 1.4): household name on the left,
- * the caller's own avatar on the right as the tap target into Настройки
- * (S12) — DESIGN_BRIEF §2 «тап по своему аватару открывает Настройки», §4
+ * the caller's own avatar on the right as the tap target into Settings
+ * (S12) — DESIGN_BRIEF §2's "tapping your own avatar opens Settings", §4
  * S3. Shown on every `(app)` screen, mobile and desktop alike.
  *
  * Not marked `"use client"` itself — like `nav-icons.tsx`/`nav-items.ts`, it
@@ -17,7 +17,7 @@ import styles from "./app-header.module.css";
  *
  * TODO(2.3): this is the minimal S3 header. The full version adds the
  * partner's avatar (mobile shows both participants' avatars) and the sync
- * indicator (в сети / синхронизируется / офлайн).
+ * indicator (online / syncing / offline).
  */
 export function AppHeader({
   householdName,

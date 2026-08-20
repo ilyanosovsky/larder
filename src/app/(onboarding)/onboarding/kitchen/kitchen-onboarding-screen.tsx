@@ -23,10 +23,9 @@ const DEFAULT_VALUE: KitchenProfileFormValue = {
 };
 
 /**
- * S2 «Профиль кухни» step (DESIGN_BRIEF §4 S2): the checklist + headcount,
- * reached after a household exists. Skippable — both «Готово» and
- * «Пропустить» land on the cart, the only difference is whether the profile
- * got saved first.
+ * S2 kitchen-profile step (DESIGN_BRIEF §4 S2): the checklist + headcount,
+ * reached after a household exists. Skippable — both "Done" and "Skip" land
+ * on the cart, the only difference is whether the profile got saved first.
  */
 export function KitchenOnboardingScreen({
   initialProfile,

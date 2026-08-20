@@ -13,9 +13,9 @@ export const HOME_PATH = "/";
 export const ONBOARDING_PATH = "/onboarding";
 
 /**
- * The S2 «Профиль кухни» step (task 1.4) — reached right after a household
- * exists (from onboarding's own «Продолжить») or right after accepting an
- * invite. Skippable: both entry points and the screen itself all land on
+ * The S2 kitchen-profile step (task 1.4) — reached right after a household
+ * exists (from onboarding's own "Continue" action) or right after accepting
+ * an invite. Skippable: both entry points and the screen itself all land on
  * `HOME_PATH` one way or another.
  */
 export const ONBOARDING_KITCHEN_PATH = "/onboarding/kitchen";
