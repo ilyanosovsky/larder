@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 
 import { HOME_PATH } from "@/lib/auth-redirect";
+import { isConflictError } from "@/lib/trpc-errors";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./onboarding-screen.module.css";
@@ -16,6 +17,13 @@ import styles from "./onboarding-screen.module.css";
  * Two paths, exactly one of which needs a form: creating a household, and
  * joining one — the latter happens entirely through the invite link, so there
  * is deliberately no "paste your token here" field to get wrong.
+ *
+ * The screen runs in two phases, and the split matters: once the household
+ * exists it exists for good. Folding a failed invite mint back into the create
+ * form would strand the user, because every retry would hit the "one household
+ * per user" CONFLICT and show the same generic error forever. So the invite
+ * step owns its own error and retry, and «Продолжить» is always available —
+ * the link can be minted later, the household cannot be created twice.
  */
 export function OnboardingScreen() {
   const t = useTranslations("onboarding");
@@ -25,8 +33,10 @@ export function OnboardingScreen() {
   const linkFieldId = useId();
 
   const [name, setName] = useState("");
+  const [householdReady, setHouseholdReady] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [createFailed, setCreateFailed] = useState(false);
+  const [inviteFailed, setInviteFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -34,21 +44,37 @@ export function OnboardingScreen() {
   const createHousehold = useMutation(trpc.household.create.mutationOptions());
   const createInvite = useMutation(trpc.invite.create.mutationOptions());
 
-  const busy = createHousehold.isPending || createInvite.isPending;
-
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFailed(false);
+  async function mintInvite() {
+    setInviteFailed(false);
 
     try {
-      await createHousehold.mutateAsync({ name });
-      // The link is minted right away: the reward for creating a household is
-      // something to send your partner, not an empty screen.
       const invite = await createInvite.mutateAsync();
       setInviteLink(invite.url);
     } catch {
-      setFailed(true);
+      setInviteFailed(true);
     }
+  }
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreateFailed(false);
+
+    try {
+      await createHousehold.mutateAsync({ name });
+    } catch (error) {
+      // CONFLICT means the household is already there — this submit is a retry
+      // after an earlier attempt got as far as creating it, or a second tab
+      // got there first. Either way the work is done; move on.
+      if (!isConflictError(error)) {
+        setCreateFailed(true);
+        return;
+      }
+    }
+
+    // The link is minted right away: the reward for creating a household is
+    // something to send your partner, not an empty screen.
+    setHouseholdReady(true);
+    await mintInvite();
   }
 
   async function copyLink(link: string) {
@@ -72,92 +98,119 @@ export function OnboardingScreen() {
     router.refresh();
   }
 
+  if (!householdReady) {
+    return (
+      <main className={styles.screen}>
+        <div className={styles.card}>
+          <h1 className={styles.title}>{t("title")}</h1>
+          <p className={styles.subtitle}>{t("subtitle")}</p>
+
+          <form className={styles.form} onSubmit={create}>
+            <label className={styles.label} htmlFor={nameFieldId}>
+              {t("nameLabel")}
+            </label>
+            <input
+              id={nameFieldId}
+              className={styles.input}
+              type="text"
+              name="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t("namePlaceholder")}
+              maxLength={100}
+              autoComplete="off"
+              required
+              disabled={createHousehold.isPending}
+            />
+            <button
+              type="submit"
+              className={styles.primaryButton}
+              disabled={createHousehold.isPending || name.trim().length === 0}
+            >
+              {createHousehold.isPending ? t("createPending") : t("create")}
+            </button>
+          </form>
+
+          <section className={styles.aside}>
+            <h2 className={styles.asideTitle}>{t("haveInviteTitle")}</h2>
+            <p className={styles.asideHint}>{t("haveInviteHint")}</p>
+          </section>
+
+          {createFailed ? (
+            <p className={styles.error} role="alert">
+              {t("error")}
+            </p>
+          ) : null}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className={styles.screen}>
       <div className={styles.card}>
+        <h1 className={styles.title}>{t("readyTitle")}</h1>
+        <p className={styles.readyHint}>{t("readyHint")}</p>
+
         {inviteLink === null ? (
-          <>
-            <h1 className={styles.title}>{t("title")}</h1>
-            <p className={styles.subtitle}>{t("subtitle")}</p>
-
-            <form className={styles.form} onSubmit={create}>
-              <label className={styles.label} htmlFor={nameFieldId}>
-                {t("nameLabel")}
-              </label>
-              <input
-                id={nameFieldId}
-                className={styles.input}
-                type="text"
-                name="name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={t("namePlaceholder")}
-                maxLength={100}
-                autoComplete="off"
-                required
-                disabled={busy}
-              />
-              <button
-                type="submit"
-                className={styles.primaryButton}
-                disabled={busy || name.trim().length === 0}
-              >
-                {busy ? t("createPending") : t("create")}
-              </button>
-            </form>
-
-            <section className={styles.aside}>
-              <h2 className={styles.asideTitle}>{t("haveInviteTitle")}</h2>
-              <p className={styles.asideHint}>{t("haveInviteHint")}</p>
-            </section>
-          </>
+          <div className={styles.linkBlock}>
+            {createInvite.isPending ? (
+              <p className={styles.pending} role="status">
+                {t("linkPending")}
+              </p>
+            ) : (
+              <>
+                {inviteFailed ? (
+                  <p className={styles.error} role="alert">
+                    {t("linkFailed")}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  onClick={() => void mintInvite()}
+                >
+                  {t("retryLink")}
+                </button>
+              </>
+            )}
+          </div>
         ) : (
-          <div>
-            <h1 className={styles.title}>{t("readyTitle")}</h1>
-            <p className={styles.readyHint}>{t("readyHint")}</p>
-
-            <div className={styles.linkBlock}>
-              <label className={styles.label} htmlFor={linkFieldId}>
-                {t("linkLabel")}
-              </label>
-              <input
-                id={linkFieldId}
-                className={styles.linkField}
-                type="text"
-                value={inviteLink}
-                readOnly
-                onFocus={(event) => event.target.select()}
-              />
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={() => void copyLink(inviteLink)}
-              >
-                {copied ? t("copied") : t("copy")}
-              </button>
-              {copyFailed ? (
-                <p className={styles.error} role="alert">
-                  {t("copyFailed")}
-                </p>
-              ) : null}
-            </div>
-
+          <div className={styles.linkBlock}>
+            <label className={styles.label} htmlFor={linkFieldId}>
+              {t("linkLabel")}
+            </label>
+            <input
+              id={linkFieldId}
+              className={styles.linkField}
+              type="text"
+              value={inviteLink}
+              readOnly
+              onFocus={(event) => event.target.select()}
+            />
             <button
               type="button"
-              className={styles.primaryButton}
-              onClick={goToApp}
-              disabled={leaving}
+              className={styles.secondaryButton}
+              onClick={() => void copyLink(inviteLink)}
             >
-              {t("continue")}
+              {copied ? t("copied") : t("copy")}
             </button>
+            {copyFailed ? (
+              <p className={styles.error} role="alert">
+                {t("copyFailed")}
+              </p>
+            ) : null}
           </div>
         )}
 
-        {failed ? (
-          <p className={styles.error} role="alert">
-            {t("error")}
-          </p>
-        ) : null}
+        <button
+          type="button"
+          className={styles.primaryButton}
+          onClick={goToApp}
+          disabled={leaving}
+        >
+          {t("continue")}
+        </button>
       </div>
     </main>
   );

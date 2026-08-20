@@ -169,6 +169,11 @@
   font-size: var(--t-meta);
 }
 
+.pending {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
 .error {
   margin-top: var(--s-4);
   border-left: var(--bd-ink) solid var(--neg);
