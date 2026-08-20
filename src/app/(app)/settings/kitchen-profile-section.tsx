@@ -67,24 +67,41 @@ export function KitchenProfileSection() {
         <p className={styles.pending} role="status">
           {t("kitchenProfileLoading")}
         </p>
+      ) : profile.isError ? (
+        // A savable form must never mount on an unknown state: `data` would
+        // be `undefined` here, and `profile.data ?? DEFAULT_VALUE` would
+        // silently show empty defaults that «Сохранить» then writes over
+        // whatever the household's real profile actually is.
+        <div className={styles.error} role="alert">
+          <p>{t("kitchenProfileLoadFailed")}</p>
+          <button
+            type="button"
+            className={styles.retryButton}
+            onClick={() => void profile.refetch()}
+          >
+            {t("kitchenProfileRetry")}
+          </button>
+        </div>
       ) : (
-        <KitchenProfileForm
-          initialValue={profile.data ?? DEFAULT_VALUE}
-          onSubmit={(value) => void save(value)}
-          pending={update.isPending}
-          submitLabel={
-            update.isPending
-              ? t("kitchenProfileSavePending")
-              : t("kitchenProfileSave")
-          }
-        />
-      )}
+        <>
+          <KitchenProfileForm
+            initialValue={profile.data ?? DEFAULT_VALUE}
+            onSubmit={(value) => void save(value)}
+            pending={update.isPending}
+            submitLabel={
+              update.isPending
+                ? t("kitchenProfileSavePending")
+                : t("kitchenProfileSave")
+            }
+          />
 
-      {failed ? (
-        <p className={styles.error} role="alert">
-          {t("kitchenProfileError")}
-        </p>
-      ) : null}
+          {failed ? (
+            <p className={styles.error} role="alert">
+              {t("kitchenProfileError")}
+            </p>
+          ) : null}
+        </>
+      )}
 
       {toast === null ? null : (
         <p className={styles.toast} role="status">

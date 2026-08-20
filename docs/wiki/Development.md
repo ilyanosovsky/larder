@@ -225,7 +225,12 @@ A household's equipment checklist + headcount (VISION §3.3, §5) — what a rec
 
 `kitchen_profiles` (`src/db/schema.ts`) is keyed by `householdId` itself (no separate `id` — the row is 1:1 with the household), plus `householdSize` (default 2) and `equipment` (`text[]`, default `{}`).
 
-**Presets vs. free-form.** `src/server/kitchen/equipment.ts` exports `EQUIPMENT_PRESETS` — the 11 checklist slugs (`oven`, `microwave`, `kettle`, `induction_hob`, `blender`, `grater`, `garlic_press`, `multicooker`, `mixer`, `airfryer`, `food_processor`) DESIGN_BRIEF §5 lists, our own starting profile being the first seven. `equipment` stores a mix of these slugs and whatever free text someone types into «Добавить своё» in the same array — the checklist just renders the preset subset as checkboxes. `normalizeEquipment()` is the pure, tested cleanup both the client (as chips are added) and the server (on every `update`) run: trim, cap at 40 chars, drop empties, and dedupe — exact match for a preset slug, case-insensitive for free-form text, with the two rules sharing one pass so typing the Russian word for an already-checked appliance collapses onto its slug instead of sitting beside it as a redundant chip.
+**Presets vs. free-form.** `src/server/kitchen/equipment.ts` exports `EQUIPMENT_PRESETS` — the 11 checklist slugs (`oven`, `microwave`, `kettle`, `induction_hob`, `blender`, `grater`, `garlic_press`, `multicooker`, `mixer`, `airfryer`, `food_processor`) DESIGN_BRIEF §5 lists, our own starting profile being the first seven. `equipment` stores a mix of these slugs and whatever free text someone types into «Добавить своё» in the same array — the checklist just renders the preset subset as checkboxes.
+
+Recognizing that typed text actually names a preset is a two-layer split:
+
+- **Client** — `resolveEquipmentEntry()` (`src/lib/equipment-entry.ts`, pure, unit-tested) matches a «Добавить своё» entry against both the slug strings and their localized checklist labels (built from the same `kitchenProfile.equipment.*` messages the checkboxes render), case-insensitively. So «Духовка», «духовка» or «Oven» all check the `oven` box in `kitchen-profile-form.tsx` instead of adding a redundant chip beside it. `withSlugChecked()` in the same file also drops any free-form entry that already case-insensitively equals the slug being checked (a stray "Oven" chip, say) before appending the canonical slug — otherwise `normalizeEquipment`'s own dedup would collide with it and the checkbox would silently do nothing.
+- **Server** — `normalizeEquipment()` never sees a localized label, only slugs and free text that already agree with the checklist by the time they reach it. It cleans that up: trim, cap at 40 chars, drop empties, dedupe (exact match for a preset slug, case-insensitive for everything else). Both the client (as chips are added) and the server (on every `update`) run this same function, so the two always agree on the final list.
 
 ### `kitchenProfile` router
 
@@ -236,14 +241,18 @@ A household's equipment checklist + headcount (VISION §3.3, §5) — what a rec
 
 ### Screens
 
-| Route                      | What it is                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------- |
-| `/onboarding/kitchen`      | S2 step, reached after a household exists — «Готово» or a quiet «Пропустить», both land on `/` |
-| `/settings` (S12 scaffold) | Signed-in identity + sign-out + the «Профиль кухни» section — task 7.1 adds the rest of S12    |
+| Route                      | What it is                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `/onboarding/kitchen`      | S2 step, reached after a household exists — «Готово» or a quiet «Пропустить», both land on `/`              |
+| `/settings` (S12 scaffold) | Page title, the «Профиль кухни» section, then signed-in identity + sign-out — task 7.1 adds the rest of S12 |
 
 Both screens render the same `src/components/kitchen-profile-form.tsx` — checklist, free-form chips, a 1–10 household-size stepper — so the two can never drift. The form is a plain controlled component (no autosave): the caller owns the `kitchenProfile.update` mutation and passes `pending`/`onSubmit` in.
 
 `OnboardingScreen`'s «Продолжить» and the invite-accept success path both now land on `/onboarding/kitchen` instead of `/` (`ONBOARDING_KITCHEN_PATH` in `src/lib/auth-redirect.ts`); the kitchen step itself is the one that finally lands on `/`.
+
+**The S2 step reads before it writes.** `/onboarding/kitchen`'s `page.tsx` calls `kitchenProfile.get()` server-side and passes the result into `KitchenOnboardingScreen` as `initialProfile` — it does not default the form to size 2 / no equipment unconditionally. The reason is who actually lands on this step: the household's creator may reach it having already filled the profile in, and the _partner_ accepting the invite lands here right after, on the very same household. A hardcoded blank default would let the partner's first, empty «Готово» silently overwrite whatever the creator already saved — `initialProfile` is what makes the step idempotent instead.
+
+The S12 section (`kitchen-profile-section.tsx`) makes the equivalent guarantee against its own query state: the form only ever mounts once `kitchenProfile.get` has resolved to a real value (success) or `null` (never set) — `profile.isPending` shows a loading line and `profile.isError` shows a retry button instead, so «Сохранить» can never fire against `DEFAULT_VALUE` while the actual profile failed to load.
 
 ### Header avatar entry
 

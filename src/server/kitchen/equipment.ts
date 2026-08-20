@@ -38,10 +38,15 @@ const MAX_ITEM_LENGTH = 40;
  * already canonical, so two different slugs are never "the same" appliance)
  * but case-insensitive for everything else — a free-form entry has no
  * canonical spelling, so «Мультиварка» typed twice with different casing is
- * one duplicate, not two chips. The two rules share one `seen` set on
- * purpose: typing the Russian word for a preset («Духовка») collapses onto
- * the preset slug the checklist already added, rather than sitting beside it
- * as a second, redundant entry.
+ * one duplicate, not two chips.
+ *
+ * This function never sees a localized checklist label — only slugs and
+ * free text. Recognizing that a typed «Духовка» names the same appliance as
+ * the checked `oven` box is `resolveEquipmentEntry()`'s job
+ * (`src/lib/equipment-entry.ts`), which runs on the client *before* a
+ * «Добавить своё» entry reaches this array: it checks the box instead of
+ * appending the label as text, so whatever lands here already agrees with
+ * the checklist by construction.
  *
  * Pure and framework-free so both `kitchenProfile.update` and the client
  * form that adds a chip can call it and always agree on the result.

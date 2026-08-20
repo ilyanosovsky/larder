@@ -21,6 +21,13 @@ import { KitchenOnboardingScreen } from "./kitchen-onboarding-screen";
  * alone, for the same dynamic-API-bailout reason documented there. Without a
  * household this step has nothing to attach a profile to, so it bounces back
  * to `/onboarding` rather than rendering a form that would fail on submit.
+ *
+ * `kitchenProfile.get` is read here and handed to the screen as its initial
+ * value. This is not just prefill: whoever created the household may already
+ * have filled the profile in (S12, or a first pass through this very step),
+ * and the *partner* accepting the invite lands here next. Defaulting the
+ * form to size 2 / no equipment regardless would let the partner's «Готово»
+ * silently overwrite what the creator already saved.
  */
 export default async function OnboardingKitchenPage() {
   const session = await getSession();
@@ -35,5 +42,7 @@ export default async function OnboardingKitchenPage() {
     redirect(ONBOARDING_PATH);
   }
 
-  return <KitchenOnboardingScreen />;
+  const profile = await caller.kitchenProfile.get();
+
+  return <KitchenOnboardingScreen initialProfile={profile} />;
 }

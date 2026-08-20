@@ -11,6 +11,7 @@ import {
   type KitchenProfileFormValue,
 } from "@/components/kitchen-profile-form";
 import { HOME_PATH } from "@/lib/auth-redirect";
+import type { KitchenProfileOutput } from "@/server/api/routers/kitchen-profile";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./kitchen-onboarding-screen.module.css";
@@ -27,13 +28,26 @@ const DEFAULT_VALUE: KitchenProfileFormValue = {
  * «Пропустить» land on the cart, the only difference is whether the profile
  * got saved first.
  */
-export function KitchenOnboardingScreen() {
+export function KitchenOnboardingScreen({
+  initialProfile,
+}: {
+  /**
+   * From `kitchenProfile.get`, read server-side by the page. `null` means
+   * nobody has saved one yet, so the form starts from `DEFAULT_VALUE`. A
+   * non-null value means the household's creator (or an earlier pass
+   * through this step) already saved one — the partner accepting an invite
+   * lands here next and must see it prefilled, not blow it away with a
+   * blank form's defaults on submit.
+   */
+  initialProfile: KitchenProfileOutput | null;
+}) {
   const t = useTranslations("onboardingKitchen");
   const trpc = useTRPC();
   const router = useRouter();
   const [failed, setFailed] = useState(false);
 
   const update = useMutation(trpc.kitchenProfile.update.mutationOptions());
+  const initialValue = initialProfile ?? DEFAULT_VALUE;
 
   async function save(value: KitchenProfileFormValue) {
     setFailed(false);
@@ -54,7 +68,7 @@ export function KitchenOnboardingScreen() {
 
         <div className={styles.formWrap}>
           <KitchenProfileForm
-            initialValue={DEFAULT_VALUE}
+            initialValue={initialValue}
             onSubmit={(value) => void save(value)}
             pending={update.isPending}
             submitLabel={update.isPending ? t("savePending") : t("save")}

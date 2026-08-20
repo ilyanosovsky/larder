@@ -16,13 +16,15 @@
   "placeholders": {
     "menu": "Скоро здесь будет меню недели.",
     "dishes": "Скоро здесь будет библиотека блюд.",
-    "assistant": "Скоро здесь будет ИИ-ассистент.",
-    "settings": "Скоро здесь будут настройки."
+    "assistant": "Скоро здесь будет ИИ-ассистент."
   },
   "settings": {
+    "title": "Настройки",
     "signedInAs": "Вход выполнен: {email}",
     "kitchenProfileTitle": "Профиль кухни",
     "kitchenProfileLoading": "Загружаем профиль…",
+    "kitchenProfileLoadFailed": "Не удалось загрузить профиль кухни.",
+    "kitchenProfileRetry": "Повторить",
     "kitchenProfileSave": "Сохранить",
     "kitchenProfileSavePending": "Сохраняем…",
     "kitchenProfileSaved": "Профиль кухни сохранён",

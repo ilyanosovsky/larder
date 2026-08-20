@@ -114,15 +114,22 @@
 
 .chipRemove {
   display: flex;
+  /* Visual size stays 24px (the chip should not balloon), but the button's
+     hit area — including padding — is ~44px, the ≥44pt touch target rule.
+     The negative margin pulls the extra padding back so it overlaps
+     neighbouring space invisibly instead of pushing the chip layout out. */
   width: 24px;
   height: 24px;
   align-items: center;
   justify-content: center;
+  margin: -10px;
   border: none;
   background: transparent;
+  padding: 10px;
   color: inherit;
   font-size: var(--t-small);
   cursor: pointer;
+  box-sizing: content-box;
 }
 
 /* ── Household size stepper ── */

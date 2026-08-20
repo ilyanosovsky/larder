@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 
+import { resolveEquipmentEntry } from "@/lib/equipment-entry";
 import {
   EQUIPMENT_PRESETS,
   normalizeEquipment,
@@ -15,6 +16,26 @@ const MIN_HOUSEHOLD_SIZE = 1;
 const MAX_HOUSEHOLD_SIZE = 10;
 
 const PRESET_SET: ReadonlySet<string> = new Set(EQUIPMENT_PRESETS);
+
+/**
+ * Ensures `slug` is present in `current`, exactly once.
+ *
+ * A free-form chip can already case-insensitively equal a slug — someone
+ * typed "Oven" before the checklist existed, or before `resolveEquipmentEntry`
+ * caught it — and `normalizeEquipment`'s dedup would otherwise drop the
+ * *appended* canonical slug (it runs into the existing chip's key first),
+ * leaving the checkbox visibly doing nothing. Dropping that stale duplicate
+ * first is what makes checking the box actually check it.
+ */
+function withSlugChecked(current: string[], slug: EquipmentSlug): string[] {
+  if (current.includes(slug)) {
+    return current;
+  }
+  const withoutCaseInsensitiveDuplicate = current.filter(
+    (item) => item.toLowerCase() !== slug.toLowerCase(),
+  );
+  return normalizeEquipment([...withoutCaseInsensitiveDuplicate, slug]);
+}
 
 export interface KitchenProfileFormValue {
   householdSize: number;
@@ -56,11 +77,17 @@ export function KitchenProfileForm({
   // a checkbox.
   const customItems = equipment.filter((item) => !PRESET_SET.has(item));
 
+  // The checklist's own labels, keyed by slug — what `resolveEquipmentEntry`
+  // matches a «Добавить своё» entry against, on top of the slugs themselves.
+  const labels = Object.fromEntries(
+    EQUIPMENT_PRESETS.map((slug) => [slug, t(`equipment.${slug}`)]),
+  ) as Record<EquipmentSlug, string>;
+
   function togglePreset(slug: EquipmentSlug) {
     setEquipment((current) =>
       current.includes(slug)
         ? current.filter((item) => item !== slug)
-        : normalizeEquipment([...current, slug]),
+        : withSlugChecked(current, slug),
     );
   }
 
@@ -69,7 +96,15 @@ export function KitchenProfileForm({
     if (value.length === 0) {
       return;
     }
-    setEquipment((current) => normalizeEquipment([...current, value]));
+
+    const resolved = resolveEquipmentEntry(value, labels);
+    setEquipment((current) =>
+      resolved.kind === "preset"
+        ? // Typed the slug or its own checklist label — check the box
+          // instead of adding a redundant chip beside it.
+          withSlugChecked(current, resolved.slug)
+        : normalizeEquipment([...current, resolved.value]),
+    );
     setCustomInput("");
   }
 
