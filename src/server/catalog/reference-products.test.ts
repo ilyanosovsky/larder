@@ -50,6 +50,34 @@ const MUST_HAVE_NAMES = [
 const CATEGORY_SLUGS = new Set<string>(DEFAULT_CATEGORY_SLUGS);
 const VALID_UNITS = new Set<string>(UNITS);
 
+/**
+ * Pictographs whose default glyph is TEXT presentation rather than emoji
+ * presentation — Unicode's `emoji-data.txt` marks these `Emoji_Presentation
+ * = No` — so without a trailing U+FE0F (VS16) they render as a monochrome
+ * outline on Windows and older Android instead of a color icon. Almost
+ * every pictograph used in this catalog defaults to emoji presentation on
+ * its own; this is deliberately just the short, known list of exceptions
+ * that actually matter here (found by hand, not derived from the full
+ * Unicode table), so a new icon is assumed fine unless its first code
+ * point shows up here — extend the list if that assumption is ever wrong.
+ */
+const TEXT_PRESENTATION_DEFAULT_CODE_POINTS = new Set<number>([
+  0x1f336, // HOT PEPPER (🌶)
+  0x1f5d1, // WASTEBASKET (🗑)
+  0x1f6e2, // OIL DRUM (🛢)
+]);
+
+function hasEmojiPresentation(icon: string): boolean {
+  const firstCodePoint = icon.codePointAt(0);
+  if (firstCodePoint === undefined) {
+    return false;
+  }
+  if (TEXT_PRESENTATION_DEFAULT_CODE_POINTS.has(firstCodePoint)) {
+    return icon.includes("\uFE0F");
+  }
+  return true;
+}
+
 describe("REFERENCE_PRODUCTS", () => {
   it("has between 160 and 200 entries", () => {
     expect(REFERENCE_PRODUCTS.length).toBeGreaterThanOrEqual(160);
@@ -91,6 +119,15 @@ describe("REFERENCE_PRODUCTS", () => {
     }
   });
 
+  it("renders every icon with emoji presentation, not a text glyph", () => {
+    for (const product of REFERENCE_PRODUCTS) {
+      expect(
+        hasEmojiPresentation(product.icon),
+        `"${product.name}" icon "${product.icon}" defaults to text presentation and needs a trailing U+FE0F (VS16)`,
+      ).toBe(true);
+    }
+  });
+
   it("uses only units from the shared UNITS contract", () => {
     for (const product of REFERENCE_PRODUCTS) {
       expect(
@@ -112,11 +149,15 @@ describe("REFERENCE_PRODUCTS", () => {
   });
 
   it("keeps aliases unique per product", () => {
+    // Compares normalized aliases, not raw strings: "сёмга" and "семга" are
+    // the same alias once ё→е normalization runs, so keeping both is dead
+    // data (one can never be reached by a search that always normalizes),
+    // not two distinct aliases.
     for (const product of REFERENCE_PRODUCTS) {
-      const unique = new Set(product.aliases);
+      const unique = new Set(product.aliases.map(normalize));
       expect(
         unique.size,
-        `"${product.name}" has a duplicate alias among [${product.aliases.join(", ")}]`,
+        `"${product.name}" has a duplicate alias (after normalization) among [${product.aliases.join(", ")}]`,
       ).toBe(product.aliases.length);
     }
   });

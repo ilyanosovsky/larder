@@ -34,7 +34,7 @@ export const REFERENCE_PRODUCTS: readonly ReferenceProduct[] = [
     icon: "🍅",
     categorySlug: "produce",
     unit: "кг",
-    aliases: ["помидор"],
+    aliases: ["помидор", "томат", "томаты"],
   },
   {
     name: "Помидоры черри",
@@ -101,7 +101,7 @@ export const REFERENCE_PRODUCTS: readonly ReferenceProduct[] = [
   },
   {
     name: "Перец чили",
-    icon: "🌶",
+    icon: "🌶️",
     categorySlug: "produce",
     unit: "шт",
     aliases: ["чили", "острый перец"],
@@ -619,7 +619,7 @@ export const REFERENCE_PRODUCTS: readonly ReferenceProduct[] = [
     icon: "🐟",
     categorySlug: "meat",
     unit: "кг",
-    aliases: ["сёмга", "семга"],
+    aliases: ["семга"],
   },
   {
     name: "Креветки",
@@ -854,10 +854,10 @@ export const REFERENCE_PRODUCTS: readonly ReferenceProduct[] = [
   },
   {
     name: "Масло подсолнечное",
-    icon: "🛢",
+    icon: "🌻",
     categorySlug: "grocery",
     unit: "л",
-    aliases: [],
+    aliases: ["растительное масло"],
   },
   {
     name: "Уксус",
@@ -1260,7 +1260,7 @@ export const REFERENCE_PRODUCTS: readonly ReferenceProduct[] = [
   },
   {
     name: "Мусорные пакеты",
-    icon: "🗑",
+    icon: "🗑️",
     categorySlug: "household",
     unit: "уп",
     aliases: [],

@@ -9,6 +9,7 @@ import {
   createDbStub,
   signedInContext,
   unusableDb,
+  type RecordedStatement,
   type StubResult,
 } from "@/server/api/test-support";
 
@@ -56,6 +57,23 @@ function hasCode(code: TRPCError["code"]) {
   return (error: unknown) => error instanceof TRPCError && error.code === code;
 }
 
+/**
+ * Compiles a recorded statement's first `WHERE` and asserts it mentions
+ * `household_id` — the tenancy guard every household-scoped query and
+ * write must carry, per-row `id` alone is never enough (VISION §6.7). If a
+ * refactor ever drops the `eq(categories.householdId, ...)` half of a
+ * `select`/`update`, this fails even though the stub's queued rows still
+ * make the surrounding test pass on values alone.
+ */
+function expectScopedByHousehold(statement: RecordedStatement | undefined) {
+  const condition = statement?.wheres[0];
+  expect(isSQLWrapper(condition)).toBe(true);
+  const { sql: text } = new PgDialect().sqlToQuery(
+    (condition as SQLWrapper).getSQL(),
+  );
+  expect(text).toContain('"household_id"');
+}
+
 describe("category.list", () => {
   it("requires a session", async () => {
     const caller = createCaller(anonymousContext(unusableDb));
@@ -91,13 +109,7 @@ describe("category.list", () => {
 
     const select = stub.statements[1];
     expect(select).toMatchObject({ kind: "select", table: "categories" });
-
-    const condition = select?.wheres[0];
-    expect(isSQLWrapper(condition)).toBe(true);
-    const { sql: text } = new PgDialect().sqlToQuery(
-      (condition as SQLWrapper).getSQL(),
-    );
-    expect(text).toContain('"household_id"');
+    expectScopedByHousehold(select);
   });
 });
 
@@ -202,5 +214,38 @@ describe("category.reorder", () => {
       table: "categories",
       values: { sortOrder: 2 },
     });
+  });
+
+  it("scopes the existing-ids lookup and every update to the caller's own household", async () => {
+    // A refactor that dropped `eq(categories.householdId, ctx.household.id)`
+    // from either the lookup or the per-row update would still pass every
+    // other reorder test — the stub's queued rows don't know or care what
+    // the WHERE actually filtered on, only that a statement of the right
+    // shape ran. Compiling the WHERE is the only way to prove the tenancy
+    // guard survived.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ id: CAT_1.id }, { id: CAT_2.id }, { id: CAT_3.id }],
+      [],
+      [],
+      [],
+    ]);
+
+    await caller.category.reorder({
+      orderedIds: [CAT_3.id, CAT_1.id, CAT_2.id],
+    });
+
+    const existingIdsSelect = stub.statements[1];
+    expect(existingIdsSelect).toMatchObject({
+      kind: "select",
+      table: "categories",
+    });
+    expectScopedByHousehold(existingIdsSelect);
+
+    for (const index of [2, 3, 4]) {
+      const update = stub.statements[index];
+      expect(update).toMatchObject({ kind: "update", table: "categories" });
+      expectScopedByHousehold(update);
+    }
   });
 });
