@@ -29,6 +29,9 @@ const anonymousContext: TRPCContext = {
   session: null,
   user: null,
   db: unusableDb,
+  openai: () => {
+    throw new Error("ctx.openai() must not be called in unit tests");
+  },
 };
 
 const signedInContext: TRPCContext = {

@@ -6,6 +6,7 @@ import { z, ZodError } from "zod";
 import type { db } from "@/db";
 import { householdMembers, households } from "@/db/schema";
 import type { Session } from "@/lib/session";
+import type { AiChatClient } from "@/server/ai/openai";
 
 type Database = ReturnType<typeof db>;
 type SessionData = NonNullable<Session>;
@@ -25,6 +26,18 @@ export interface TRPCContext {
   session: SessionData["session"] | null;
   user: SessionData["user"] | null;
   db: Database;
+  /**
+   * The OpenAI client, as a factory rather than an instance — for the same
+   * reason `db` is injected at all: a procedure that makes an AI call is
+   * testable without a network, and a unit test that should never reach
+   * OpenAI fails loudly instead of quietly dialing out.
+   *
+   * A factory, not a value, because building the client reads
+   * `OPENAI_API_KEY`: every request would otherwise pay for an environment
+   * lookup, and `next build` (which runs with no environment at all) would
+   * hit one while prerendering.
+   */
+  openai: () => AiChatClient;
 }
 
 const t = initTRPC.context<TRPCContext>().create({

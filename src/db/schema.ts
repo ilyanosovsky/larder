@@ -1,6 +1,10 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  jsonb,
+  numeric,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -126,6 +130,149 @@ export const categories = pgTable(
     index("categories_householdId_sortOrder_idx").on(
       table.householdId,
       table.sortOrder,
+    ),
+  ],
+);
+
+/**
+ * A product in a household's own catalog (VISION §3.1, §5) — the thing a cart
+ * item, a pantry item and a recipe ingredient all point at.
+ *
+ * Adding to the cart goes exclusively through autocomplete over this table
+ * (task 1.3), which is what makes "помидоры и вверху, и внизу" impossible by
+ * construction: a name resolves to one row, and the cart's own partial unique
+ * index (task 2.1) then allows one active item per row.
+ *
+ * Uniqueness is on `normalizedName` — a stored, canonical form of `name`
+ * written by every insert and every rename — rather than on an expression
+ * over `name`. The point is that the database enforces **the application's
+ * own** definition of "the same product" (`normalizeProductName`: lower-case,
+ * ё→е, collapsed whitespace), not a weaker approximation of it. A `lower(name)`
+ * index would happily admit «Сёмга» and «Семга» as two rows, which the
+ * autocomplete treats as one product — the duplicate this whole feature
+ * exists to prevent, minted permanently and only reachable through an edit.
+ *
+ * The column is redundant with `name` by construction, and that is the trade:
+ * a canonical value can be indexed and compared exactly, while a normalization
+ * this specific cannot be expressed as an index expression Postgres would
+ * still use for lookups. Writes go through `product.create`/`product.update`,
+ * which set the two together; nothing else may write `name` alone.
+ *
+ * `categoryId` is `restrict`, not `cascade`: a department that still groups
+ * products must not be deletable out from under them (there is no delete
+ * endpoint yet — this is the guard for when task 7.1 adds one).
+ * `createdBy` is `set null` because the catalog belongs to the household, not
+ * to whoever typed the name first.
+ */
+export const products = pgTable(
+  "products",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    /**
+     * `normalizeProductName(name)` — the canonical form uniqueness is on.
+     * Always written together with `name`; never edited on its own.
+     */
+    normalizedName: text("normalized_name").notNull(),
+    /** A single emoji — picked from the reference catalog or by the AI. */
+    icon: text("icon").notNull(),
+    /** One of `UNITS` (`src/lib/units.ts`), stored as text. */
+    defaultUnit: text("default_unit").notNull(),
+    /** Lowercase search aliases: "помидор" also finds "Помидоры". */
+    aliases: text("aliases")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("products_householdId_normalizedName_uidx").on(
+      table.householdId,
+      table.normalizedName,
+    ),
+    index("products_householdId_categoryId_idx").on(
+      table.householdId,
+      table.categoryId,
+    ),
+  ],
+);
+
+export const aiJobTypeEnum = pgEnum("ai_job_type", [
+  "product_enrich",
+  "parse_photo",
+  "parse_url",
+  "parse_text",
+  "assistant",
+]);
+
+export const aiJobStatusEnum = pgEnum("ai_job_status", [
+  "pending",
+  "running",
+  "done",
+  "error",
+]);
+
+/**
+ * One OpenAI call, recorded (VISION §5, §6.5).
+ *
+ * Two jobs at once: the progress a screen renders while an import runs, and
+ * the spend ledger. `costUsd` is written for **every** call from the very
+ * first AI feature — including calls that failed validation after the HTTP
+ * request succeeded, because those were billed too. A cap that only counts
+ * the successes under-reports exactly when things go wrong.
+ *
+ * The `(user_id, created_at)` index backs the rate limiter
+ * (`src/server/ai/rate-limit.ts`), which counts a user's recent rows instead
+ * of keeping state in memory — the only design that survives serverless, where
+ * every request may land in a different instance. `(household_id, created_at)`
+ * is for the monthly budget check the assistant adds in task 6.1.
+ *
+ * `numeric(10, 6)`: a single call costs fractions of a cent, so six decimals
+ * is the resolution that keeps a $0.0002 icon lookup from rounding to zero.
+ */
+export const aiJobs = pgTable(
+  "ai_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: aiJobTypeEnum("type").notNull(),
+    status: aiJobStatusEnum("status").notNull(),
+    /** What the call was about — a product name, a URL, an upload key. */
+    inputRef: text("input_ref"),
+    outputJson: jsonb("output_json"),
+    error: text("error"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("ai_jobs_userId_createdAt_idx").on(table.userId, table.createdAt),
+    index("ai_jobs_householdId_createdAt_idx").on(
+      table.householdId,
+      table.createdAt,
     ),
   ],
 );

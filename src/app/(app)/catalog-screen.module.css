@@ -1,0 +1,175 @@
+/* Household product catalog — Paper Ledger: hairline-ruled rows, square
+   everything, one ledger green. Stand-in for S3 «Корзина» until task 2.3. */
+
+.screen {
+  padding-bottom: var(--s-8);
+}
+
+.header {
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-4);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-title);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+  line-height: var(--lead-tight);
+}
+
+.subtitle {
+  margin-top: var(--s-2);
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.pending,
+.empty {
+  margin-top: var(--s-7);
+  color: var(--mute);
+  font-size: var(--t-body);
+  text-align: center;
+}
+
+.error {
+  margin-top: var(--s-5);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}
+
+/* ── CategorySection ── */
+
+.section {
+  margin-top: var(--s-6);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  border-bottom: var(--bd-hair) solid var(--rule-2);
+  padding-bottom: var(--s-2);
+}
+
+.sectionName {
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.sectionCount {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.rows {
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border: 0;
+  border-bottom: var(--bd-hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-2) var(--s-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:focus-visible,
+.fab:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rowIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.rowName {
+  overflow: hidden;
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowUnit {
+  flex: none;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+/* ── FAB «+ Добавить» — clear of the tab bar and the home indicator ── */
+
+.fab {
+  position: fixed;
+  right: var(--s-4);
+  bottom: calc(56px + var(--s-4) + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  box-shadow: var(--shadow-dialog);
+  padding: 0 var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.toast {
+  position: fixed;
+  bottom: calc(56px + var(--s-4) + 52px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 20;
+  /* A long product name must not push the toast past the viewport: it stays
+     one line and truncates. `max-width` is what the ellipsis needs to have
+     something to clip against. */
+  overflow: hidden;
+  max-width: calc(100% - 2 * var(--s-4));
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  box-shadow: var(--shadow-sheet);
+  padding: var(--s-2) var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+@media (min-width: 1024px) {
+  .fab {
+    bottom: var(--s-6);
+  }
+
+  .toast {
+    bottom: calc(var(--s-6) + 52px);
+  }
+}
