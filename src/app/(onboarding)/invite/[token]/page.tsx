@@ -36,7 +36,15 @@ export default async function InvitePage({
 
   const [t, preview] = await Promise.all([
     getTranslations("invite"),
-    caller.invite.preview({ token }),
+    // A rejection here must land on the same «ссылка не работает» screen as a
+    // genuinely dead link, not in the error boundary. Two reasons: a token
+    // over the length cap would otherwise fail visibly differently from a
+    // wrong one, making length a distinguishing signal (VISION §6.7), and a
+    // transient database blip should read as a broken link the visitor can
+    // retry, not as a crash.
+    caller.invite
+      .preview({ token })
+      .catch(() => ({ status: "invalid" }) as const),
   ]);
 
   if (preview.status === "valid" && !preview.alreadyMember) {
