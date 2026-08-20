@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { householdMembers, households, invites, users } from "@/db/schema";
@@ -121,11 +121,19 @@ export const inviteRouter = createTRPCRouter({
   /**
    * Redeems a link: stamps it used and adds the caller to the household.
    *
-   * Both halves of "one-time" are enforced by the database inside one
-   * transaction — the stamp only lands `WHERE used_at IS NULL`, and the
-   * membership insert is guarded by the unique index on `user_id`. Two people
-   * opening the same link therefore race in Postgres, and the loser gets a
-   * clean NOT_FOUND/CONFLICT instead of a duplicate row.
+   * **The claim UPDATE is the single authority on whether the invite is
+   * usable.** `decideInviteAccept` above it only decides what to tell the
+   * caller — by the time its answer is acted on, the row may have been
+   * claimed by someone else and the TTL may have run out. So every condition
+   * that makes an invite usable is repeated in the UPDATE's WHERE, evaluated
+   * once, atomically, against the database's own clock: unclaimed
+   * (`used_at IS NULL`) and still in date (`expires_at > now()`). Checking
+   * expiry only before the UPDATE would let a request that crosses
+   * `expires_at` in flight redeem an expired invite.
+   *
+   * The membership insert is guarded the same way, by the unique index on
+   * `user_id`. Two people opening the same link therefore race in Postgres,
+   * and the loser gets a clean NOT_FOUND/CONFLICT instead of a duplicate row.
    */
   accept: protectedProcedure
     .input(inviteTokenInput)
@@ -170,13 +178,20 @@ export const inviteRouter = createTRPCRouter({
 
           const claimed = await tx
             .update(invites)
-            .set({ usedAt: new Date(), usedBy: userId })
+            // `now()` throughout, so the stamp and the predicate that allowed
+            // it come from one clock — the database's, not this process's.
+            .set({ usedAt: sql`now()`, usedBy: userId })
             .where(
-              and(eq(invites.id, decision.invite.id), isNull(invites.usedAt)),
+              and(
+                eq(invites.id, decision.invite.id),
+                isNull(invites.usedAt),
+                gt(invites.expiresAt, sql`now()`),
+              ),
             )
             .returning({ id: invites.id });
 
-          // Someone else claimed it between the read and the update.
+          // No row matched: someone else claimed it between the read and the
+          // update, or it expired in the meantime.
           if (claimed.length === 0) {
             throw invalidInvite;
           }

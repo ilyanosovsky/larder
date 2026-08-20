@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { isSQLWrapper, type SQLWrapper } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createCaller } from "@/server/api/root";
@@ -281,6 +283,45 @@ describe("invite.accept", () => {
     );
     // The membership insert never ran.
     expect(stub.statements).toHaveLength(3);
+  });
+
+  it("rejects an invite that expired between the read and the claim", async () => {
+    // Same shape as losing the race: the row read as valid, but the claim
+    // matched nothing because `expires_at > now()` no longer held. Nobody
+    // joins on the strength of the earlier read.
+    const { caller, stub } = callerWith([[validInvite()], [], []]);
+
+    await expect(caller.invite.accept({ token: "t" })).rejects.toSatisfy(
+      hasCode("NOT_FOUND"),
+    );
+    expect(stub.statements).toHaveLength(3);
+  });
+
+  it("guards the claim on both expiry and use, against the database clock", async () => {
+    // The decision made before this UPDATE is advisory — the WHERE is what
+    // actually authorises the redemption, so it has to carry every condition.
+    // Compiling it is the only way to prove `expires_at` is really in there.
+    const { caller, stub } = callerWith([
+      [validInvite()],
+      [],
+      [{ id: "invite_1" }],
+      [],
+    ]);
+
+    await caller.invite.accept({ token: "t" });
+
+    const claim = stub.statements[2];
+    expect(claim).toMatchObject({ kind: "update", table: "invites" });
+
+    const condition = claim?.wheres[0];
+    expect(isSQLWrapper(condition)).toBe(true);
+    const { sql: text } = new PgDialect().sqlToQuery(
+      (condition as SQLWrapper).getSQL(),
+    );
+
+    expect(text).toContain('"expires_at"');
+    expect(text).toContain("now()");
+    expect(text).toContain('"used_at" is null');
   });
 
   it("turns a unique-index violation on the membership into CONFLICT", async () => {

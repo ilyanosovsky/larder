@@ -58,6 +58,12 @@ export interface RecordedStatement {
   table: string | null;
   /** Payload handed to `.values()` or `.set()`. */
   values: unknown;
+  /**
+   * Conditions handed to `.where()`. The stub cannot evaluate them, but a
+   * test can compile one with `PgDialect` to assert which columns a guard
+   * actually covers — see the invite claim tests.
+   */
+  wheres: unknown[];
 }
 
 /**
@@ -91,6 +97,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       kind,
       table: table === null ? null : getTableName(table),
       values: undefined,
+      wheres: [],
     };
     statements.push(statement);
 
@@ -109,7 +116,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       },
       innerJoin: () => chain,
       leftJoin: () => chain,
-      where: () => chain,
+      where(condition: unknown) {
+        statement.wheres.push(condition);
+        return chain;
+      },
       orderBy: () => chain,
       limit: () => chain,
       for: () => chain,

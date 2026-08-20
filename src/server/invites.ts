@@ -43,8 +43,12 @@ export type InviteStatus = "valid" | "expired" | "used";
 /**
  * An invite is `used` the moment it is stamped, and `expired` from its
  * `expiresAt` instant onwards — the TTL boundary itself is already too late.
- * Redemption checks it first, so a used-then-expired link still reports the
- * more accurate reason.
+ * Used is checked first, so a used-then-expired link reports the more
+ * accurate reason.
+ *
+ * This runs against the application clock on a row that was read earlier, so
+ * treat the answer as "what to show", never as permission to write. The claim
+ * UPDATE re-checks both conditions in the database.
  */
 export function inviteStatus(invite: InviteTiming, now: Date): InviteStatus {
   if (invite.usedAt !== null) {
@@ -127,6 +131,12 @@ export function previewInvite({
 /**
  * Outcome of redeeming an invite. `accept` carries the row back so the caller
  * keeps it narrowed — the resolver never has to re-check for null.
+ *
+ * Advisory, not authoritative: this decides what to *tell* the caller, from a
+ * row read a moment ago. The row can be claimed by someone else, and the TTL
+ * can run out, between that read and the write. The claim UPDATE in
+ * `routers/invite.ts` repeats every condition against the database clock and
+ * is what actually authorises the redemption.
  */
 export type InviteAcceptDecision<TInvite> =
   | { outcome: "accept"; invite: TInvite }
