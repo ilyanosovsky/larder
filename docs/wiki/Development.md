@@ -38,10 +38,10 @@ Layout of the pieces:
 | `src/lib/session.ts`         | `getSession()` for server components, layouts and server actions                     |
 | `src/app/api/auth/[...all]/` | The Better Auth request handler                                                      |
 | `src/middleware.ts`          | Optimistic cookie check — fast redirect, no database round-trip                      |
-| `src/app/(app)/layout.tsx`   | Authoritative session check for every signed-in screen                               |
-| `src/app/(auth)/login/`      | S1 «Вход» — the only screen rendered without the app shell                           |
+| `src/app/(app)/layout.tsx`   | Authoritative session + household check for every signed-in screen                   |
+| `src/app/(auth)/login/`      | S1 «Вход» — rendered without the app shell                                           |
 
-**Adding a protected screen:** put it under `src/app/(app)/`. The layout's session check covers it automatically; no middleware change is needed.
+**Adding a protected screen:** put it under `src/app/(app)/`. The layout's session and household checks cover it automatically; no middleware change is needed.
 
 ### Regenerating the auth tables
 
@@ -55,20 +55,57 @@ pnpm db:migrate
 
 `better-auth.config.ts` in the repository root exists _only_ for that generator: the CLI needs a plain `auth` export, while the runtime instance is a lazy factory. It shares the adapter shape with the runtime through `src/lib/auth-drizzle-config.ts`, so the two cannot drift.
 
+## Onboarding & households
+
+Everything in Larder belongs to a household (VISION §5). A signed-in user without one has no data to look at, so `src/app/(app)/layout.tsx` runs a second gate right after the session check: `caller.household.current()` returns `null` → redirect to `/onboarding`.
+
+Both onboarding screens therefore live **outside** the `(app)` group, in `src/app/(onboarding)/` — inside it, the gate would redirect them to themselves:
+
+| Route             | What it is                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `/onboarding`     | S2: create a household, then the «Пригласи своих» view with the invite link and a copy button |
+| `/invite/[token]` | The screen an invite link opens: «Аня приглашает тебя в „Наш дом“» + «Вступить»               |
+
+Both are still behind the auth middleware, so only signed-in visitors reach them.
+
+### Invite links
+
+One-time, with a TTL (VISION §6.7). The rules live in `src/server/invites.ts`, free of tRPC and the database so every branch is unit-tested:
+
+- `createInviteToken()` — 32 random bytes, base64url, so the token needs no URL escaping.
+- `INVITE_TTL_MS` — 7 days. An invite is `expired` from its `expiresAt` instant onwards; the boundary itself is already too late.
+- `previewInvite()` / `decideInviteAccept()` — the decision tables the two routers execute.
+
+Unknown, expired and already-used tokens all surface as one indistinguishable `invalid` (preview) / `NOT_FOUND` (accept): someone guessing tokens must not learn which of the three they hit. The exception is a caller who is already a member of the invite's household — they get a friendly "you're already in" instead, which leaks nothing they don't know.
+
+Redemption is guarded by the database, not by the read that precedes it. Inside one transaction, the stamp lands with `UPDATE invites SET used_at = now() WHERE id = $1 AND used_at IS NULL` and the membership insert runs against a unique index on `household_members.user_id` (the "one household per user" MVP invariant). Two people opening the same link therefore race in Postgres; the loser gets `NOT_FOUND` or `CONFLICT`, never a duplicate row. `isUniqueViolation()` in `src/server/db-errors.ts` is what turns that violation into a domain error instead of a 500 — reuse it for the cart invariant in task 2.1.
+
+### Household routers
+
+| Procedure           | Boundary             | Notes                                                           |
+| ------------------- | -------------------- | --------------------------------------------------------------- |
+| `household.current` | `protectedProcedure` | `{ household, members } \| null` — null is normal, not an error |
+| `household.create`  | `protectedProcedure` | CONFLICT if the caller already has one                          |
+| `invite.create`     | `householdProcedure` | Mints a link for the caller's own household                     |
+| `invite.preview`    | `protectedProcedure` | Read-only, for rendering the join screen                        |
+| `invite.accept`     | `protectedProcedure` | Redeems the link and creates the membership                     |
+
+The three `protectedProcedure` entries cannot use `householdProcedure`: their whole audience is people who have no household yet.
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.
 
-| File                               | Role                                                                                          |
-| ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| `src/server/api/trpc.ts`           | `initTRPC` — superjson transformer, `errorFormatter`, `publicProcedure`, `protectedProcedure` |
-| `src/server/api/context.ts`        | `createTRPCContext()` — `{ session, user, db }` for one request                               |
-| `src/server/api/root.ts`           | `appRouter`, the `AppRouter` type, `createCaller`                                             |
-| `src/server/api/routers/*.ts`      | One router per feature, with its Zod output schemas next to it                                |
-| `src/app/api/trpc/[trpc]/route.ts` | The single HTTP endpoint (`fetchRequestHandler`)                                              |
-| `src/trpc/query-client.ts`         | `makeQueryClient()` — shared defaults, superjson dehydrate/hydrate                            |
-| `src/trpc/client.tsx`              | `TRPCReactProvider` (mounted in the root layout), `useTRPC()`, the links                      |
-| `src/trpc/server.tsx`              | `caller`, `trpc` options proxy, `prefetch`, `HydrateClient` for server components             |
+| File                               | Role                                                                               |
+| ---------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/server/api/trpc.ts`           | `initTRPC` — superjson transformer, `errorFormatter`, the three procedure builders |
+| `src/server/api/context.ts`        | `createTRPCContext()` — `{ session, user, db }` for one request                    |
+| `src/server/api/root.ts`           | `appRouter`, the `AppRouter` type, `createCaller`                                  |
+| `src/server/api/routers/*.ts`      | One router per feature, with its Zod output schemas next to it                     |
+| `src/app/api/trpc/[trpc]/route.ts` | The single HTTP endpoint (`fetchRequestHandler`)                                   |
+| `src/trpc/query-client.ts`         | `makeQueryClient()` — shared defaults, superjson dehydrate/hydrate                 |
+| `src/trpc/client.tsx`              | `TRPCReactProvider` (mounted in the root layout), `useTRPC()`, the links           |
+| `src/trpc/server.tsx`              | `caller`, `trpc` options proxy, `prefetch`, `HydrateClient` for server components  |
 
 ### Adding a router
 
@@ -85,8 +122,21 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 
 - `publicProcedure` — reachable signed out. `ctx.session` and `ctx.user` are nullable.
 - `protectedProcedure` — throws `UNAUTHORIZED` (HTTP 401) without a session, and narrows the context so `ctx.user` is non-null in the resolver. No `!` assertions downstream.
+- `householdProcedure` — additionally loads the caller's membership and throws `FORBIDDEN` (HTTP 403) when there is none, narrowing the context with `ctx.household` and `ctx.membership`. This is the per-request membership check VISION §6.7 asks for.
 
-Household membership is a separate check, added with the first household-scoped router (VISION §6.7).
+**Build every household-scoped procedure on `householdProcedure`, and scope its queries by `ctx.household.id`.** A `householdId` arriving in the input is an authorization hole; `ctx.household.id` is derived from the session and cannot be forged.
+
+`FORBIDDEN` rather than `UNAUTHORIZED` for a household-less caller is deliberate: they are authenticated, they simply have not finished onboarding. The UI gate normally redirects them long before a procedure runs; this is the backstop for direct API calls.
+
+### Testing routers
+
+`src/server/api/test-support.ts` holds the fixtures — it is imported by tests only, never by application code:
+
+- `unusableDb` — a Proxy that throws on any property access, so a test can prove a procedure rejected _before_ it queried.
+- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order.
+- `anonymousContext(db)` / `signedInContext(db)` — the two contexts to hand `createCaller`.
+
+Business rules that do not need a query at all (invite validity, accept decisions) live as pure functions and are tested directly. No test opens a database connection.
 
 ### Calling it
 
