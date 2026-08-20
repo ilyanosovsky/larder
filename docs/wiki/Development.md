@@ -70,7 +70,7 @@ Both onboarding screens therefore live **outside** the `(app)` group, in `src/ap
 | Route             | What it is                                                                                    |
 | ----------------- | --------------------------------------------------------------------------------------------- |
 | `/onboarding`     | S2: create a household, then the «Пригласи своих» view with the invite link and a copy button |
-| `/invite/[token]` | The screen an invite link opens: «Аня приглашает тебя в „Наш дом“» + «Вступить»               |
+| `/invite/[token]` | The screen an invite link opens: «Аня приглашает тебя в «Наш дом»» + «Вступить»               |
 
 Both are still behind the auth middleware, so only signed-in visitors reach them — signed-out ones go through `/login?next=…` and come back (see above).
 
@@ -86,7 +86,16 @@ One-time, with a TTL (VISION §6.7). The rules live in `src/server/invites.ts`, 
 
 Unknown, expired and already-used tokens all surface as one indistinguishable `invalid` (preview) / `NOT_FOUND` (accept): someone guessing tokens must not learn which of the three they hit. The exception is a caller who is already a member of the invite's household — they get a friendly "you're already in" instead, which leaks nothing they don't know.
 
-Redemption is guarded by the database, not by the read that precedes it. Inside one transaction, the stamp lands with `UPDATE invites SET used_at = now() WHERE id = $1 AND used_at IS NULL` and the membership insert runs against a unique index on `household_members.user_id` (the "one household per user" MVP invariant). Two people opening the same link therefore race in Postgres; the loser gets `NOT_FOUND` or `CONFLICT`, never a duplicate row. `isUniqueViolation()` in `src/server/db-errors.ts` is what turns that violation into a domain error instead of a 500 — reuse it for the cart invariant in task 2.1.
+**The claim UPDATE is the single authority on whether an invite may be redeemed.** `decideInviteAccept()` runs against the application clock on a row read a moment earlier, so it decides what to _tell_ the caller and nothing more. Every condition is then repeated in the write, evaluated once and atomically against the database clock:
+
+```sql
+UPDATE invites SET used_at = now(), used_by = $2
+WHERE id = $1 AND used_at IS NULL AND expires_at > now()
+```
+
+Both conditions have to be there. Dropping `used_at IS NULL` lets two people redeem one link; dropping `expires_at > now()` lets a request that crosses the TTL in flight redeem an expired one. The membership insert is guarded the same way, by the unique index on `household_members.user_id` (the "one household per user" MVP invariant). Two people opening the same link therefore race in Postgres; the loser gets `NOT_FOUND` or `CONFLICT`, never a duplicate row.
+
+`isUniqueViolation()` in `src/server/db-errors.ts` turns that index violation into a domain error instead of a 500 — reuse it for the cart invariant in task 2.1. It **walks the `cause` chain**, which is not optional: since drizzle-orm 0.44 the postgres.js error arrives wrapped in a `DrizzleQueryError`, so a top-level `code` check silently stops matching and every lost race becomes an INTERNAL_SERVER_ERROR.
 
 ### Household routers
 
