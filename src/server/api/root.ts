@@ -2,6 +2,7 @@ import { categoryRouter } from "@/server/api/routers/category";
 import { healthRouter } from "@/server/api/routers/health";
 import { householdRouter } from "@/server/api/routers/household";
 import { inviteRouter } from "@/server/api/routers/invite";
+import { kitchenProfileRouter } from "@/server/api/routers/kitchen-profile";
 import { productRouter } from "@/server/api/routers/product";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
@@ -15,6 +16,7 @@ export const appRouter = createTRPCRouter({
   invite: inviteRouter,
   category: categoryRouter,
   product: productRouter,
+  kitchenProfile: kitchenProfileRouter,
 });
 
 /** Client-side type of the whole API. Import as `import type` only. */

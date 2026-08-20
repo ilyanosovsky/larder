@@ -103,6 +103,12 @@ export interface RecordedStatement {
    * directly instead of compiled.
    */
   lock: { strength: unknown; config: unknown } | null;
+  /**
+   * The target/set handed to `.onConflictDoUpdate({ target, set })`, or
+   * `null` for an insert that never upserts. `target` is a real column
+   * reference, so a test compiles it the same way `wheres` are compiled.
+   */
+  onConflict: { target: unknown; set: unknown } | null;
 }
 
 /**
@@ -144,6 +150,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       wheres: [],
       orderBys: [],
       lock: null,
+      onConflict: null,
     };
     statements.push(statement);
 
@@ -173,6 +180,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       limit: () => chain,
       for(strength: unknown, config?: unknown) {
         statement.lock = { strength, config };
+        return chain;
+      },
+      onConflictDoUpdate(config: { target: unknown; set: unknown }) {
+        statement.onConflict = { target: config.target, set: config.set };
         return chain;
       },
       returning: () => chain,

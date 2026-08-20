@@ -7,3 +7,38 @@
   text-align: center;
   overflow-wrap: anywhere;
 }
+
+/* ── Settings sections (S12 scaffold, task 1.4) ── */
+
+.section {
+  margin-top: var(--s-7);
+  border-top: var(--bd-hair) solid var(--rule);
+  padding: var(--s-6) var(--s-5) 0;
+}
+
+.sectionTitle {
+  margin-bottom: var(--s-5);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  font-weight: var(--w-semibold);
+}
+
+.pending {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.error {
+  margin-top: var(--s-3);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}
+
+.toast {
+  margin-top: var(--s-3);
+  color: var(--green-txt);
+  font-size: var(--t-meta);
+}
