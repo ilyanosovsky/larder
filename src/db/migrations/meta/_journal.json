@@ -22,6 +22,13 @@
       "when": 1787202863370,
       "tag": "0002_nostalgic_agent_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787206664182,
+      "tag": "0003_true_tigra",
+      "breakpoints": true
     }
   ]
 }

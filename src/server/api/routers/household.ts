@@ -2,8 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { householdMembers, households, users } from "@/db/schema";
+import { categories, householdMembers, households, users } from "@/db/schema";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+import { DEFAULT_CATEGORIES } from "@/server/catalog/default-categories";
 import { isUniqueViolation } from "@/server/db-errors";
 
 /**
@@ -117,6 +118,19 @@ export const householdRouter = createTRPCRouter({
           await tx
             .insert(householdMembers)
             .values({ householdId: household.id, userId });
+
+          // Seed the 7 default departments (VISION §3.1, DESIGN_BRIEF §5) so
+          // the cart and catalog have somewhere to group items from the
+          // household's very first screen — nobody starts with an empty
+          // department list.
+          await tx.insert(categories).values(
+            DEFAULT_CATEGORIES.map((category, index) => ({
+              householdId: household.id,
+              name: category.name,
+              icon: category.icon,
+              sortOrder: index,
+            })),
+          );
 
           return household;
         });
