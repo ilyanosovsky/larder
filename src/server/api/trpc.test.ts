@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { appRouter, createCaller } from "@/server/api/root";
+import { createDbStub } from "@/server/api/test-support";
 import {
+  createCallerFactory,
   createTRPCRouter,
+  householdProcedure,
   publicProcedure,
   type TRPCContext,
 } from "@/server/api/trpc";
@@ -86,6 +89,63 @@ describe("protectedProcedure", () => {
       id: "user_1",
       email: "kira@example.com",
       name: "Кира",
+    });
+  });
+});
+
+describe("householdProcedure", () => {
+  /** Minimal router so the middleware can be exercised on its own. */
+  const householdRouter = createTRPCRouter({
+    peek: householdProcedure.query(({ ctx }) => ({
+      householdId: ctx.household.id,
+      householdName: ctx.household.name,
+      membershipId: ctx.membership.id,
+    })),
+  });
+  const createHouseholdCaller = createCallerFactory(householdRouter);
+
+  const membershipRow = {
+    membership: {
+      id: "membership_1",
+      householdId: "household_1",
+      userId: "user_1",
+      joinedAt: new Date("2026-08-01T00:00:00.000Z"),
+    },
+    household: {
+      id: "household_1",
+      name: "Наш дом",
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  };
+
+  it("rejects an anonymous caller with UNAUTHORIZED, before any query", async () => {
+    // `unusableDb` proves the membership lookup is never reached.
+    const caller = createHouseholdCaller(anonymousContext);
+
+    await expect(caller.peek()).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof TRPCError && error.code === "UNAUTHORIZED",
+    );
+  });
+
+  it("rejects a signed-in caller without a household with FORBIDDEN", async () => {
+    const { db } = createDbStub([[]]);
+    const caller = createHouseholdCaller({ ...signedInContext, db });
+
+    await expect(caller.peek()).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof TRPCError && error.code === "FORBIDDEN",
+    );
+  });
+
+  it("puts the household and the membership on the context", async () => {
+    const { db } = createDbStub([[membershipRow]]);
+    const caller = createHouseholdCaller({ ...signedInContext, db });
+
+    await expect(caller.peek()).resolves.toEqual({
+      householdId: "household_1",
+      householdName: "Наш дом",
+      membershipId: "membership_1",
     });
   });
 });
