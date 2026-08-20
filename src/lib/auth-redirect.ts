@@ -4,6 +4,14 @@ export const LOGIN_PATH = "/login";
 /** Landing route after a successful sign-in: the cart (S3). */
 export const HOME_PATH = "/";
 
+/**
+ * Onboarding (S2) — create a household or learn how to join one. Signed in
+ * but household-less users are sent here by `src/app/(app)/layout.tsx`. Not
+ * part of the middleware's decision: it stays behind the auth gate like every
+ * other screen.
+ */
+export const ONBOARDING_PATH = "/onboarding";
+
 export interface AuthRedirectInput {
   /** Pathname of the incoming request, e.g. `/menu`. */
   pathname: string;
