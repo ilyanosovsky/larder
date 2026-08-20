@@ -129,6 +129,27 @@ describe("invite.preview", () => {
     );
   });
 
+  it("rejects an oversized token at the boundary, before any query", async () => {
+    // Real tokens are 43 base64url characters; nothing longer than the cap
+    // reaches the database.
+    const caller = createCaller(signedInContext(unusableDb));
+
+    await expect(
+      caller.invite.preview({ token: "x".repeat(65) }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+    await expect(
+      caller.invite.accept({ token: "x".repeat(65) }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+  });
+
+  it("still accepts a real-length token", async () => {
+    const { caller } = callerWith([[], []]);
+
+    await expect(
+      caller.invite.preview({ token: "x".repeat(43) }),
+    ).resolves.toEqual({ status: "invalid" });
+  });
+
   it("shows the invitation to a household-less caller", async () => {
     // invite lookup → membership lookup
     const { caller } = callerWith([[validInvite()], []]);

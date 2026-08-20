@@ -23,8 +23,15 @@ export const createInviteOutput = z.object({
   url: z.string(),
 });
 
+/**
+ * A real token is exactly 43 base64url characters (32 random bytes). The cap
+ * is loose rather than exact so the "unknown, expired and used all look the
+ * same" property survives — a wrong-length guess still gets NOT_FOUND, not a
+ * distinguishable validation error — while a megabyte of garbage is rejected
+ * at the boundary instead of becoming a database query.
+ */
 export const inviteTokenInput = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).max(64),
 });
 
 /**
