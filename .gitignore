@@ -25,3 +25,7 @@ coverage/
 
 # design export junk
 design/.thumbnail
+
+# Claude Code agent git worktrees — full repo copies used by subagents,
+# not project config (unlike the rest of .claude/, which stays tracked)
+.claude/worktrees/
