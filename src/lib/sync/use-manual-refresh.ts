@@ -19,9 +19,9 @@ export interface ManualRefresh {
  * `cartSyncQueryOptions` already covers.
  *
  * `filter` is the `trpc.cart.list.queryFilter()` idiom used elsewhere for
- * invalidation (see `queryClient.invalidateQueries(trpc.product.list.queryFilter())`
- * in `catalog-screen.tsx`) — a `QueryFilters` pinned to one query's key by
- * tRPC's option-proxy, not a hand-rolled key array.
+ * invalidation (see the `setStatus` mutation in `cart-screen.tsx`) — a
+ * `QueryFilters` pinned to one query's key by tRPC's option-proxy, not a
+ * hand-rolled key array.
  *
  * Two things this is *not* as thin a shell as it looks:
  *
@@ -47,7 +47,7 @@ export interface ManualRefresh {
  * `useCallback` dependency: the `trpc.cart.list.queryFilter()` idiom builds
  * a new object every render, which would otherwise make `refresh`'s
  * identity churn every render too — useless as a memoized callback handed
- * to a child component, which is exactly how 2.3 is expected to use it.
+ * to a child component.
  */
 export function useManualRefresh(filter: QueryFilters): ManualRefresh {
   const queryClient = useQueryClient();

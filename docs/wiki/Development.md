@@ -208,16 +208,18 @@ One trap worth knowing: a bare `Date` interpolated into a raw `sql` fragment is 
 
 ### Screens
 
-| File                                    | Role                                                                 |
-| --------------------------------------- | -------------------------------------------------------------------- |
-| `src/components/bottom-sheet.tsx`       | Shared sheet shell: scrim, Esc, square paper panel                   |
-| `src/components/autocomplete-sheet.tsx` | S4 «Добавление продукта» — search, «Создать „…“», AiProgress, result |
-| `src/components/product-edit-form.tsx`  | «Изменить продукт»: emoji, name, department, unit                    |
-| `src/app/(app)/catalog-screen.tsx`      | The catalog grouped by department, with the FAB that opens S4        |
+| File                                    | Role                                                                              |
+| --------------------------------------- | --------------------------------------------------------------------------------- |
+| `src/components/bottom-sheet.tsx`       | Shared sheet shell: scrim, Esc, square paper panel                                |
+| `src/components/autocomplete-sheet.tsx` | S4 «Добавление продукта» — search, «Создать „…“», AiProgress, quantity step       |
+| `src/components/product-edit-form.tsx`  | «Изменить продукт»: emoji, name, department, unit                                 |
+| `src/app/(app)/cart-screen.tsx`         | S3 «Корзина» — the screen S4 adds to (see [Cart screen](#cart-screen-s3-task-23)) |
 
 The sheet debounces input by 200 ms and keeps the previous list on screen while the next one loads, so it never blinks empty between keystrokes. «Создать „…“» appears only when nothing already _is_ what was typed.
 
-The «Покупки» tab is a deliberately lean catalog view — **task 2.3 replaces it with S3 «Корзина»**, reading from this same router. The quantity stepper DESIGN_BRIEF S4 describes belongs to the cart and lands with it; there is a `TODO(2.3)` on the line where an added product will join it.
+There is no separate catalog screen. Task 1.3 shipped one as a stand-in so newly created products had somewhere to land; task 2.3 replaced it with the cart, and the catalog is now reached only through S4's search. Editing an existing product's icon or department therefore goes through «Изменить» on the quantity step for now; row-level editing on S3 is task 2.5.
+
+**S4 resolves a product _and_ a quantity, then hands both over.** `onAdded({ product, qty, unit })` fires on «В корзину», and the sheet deliberately does **not** close itself: only the caller knows what `cart.add` answered, and a merge, a unit conflict and an already-bought line are three different screens. It also never imports the `cart` router, so the same flow can later feed a recipe's ingredient list or the pantry. A successful `product.create` invalidates the `product` queries before moving on — otherwise the same search inside `staleTime` would offer «Создать „…“» again for a product that now exists.
 
 ## Cart
 
@@ -290,11 +292,11 @@ A product with **no** active row locks nothing, so the insert can still lose the
 
 `remove` is deliberately idempotent — no NOT_FOUND when nothing matched. The cart is shared, so both partners removing the same line is ordinary rather than an error, and the offline queue task 2.4 adds will replay mutations after a reconnect.
 
-There is no UI yet: task 2.3 builds S3 on this router.
+The UI on top of it is [Cart screen](#cart-screen-s3-task-23) below.
 
 ### Cart sync (task 2.2)
 
-VISION §6.3's MVP sync model is refetch, not push: every mutation persists immediately, and a partner's view catches up the next time it refetches — on focus, on a background interval, or by hand. `src/lib/sync/` is the reusable toolkit that model needs; task 2.3 wires it into the S3 screen rather than reimplementing any of it there.
+VISION §6.3's MVP sync model is refetch, not push: every mutation persists immediately, and a partner's view catches up the next time it refetches — on focus, on a background interval, or by hand. `src/lib/sync/` is the reusable toolkit that model needs; the S3 screen wires it in rather than reimplementing any of it.
 
 | File                    | Exports                                                                               | What it's for                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -314,9 +316,44 @@ This is deliberately **not** a `QueryClient` default. The catalog, settings and 
 
 All of the actual branching lives in the two pure functions in `highlight-state.ts`, not in the hook. That split is not just taste: this repo's vitest config (`vitest.config.ts`) runs in a **node** environment and only collects `src/**/*.test.ts` — no `.tsx`, no DOM — so a hook cannot be rendered or tested here at all. The pure state machine is what carries the test coverage; the hook itself is a ref, a `setState` and a `setTimeout`. (`items` still has to be the query's own `data` reference, or a `useMemo`-stabilized derivative of it — an inline-derived array recreated every render defeats the effect's `[items]` dependency, which the same-reference bail-out only turns from an infinite render loop into wasted work, not into a no-op.)
 
-**Manual refresh.** `useManualRefresh(filter)` wraps `queryClient.refetchQueries({ type: "active", ...filter })` with an `isRefreshing` boolean, for the pull-to-refresh / «Обновить» control task 2.3 adds. `filter` is meant to be `trpc.cart.list.queryFilter()` — the same idiom `catalog-screen.tsx` already uses for invalidation, just handed to `refetchQueries` instead of `invalidateQueries`. `type: "active"` overrides `matchQuery`'s own default of `"all"`, so a manual refresh only ever touches the query actually mounted on screen, not every cached-but-unmounted query under the same key prefix. `isRefreshing` is tracked by an in-flight counter rather than a single `try`/`finally` around one call: `refetchQueries` **cancels** an in-flight fetch by default rather than deduping it, and the cancelled call's own promise still resolves — so two overlapping taps would otherwise flip `isRefreshing` back to `false` as soon as the first (now-cancelled) call settles, while the second tap's fetch, the one that actually wins, is still running.
+**Manual refresh.** `useManualRefresh(filter)` wraps `queryClient.refetchQueries({ type: "active", ...filter })` with an `isRefreshing` boolean — the «Обновить» control in S3's toolbar. `filter` is `trpc.cart.list.queryFilter()`, the same idiom the screen uses for invalidation, just handed to `refetchQueries` instead of `invalidateQueries`. `type: "active"` overrides `matchQuery`'s own default of `"all"`, so a manual refresh only ever touches the query actually mounted on screen, not every cached-but-unmounted query under the same key prefix. `isRefreshing` is tracked by an in-flight counter rather than a single `try`/`finally` around one call: `refetchQueries` **cancels** an in-flight fetch by default rather than deduping it, and the cancelled call's own promise still resolves — so two overlapping taps would otherwise flip `isRefreshing` back to `false` as soon as the first (now-cancelled) call settles, while the second tap's fetch, the one that actually wins, is still running.
 
 **Push is still post-MVP.** None of this touches `src/trpc/client.tsx`'s `splitLink` groundwork (see [splitLink groundwork](#splitlink-groundwork-post-mvp-realtime)) — refetch is the whole sync story until a realtime channel exists.
+
+### Cart screen (S3, task 2.3)
+
+`/` (`src/app/(app)/page.tsx` → `cart-screen.tsx`), the app's main screen. The page prefetches `cart.list` and `category.list` server-side and hydrates; everything else is client.
+
+**Composition.** Toolbar («Корзина», the item count, «Обновить») → one block per department → a fixed bottom action bar holding «+ Добавить». Sections come from `groupProductsByCategory` walking `cart.list`'s server-decided order (department `sortOrder`, then product name); the screen re-orders nothing else except `sortBoughtLast` **inside** each section, which is DESIGN_BRIEF S3's «строка зачёркивается и опускается вниз секции». Sorting the flat list first would move a bought row across a department boundary and split that department into two sections under the same walk.
+
+The four decisions the screen makes are pure modules under `src/lib/cart/`, for the same reason `src/lib/sync/` splits its hooks: vitest here runs in a **node** environment and collects `src/**/*.test.ts` only, so nothing that must be rendered can be covered.
+
+| File               | Exports                                     | What it decides                                            |
+| ------------------ | ------------------------------------------- | ---------------------------------------------------------- |
+| `sort-rows.ts`     | `sortBoughtLast`                            | Stable partition, bought last, `ordered` staying live      |
+| `status-toggle.ts` | `toggledCartStatus`, `applyStatusToggle`    | What the checkbox means, and the optimistic cache patch    |
+| `add-outcome.ts`   | `describeCartAddOutcome`, `CartAddToastKey` | `cart.add`'s five outcomes → toast / highlight / confirm   |
+| `qty-step.ts`      | `clampQty`, `stepQty`, `canStepQty`, bounds | The S4 stepper's arithmetic, pinned to the router's bounds |
+
+**The optimistic checkbox** is the first optimistic mutation in the repo and the pattern the rest should copy. `onMutate` awaits `queryClient.cancelQueries(cartFilter)` — without it a refetch already in flight resolves _after_ the patch and the checkbox visibly un-ticks itself — then snapshots, applies `applyStatusToggle`, and returns the snapshot as rollback context; `onError` restores it and toasts; `onSettled` invalidates. Two fields are deliberately **not** patched: `updatedAt` (the highlight diff keys off it, so writing it would flash a "your partner changed this" cue at you for your own tap) and `buyerId` (the server stamps the caller on `bought` and clears it on `needed`; guessing would render a «кто берёт» a failed request has to take back).
+
+The double-tap guard is a `Set` in a **ref**, not `mutation.isPending`. It has to be per row — ticking three things one after another is ordinary shopping — and it has to be synchronous with the tap, because `disabled` lands a render late and `onMutate` does not run until `mutate()` has handed off. Two `setStatus` calls for one row genuinely race, and last-write-wins would settle on whichever arrived second rather than on what the shopper last tapped. A `useState` mirror of the same set is what renders `disabled`.
+
+**Add flow.** «+ Добавить» opens S4; S4 reports `{ product, qty, unit }` and the screen calls `cart.add`. `describeCartAddOutcome` maps the answer:
+
+| Outcome        | Toast                                   | Highlight | Then                                             |
+| -------------- | --------------------------------------- | --------- | ------------------------------------------------ |
+| `added`        | «{icon} {name} — в корзине»             | the row   | close S4                                         |
+| `merged`       | «…уже в корзине — количество обновлено» | the row   | close S4 (mockup #1h)                            |
+| `unitMismatch` | «…в других единицах — измени вручную»   | the row   | close S4; no auto-edit — that is 2.5             |
+| `boughtExists` | none                                    | the row   | confirmation sheet → re-add with `restore: true` |
+| `restored`     | «{name} — снова в корзине»              | the row   | close S4                                         |
+
+Every outcome highlights its row rather than leaving it to the refetch. For the three that wrote something the refetch would eventually notice anyway and this just beats the round trip; for `unitMismatch` and `boughtExists` it is the only way, because nothing was written, `updatedAt` did not move and `diffListSnapshot` has nothing to see. `boughtExists` carries no toast on purpose: a question and an announcement competing for the same corner is how the question gets missed. The confirmation is a **separate** `BottomSheet` that opens as S4 closes rather than a second modal stacked on it — focus, Esc and the body scroll lock all stay owned by exactly one sheet.
+
+**The header** (`app-header.tsx`) shows the participants' avatars — partners first, the caller's own last so the one that is also a 44px link into Settings is never partly covered — and DESIGN_BRIEF's «тихая иконка-часики» while `useIsFetching(trpc.cart.pathFilter())` or `useIsMutating({ mutationKey: trpc.cart.pathKey() })` is non-zero. Both are router-level key helpers and TanStack matches keys by prefix, so one filter each covers `cart.list`'s refetches and every `cart.*` mutation, including the ones 2.4/2.5 add. Idle shows nothing at all; the third state the brief describes (offline) is a banner and arrives with the offline queue. Members come from the `household.current` the `(app)` layout already loads for its gate, passed down as props — no second query.
+
+**Deferred, and why the screen looks incomplete without it:** the «Корзина | Кладовая» segment control (3.1, replaces the toolbar's title/count pair), «Завершить закупку» (3.2, joins «+ Добавить» in the action bar), the offline banner and per-row 🕐 marks (2.4), and the «Заказано» badge, «кто берёт» avatar, note editing and «Заказ получен» (2.5). An existing note **is** rendered inline («· на выходных») because `cart.list` already carries it; nothing on this screen can set one. An `ordered` row renders with an unticked box, and ticking it sets `bought` — which is the safe direction under last-write-wins whichever way the line got there.
 
 ## Kitchen profile
 
@@ -355,7 +392,7 @@ The S12 section (`kitchen-profile-section.tsx`) makes the equivalent guarantee a
 
 ### Header avatar entry
 
-`src/components/app-header.tsx`, mounted in `AppShell`: household name on the left, the caller's own avatar (image, or an initial-letter circle) on the right, linking to `/settings` — DESIGN_BRIEF §2's "tapping your own avatar opens Settings". `(app)/layout.tsx` passes `householdName`/`userName`/`userImage` down from the same session/household load the gate already does. This is deliberately the minimal header; the full S3 version (partner avatars, sync indicator) is task 2.3, marked with a `TODO(2.3)` on the component.
+`src/components/app-header.tsx`, mounted in `AppShell`: household name on the left, the participants' avatars (image, or an initial-letter circle) on the right, the caller's own linking to `/settings` — DESIGN_BRIEF §2's "tapping your own avatar opens Settings". `(app)/layout.tsx` passes `householdName`/`userName`/`userImage`/`partners` down from the same session/household load the gate already does. Task 2.3 completed the header with the partner avatars and the sync mark — see [Cart screen](#cart-screen-s3-task-23).
 
 ## API (tRPC)
 
