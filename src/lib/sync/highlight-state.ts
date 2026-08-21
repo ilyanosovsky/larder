@@ -31,14 +31,38 @@ export const INITIAL_HIGHLIGHT_STATE: ChangedRowsState = {
  * The first-ever call (`state.snapshot === undefined`) never highlights
  * anything — every row is technically "added" relative to nothing, but a
  * first load is not a change a user made while looking at the screen, so it
- * must not light up the whole list. From the second call on, this is exactly
- * `diffListSnapshot(state.snapshot, next)`'s added/updated ids, unioned.
+ * must not light up the whole list. From the second call on, this is
+ * `diffListSnapshot(state.snapshot, next)`'s added/updated ids, unioned —
+ * *unless that diff is empty*, in which case this returns `state` itself,
+ * unchanged, same reference (see below).
  *
- * Each call is independent of any earlier `changedIds` — it only looks at
- * `state.snapshot`, never at what was previously highlighted. That is what
- * gives "latest diff wins" under rapid refetches: calling this twice in a
- * row before a highlight timer clears simply recomputes from scratch against
- * the newer snapshot, rather than accumulating ids across both diffs.
+ * That empty-diff case is not a corner case — it is the **common** one.
+ * `cart.list` rows carry a `Date`, and every refetch — the 45s poll, a focus
+ * event under `refetchOnWindowFocus: "always"` — hands back a freshly
+ * superjson-deserialized array with brand-new `Date` instances, even when
+ * the underlying data has not moved a byte. `useChangedRows` therefore calls
+ * this on effectively every refetch, changed or not, and a caller must be
+ * able to tell "nothing changed" apart from "something changed but happens
+ * to net out to an empty set" by reference: returning `state` unchanged lets
+ * it skip the `setState`/timer-reset it would otherwise redo on every no-op
+ * poll — which, left unguarded, would clear an in-progress highlight (and
+ * cancel its timer) well before `HIGHLIGHT_MS`, on the very refetch that
+ * follows the one that started it.
+ *
+ * Reusing `state` also means an empty diff does **not** advance `snapshot`
+ * to `next`. That is safe rather than merely convenient: `diffListSnapshot`
+ * only ever reports on ids present in whichever array it is handed as
+ * `next`, so a row that disappeared between the stale `state.snapshot` and
+ * the real `next` is invisible either way, and no id is ever reused once
+ * removed (cart items are hard-deleted; a re-added product gets a fresh
+ * uuid) — so diffing a future snapshot against this stale one is exactly as
+ * accurate as diffing it against the discarded, up-to-date one would have
+ * been.
+ *
+ * "Latest diff wins" under rapid refetches — each call looks only at
+ * `state.snapshot`, never at a previously highlighted id — therefore holds
+ * for **non-empty** diffs specifically: an empty one is defined to change
+ * nothing at all, on purpose.
  */
 export function nextHighlightState(
   state: ChangedRowsState,
@@ -49,6 +73,10 @@ export function nextHighlightState(
   }
 
   const diff = diffListSnapshot(state.snapshot, next);
+  if (diff.addedIds.size === 0 && diff.updatedIds.size === 0) {
+    return state;
+  }
+
   const changedIds = new Set([...diff.addedIds, ...diff.updatedIds]);
   return { snapshot: next, changedIds };
 }

@@ -53,6 +53,44 @@ describe("nextHighlightState", () => {
     const third = nextHighlightState(second, [row("a", 1000), row("b", 0)]);
     expect(third.changedIds).toEqual(new Set(["b"]));
   });
+
+  it("returns the exact same state reference when a refetch changes nothing, keeping an active highlight alive", () => {
+    const highlighted = nextHighlightState(
+      nextHighlightState(INITIAL_HIGHLIGHT_STATE, [row("a", 0)]),
+      [row("a", 1000)],
+    );
+    expect(highlighted.changedIds).toEqual(new Set(["a"]));
+
+    // Same ids, same timestamps — but a brand-new array and brand-new Date
+    // instances, exactly what a superjson-deserialized refetch response
+    // looks like even when nothing actually changed server-side. This must
+    // not clear (or replace) the highlight `second` just set.
+    const afterNoOpRefetch = nextHighlightState(highlighted, [row("a", 1000)]);
+
+    expect(afterNoOpRefetch).toBe(highlighted);
+    expect(afterNoOpRefetch.changedIds).toEqual(new Set(["a"]));
+  });
+
+  it("still replaces the state (new reference) once a later refetch actually changes something", () => {
+    const highlighted = nextHighlightState(
+      nextHighlightState(INITIAL_HIGHLIGHT_STATE, [row("a", 0)]),
+      [row("a", 1000)],
+    );
+
+    const afterRealChange = nextHighlightState(highlighted, [row("a", 2000)]);
+
+    expect(afterRealChange).not.toBe(highlighted);
+    expect(afterRealChange.changedIds).toEqual(new Set(["a"]));
+  });
+
+  it("treats a no-op refetch of an already-quiet state as a no-op too (stable reference, no stray Set allocation)", () => {
+    const quiet = nextHighlightState(INITIAL_HIGHLIGHT_STATE, [row("a", 0)]);
+    expect(quiet.changedIds.size).toBe(0);
+
+    const stillQuiet = nextHighlightState(quiet, [row("a", 0)]);
+
+    expect(stillQuiet).toBe(quiet);
+  });
 });
 
 describe("clearHighlight", () => {

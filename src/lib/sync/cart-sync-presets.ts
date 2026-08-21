@@ -10,8 +10,9 @@ export const CART_REFETCH_INTERVAL_MS = 45_000;
 /**
  * Refetch preset for the cart-family queries (`cart.list` and, later,
  * anything else task 2.3+ renders alongside it), spread into the
- * `queryOptions()` call site the way `catalog-screen.tsx` already spreads
- * ad-hoc overrides:
+ * `queryOptions()` call site the way `autocomplete-sheet.tsx` already
+ * spreads a `placeholderData: keepPreviousData` override into
+ * `trpc.product.search.queryOptions(...)`:
  *
  * ```ts
  * useQuery(trpc.cart.list.queryOptions(undefined, { ...cartSyncQueryOptions }))

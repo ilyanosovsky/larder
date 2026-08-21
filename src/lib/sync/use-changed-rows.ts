@@ -27,8 +27,13 @@ export interface ChangedRows {
 /**
  * Tracks which rows in `items` changed across refetches, for the «мягкая
  * подсветка» a cart-family screen applies after a background sync
- * (VISION §6.3). `items` is expected to be a tRPC `useQuery(...).data` —
- * `undefined` while pending is a no-op, not a snapshot.
+ * (VISION §6.3). `items` is expected to be the array reference a tRPC
+ * `useQuery(...).data` hands back directly — `undefined` while pending is a
+ * no-op, not a snapshot. Do not pass an inline-derived array (e.g.
+ * `data?.filter(...)`): a fresh array every render defeats the effect's own
+ * `[items]` dependency and forces `nextHighlightState` to redo its diff on
+ * every render instead of only on an actual refetch; derive first, memoize
+ * (`useMemo`), and pass the memoized result in.
  *
  * This hook is deliberately a thin shell: it owns a ref for the running
  * `ChangedRowsState` and a timer for clearing the highlight, and delegates
@@ -50,18 +55,32 @@ export function useChangedRows(
       return;
     }
 
-    stateRef.current = nextHighlightState(stateRef.current, items);
-    setChangedIds(stateRef.current.changedIds);
+    const result = nextHighlightState(stateRef.current, items);
+    if (result === stateRef.current) {
+      // `nextHighlightState` returns the same reference when this snapshot
+      // changed nothing relative to the last one it diffed against — the
+      // common case, since a `Date`-bearing response gets a fresh identity
+      // on every refetch regardless of content. Bailing out here, rather
+      // than calling `setState`/resetting the timer unconditionally, is
+      // what stops that from being either a wasted re-render (plain query
+      // data) or an infinite one (a derived array recreated every render)
+      // — and, just as importantly, leaves an in-progress highlight and its
+      // clear timer running untouched instead of wiping it out early.
+      return;
+    }
+
+    stateRef.current = result;
+    setChangedIds(result.changedIds);
 
     if (timerRef.current !== undefined) {
-      // A newer snapshot arrived before the previous highlight expired —
-      // the timer is restarted below, so "latest diff wins" instead of the
-      // stale one clearing mid-window.
+      // A newer, *actual* change arrived before the previous highlight
+      // expired — the timer is restarted below, so "latest diff wins"
+      // instead of the stale one clearing mid-window.
       clearTimeout(timerRef.current);
       timerRef.current = undefined;
     }
 
-    if (stateRef.current.changedIds.size === 0) {
+    if (result.changedIds.size === 0) {
       return;
     }
 
