@@ -8,6 +8,25 @@
   padding-bottom: calc(44px + 2 * var(--s-3));
 }
 
+/* ── Offline banner (mockup 1c) ──
+   The whole `--null` family, which is the system's «значение отсутствует»
+   colour — here the missing value is the connection. Bled out to the content
+   column's edges with negative margins so it sits flush under the sticky
+   header, the way the mockup draws it, instead of floating inside the page's
+   16px gutter. */
+
+.offlineBanner {
+  margin: calc(-1 * var(--s-4)) calc(-1 * var(--s-4)) var(--s-4);
+  border-top: var(--bd-hair) solid var(--null-rule);
+  border-bottom: var(--bd-hair) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-4);
+  color: var(--null-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  text-align: center;
+}
+
 /* ── Toolbar: what this list is, and «Обновить» ──
    Task 3.1 replaces the title/count pair with the «Корзина | Кладовая»
    segment control; the refresh control stays. */
@@ -236,6 +255,16 @@
   font-size: var(--t-meta);
 }
 
+/* «Ждёт синхронизации» (mockup 1c): the same `--null-txt` as the banner, so
+   the mark and the reason for it read as one statement. */
+.rowQueued {
+  flex: none;
+  color: var(--null-txt);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  line-height: 1;
+}
+
 .rowQty {
   flex: none;
   color: var(--mute);
@@ -449,6 +478,13 @@
 @media (min-width: 1024px) {
   .screen {
     padding-bottom: 0;
+  }
+
+  /* The content column's gutter is wider here, so the bleed has to match it
+     or the banner would stop short of the edges. */
+  .offlineBanner {
+    margin: calc(-1 * var(--s-6)) calc(-1 * var(--s-6)) var(--s-6);
+    padding: var(--s-2) var(--s-6);
   }
 
   /* No tab bar to clear, and the content column is centred inside a shell
