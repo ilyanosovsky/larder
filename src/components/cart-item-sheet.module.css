@@ -1,0 +1,157 @@
+/* The S3 row action sheet (task 2.5) — Paper Ledger: hairline section rules,
+   square everything, one ledger green. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) 0;
+  border-bottom: var(--bd-hair) solid var(--rule);
+}
+
+.section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.sectionLabel {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.noteInput {
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.noteInput::placeholder {
+  color: var(--mute-2);
+}
+
+.saveButton:focus-visible,
+.chip:focus-visible,
+.revertButton:focus-visible,
+.removeButton:focus-visible,
+.noteInput:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.saveButton {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.saveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.chip {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.chipActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.revertButton {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: var(--s-1) 0;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.revertButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.removeButton {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--neg);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--neg);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.removeButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.error {
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* «Ждёт синхронизации» (task 2.4's own `--null` family): a write paused
+   offline, not an error — the sheet stays usable while it waits. */
+.queued {
+  border-left: var(--bd-ink) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}

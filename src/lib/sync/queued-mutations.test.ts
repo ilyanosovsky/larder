@@ -32,6 +32,31 @@ function add(isPaused = true): QueuedCartMutation {
   };
 }
 
+/**
+ * `cart.receiveOrder`'s input — a service, or nothing at all; never a row.
+ * Its own affected ids do **not** come from `variables` (there is no row id
+ * to read) — they come from `onMutate`'s own context, `{ snapshots }`
+ * (`applyReceiveOrder`'s return shape), exactly as `useQueuedCartRows` reads
+ * `mutation.state.context` in the real hook.
+ */
+function receiveOrder(
+  snapshotIds: readonly string[],
+  orderedVia?: string | null,
+  isPaused = true,
+): QueuedCartMutation {
+  return {
+    variables: orderedVia === undefined ? {} : { orderedVia },
+    isPaused,
+    context: {
+      snapshots: snapshotIds.map((id) => ({
+        id,
+        status: "ordered",
+        orderedVia: orderedVia ?? null,
+      })),
+    },
+  };
+}
+
 describe("queuedCartRowIds", () => {
   it("marks the row a queued setStatus is about", () => {
     expect(queuedCartRowIds([setStatus(ROW_A)])).toEqual(new Set([ROW_A]));
@@ -81,5 +106,54 @@ describe("queuedCartRowIds", () => {
     ];
 
     expect(queuedCartRowIds(odd)).toEqual(new Set());
+  });
+});
+
+describe("queuedCartRowIds — cart.receiveOrder", () => {
+  it("marks the rows named in its own onMutate context", () => {
+    expect(queuedCartRowIds([receiveOrder([ROW_A, ROW_B])])).toEqual(
+      new Set([ROW_A, ROW_B]),
+    );
+  });
+
+  it("marks nothing when its context named no rows — a no-op receive", () => {
+    // `applyReceiveOrder` returns an empty `snapshots` array when nothing
+    // matched (mockup: everything already received before this one landed).
+    expect(queuedCartRowIds([receiveOrder([])])).toEqual(new Set());
+  });
+
+  it("ignores a receiveOrder that is in flight rather than paused", () => {
+    expect(queuedCartRowIds([receiveOrder([ROW_A], "wolt", false)])).toEqual(
+      new Set(),
+    );
+  });
+
+  it("tolerates a missing context — restored mutation with none, or a stale build", () => {
+    const mutation: QueuedCartMutation = {
+      variables: {},
+      isPaused: true,
+      context: undefined,
+    };
+
+    expect(queuedCartRowIds([mutation])).toEqual(new Set());
+  });
+
+  it("tolerates a malformed context", () => {
+    const odd: QueuedCartMutation[] = [
+      { variables: {}, isPaused: true, context: null },
+      { variables: {}, isPaused: true, context: "snapshots" },
+      { variables: {}, isPaused: true, context: { snapshots: "not-an-array" } },
+      { variables: {}, isPaused: true, context: { snapshots: [{ id: 42 }] } },
+      { variables: {}, isPaused: true, context: { snapshots: [{ id: "" }] } },
+      { variables: {}, isPaused: true, context: { snapshots: ["nope"] } },
+    ];
+
+    expect(queuedCartRowIds(odd)).toEqual(new Set());
+  });
+
+  it("combines with a row-scoped mutation queued alongside it", () => {
+    expect(
+      queuedCartRowIds([receiveOrder([ROW_B], "carrefour"), setStatus(ROW_A)]),
+    ).toEqual(new Set([ROW_A, ROW_B]));
   });
 });

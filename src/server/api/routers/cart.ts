@@ -11,6 +11,7 @@ import {
   products,
   users,
 } from "@/db/schema";
+import { orderedViaSchema, type OrderedVia } from "@/lib/ordered-via";
 import { unitSchema, type Unit } from "@/lib/units";
 import {
   createTRPCRouter,
@@ -41,12 +42,17 @@ const ADD_ATTEMPTS = 2;
 export const cartItemStatusSchema = z.enum(cartItemStatusEnum.enumValues);
 
 /**
- * Where an ordered line was ordered (VISION §3.1). Stored as text rather than
- * a database enum — the list grows with whatever delivery service the
- * household starts using, and a text column re-validated on read does not need
- * a migration for that. Anything unrecognized reads back as `null`.
+ * Where an ordered line was ordered (VISION §3.1), re-exported from
+ * `@/lib/ordered-via` for callers that already import it from here. Stored as
+ * text rather than a database enum — the list grows with whatever delivery
+ * service the household starts using, and a text column re-validated on read
+ * does not need a migration for that. Anything unrecognized reads back as
+ * `null`. Lives in `@/lib/ordered-via` rather than only here because the row
+ * action sheet and the offline queue's pending-row extraction (task 2.5) need
+ * this vocabulary on the client, and importing it from this router would drag
+ * drizzle/db imports into a client bundle for the sake of one enum.
  */
-export const orderedViaSchema = z.enum(["wolt", "carrefour", "other"]);
+export { orderedViaSchema, type OrderedVia };
 
 /**
  * One line as the database holds it. Mutations return this; `list` extends it
@@ -164,10 +170,25 @@ export const removeCartItemInput = z.object({
   id: z.uuid(),
 });
 
+/**
+ * «Заказ получен» (task 2.5): every active `ordered` line moves to `bought`
+ * in one call, optionally narrowed to one delivery service. Both `null` and
+ * an absent key mean "every service" — there is no third state worth telling
+ * apart, and the UI never has a reason to ask for "no service" specifically.
+ */
+export const receiveOrderInput = z.object({
+  orderedVia: orderedViaSchema.nullable().optional(),
+});
+
+export const receiveOrderOutput = z.object({
+  count: z.number(),
+  ids: z.array(z.uuid()),
+});
+
 export type CartItemOutput = z.infer<typeof cartItemOutput>;
 export type CartListItemOutput = z.infer<typeof cartListItemOutput>;
 export type AddCartItemOutput = z.infer<typeof addCartItemOutput>;
-export type OrderedVia = z.infer<typeof orderedViaSchema>;
+export type ReceiveOrderOutput = z.infer<typeof receiveOrderOutput>;
 
 const cartItemColumns = {
   id: cartItems.id,
@@ -691,5 +712,52 @@ export const cartRouter = createTRPCRouter({
       await ctx.db
         .delete(cartItems)
         .where(activeItemScope(input.id, ctx.household.id));
+    }),
+
+  /**
+   * «Заказ получен» — every active `ordered` line becomes `bought` in one
+   * statement, instead of ticking each one by hand. `orderedVia` narrows it
+   * to the lines ordered through one service; omitted or `null`, it takes
+   * every ordered line regardless of service.
+   *
+   * The buyer rule mirrors `setStatus`'s single-row one: a line already
+   * assigned to someone (`updateItem`'s «кто берёт») keeps that buyer, and
+   * only a line nobody claimed is credited to whoever tapped the control —
+   * `COALESCE` decides that per row, in the same statement, so a batch mixing
+   * both cases needs no per-row loop. `orderedVia` is cleared on every
+   * receipted line: the badge exists to answer "is this on its way", and once
+   * it has arrived that question is moot — history is what `bought` already
+   * means, the same way `ordered → bought` through the checkbox needs no
+   * separate "received" state.
+   *
+   * A household with nothing ordered (or nothing ordered through the given
+   * service) is a no-op: `count: 0`, `ids: []`, no error — the control simply
+   * had nothing to do, the same idea as `remove`'s idempotence.
+   */
+  receiveOrder: householdProcedure
+    .input(receiveOrderInput)
+    .output(receiveOrderOutput)
+    .mutation(async ({ ctx, input }) => {
+      const scope = and(
+        eq(cartItems.householdId, ctx.household.id),
+        isNull(cartItems.tripId),
+        eq(cartItems.status, "ordered"),
+        ...(input.orderedVia === undefined || input.orderedVia === null
+          ? []
+          : [eq(cartItems.orderedVia, input.orderedVia)]),
+      );
+
+      const received = await ctx.db
+        .update(cartItems)
+        .set({
+          status: "bought",
+          orderedVia: null,
+          buyerId: sql`coalesce(${cartItems.buyerId}, ${ctx.user.id})`,
+          updatedAt: sql`now()`,
+        })
+        .where(scope)
+        .returning({ id: cartItems.id });
+
+      return { count: received.length, ids: received.map((row) => row.id) };
     }),
 });

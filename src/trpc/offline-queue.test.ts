@@ -114,7 +114,13 @@ describe("installOfflineQueue: registration", () => {
   it("gives every cart mutation a function to run after a restore", () => {
     const { queryClient } = install();
 
-    for (const path of ["add", "setStatus", "updateItem", "remove"]) {
+    for (const path of [
+      "add",
+      "setStatus",
+      "updateItem",
+      "remove",
+      "receiveOrder",
+    ]) {
       const defaults = queryClient.getMutationDefaults([["cart", path]]);
       expect(defaults.mutationFn, path).toBeTypeOf("function");
     }
@@ -123,7 +129,13 @@ describe("installOfflineQueue: registration", () => {
   it("gives every cart mutation the delivery retry policy", () => {
     const { queryClient } = install();
 
-    for (const path of ["add", "setStatus", "updateItem", "remove"]) {
+    for (const path of [
+      "add",
+      "setStatus",
+      "updateItem",
+      "remove",
+      "receiveOrder",
+    ]) {
       const { retry } = queryClient.getMutationDefaults([["cart", path]]);
       expect(retry, path).toBeTypeOf("function");
 
@@ -160,6 +172,18 @@ describe("installOfflineQueue: persist filters", () => {
 
     expect(
       shouldDehydrate?.(pausedMutation(queryClient, [["cart", "setStatus"]])),
+    ).toBe(true);
+  });
+
+  it("persists a paused cart.receiveOrder — the filter is path-prefix based, not an explicit list", () => {
+    const { queryClient, queue } = install();
+    const shouldDehydrate =
+      queue.persistOptions.dehydrateOptions?.shouldDehydrateMutation;
+
+    expect(
+      shouldDehydrate?.(
+        pausedMutation(queryClient, [["cart", "receiveOrder"]]),
+      ),
     ).toBe(true);
   });
 

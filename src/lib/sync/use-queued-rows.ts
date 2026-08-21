@@ -17,7 +17,9 @@ import { queuedCartRowIds } from "./queued-mutations";
  * `cartPathKey` is `trpc.cart.pathKey()` — the same router-level key the
  * screen and the header already use for `useIsMutating`. TanStack matches
  * mutation keys by prefix, so it covers every `cart.*` mutation, including
- * the ones task 2.5 adds.
+ * `receiveOrder` (task 2.5); its own row ids come from `mutation.state.
+ * context` (`queued-mutations.ts`'s own doc comment explains why that, and
+ * not the current cart list, is what `queuedCartRowIds` reads for it).
  *
  * Every decision about *which* rows is in `queued-mutations.ts` (pure, and
  * therefore tested — vitest here runs in a node environment and cannot render
@@ -31,6 +33,7 @@ export function useQueuedCartRows(
     select: (mutation) => ({
       variables: mutation.state.variables,
       isPaused: mutation.state.isPaused,
+      context: mutation.state.context,
     }),
   });
 

@@ -32,9 +32,7 @@
 .result:focus-visible,
 .createRow:focus-visible,
 .inlineButton:focus-visible,
-.primaryButton:focus-visible,
-.stepperButton:focus-visible,
-.unitSelect:focus-visible {
+.primaryButton:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;
 }
@@ -190,79 +188,10 @@
   line-height: var(--lead-body);
 }
 
-/* ── Quantity step (DESIGN_BRIEF S4, mockup #1g) ── */
-
-.quantityRow {
-  display: flex;
-  /* The stepper is a fixed 144px; on a narrow phone the unit picker drops to
-     a line of its own rather than being squeezed to a few pixels. */
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-3);
-}
-
-.stepper {
-  display: flex;
-  flex: none;
-  align-items: center;
-  border: var(--bd-hair) solid var(--rule-2);
-}
-
-.stepperButton {
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: var(--t-val-lg);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.stepperButton:disabled {
-  color: var(--mute-2);
-  cursor: not-allowed;
-}
-
-.stepperValue {
-  display: flex;
-  width: 56px;
-  height: 44px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-right: var(--bd-hair) solid var(--rule);
-  border-left: var(--bd-hair) solid var(--rule);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--t-field);
-}
-
-.unitLabel {
-  flex: none;
-  color: var(--mute);
-  font-family: var(--font-sans);
-  font-size: var(--t-label);
-  font-weight: var(--w-medium);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-}
-
-.unitSelect {
-  min-width: 0;
-  min-height: 44px;
-  flex: 1 1 96px;
-  border: var(--bd-hair) solid var(--rule-2);
-  border-radius: var(--radius);
-  background: var(--paper);
-  padding: 0 var(--s-2);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: var(--t-field);
-}
+/* Quantity step (DESIGN_BRIEF S4, mockup #1g): `QtyStepper`
+   (`src/components/qty-stepper.tsx` + its own CSS module) — extracted out of
+   this file in task 2.5 so the row action sheet reuses the exact same
+   control. */
 
 .primaryButton {
   display: flex;

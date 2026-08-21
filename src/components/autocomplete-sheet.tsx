@@ -9,9 +9,8 @@ import {
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
-import { canStepQty, QTY_STEP, stepQty } from "@/lib/cart/qty-step";
 import { isRateLimitedError } from "@/lib/trpc-errors";
-import { UNITS, type Unit } from "@/lib/units";
+import type { Unit } from "@/lib/units";
 import type { ProductSearchHitOutput } from "@/server/api/routers/product";
 import { normalizeProductName } from "@/server/catalog/normalize";
 import { useTRPC } from "@/trpc/client";
@@ -19,6 +18,7 @@ import { useTRPC } from "@/trpc/client";
 import styles from "./autocomplete-sheet.module.css";
 import { BottomSheet } from "./bottom-sheet";
 import { ProductEditForm, type EditableProduct } from "./product-edit-form";
+import { QtyStepper } from "./qty-stepper";
 
 /**
  * Long enough that a fast typist makes one request instead of six, short
@@ -102,7 +102,6 @@ export function AutocompleteSheet({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const inputId = useId();
-  const unitFieldId = useId();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -460,50 +459,15 @@ export function AutocompleteSheet({
             </p>
           )}
 
-          <div className={styles.quantityRow}>
-            <div className={styles.stepper}>
-              <button
-                type="button"
-                className={styles.stepperButton}
-                onClick={() => setQty(stepQty(qty, -QTY_STEP))}
-                disabled={!canStepQty(qty, -QTY_STEP)}
-                aria-label={t("qtyDecreaseAria")}
-              >
-                −
-              </button>
-              {/* The live region is the value itself: a stepper's whole output
-                  is this number, and announcing the two buttons instead would
-                  say «Больше» without ever saying what it became. */}
-              <span className={styles.stepperValue} aria-live="polite">
-                {qty}
-              </span>
-              <button
-                type="button"
-                className={styles.stepperButton}
-                onClick={() => setQty(stepQty(qty, QTY_STEP))}
-                disabled={!canStepQty(qty, QTY_STEP)}
-                aria-label={t("qtyIncreaseAria")}
-              >
-                +
-              </button>
-            </div>
-
-            <label className={styles.unitLabel} htmlFor={unitFieldId}>
-              {t("unitLabel")}
-            </label>
-            <select
-              id={unitFieldId}
-              className={styles.unitSelect}
-              value={unit}
-              onChange={(event) => setUnit(event.target.value as Unit)}
-            >
-              {UNITS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
+          <QtyStepper
+            qty={qty}
+            unit={unit}
+            onQtyChange={setQty}
+            onUnitChange={setUnit}
+            decreaseAria={t("qtyDecreaseAria")}
+            increaseAria={t("qtyIncreaseAria")}
+            unitLabel={t("unitLabel")}
+          />
 
           <button
             type="button"
