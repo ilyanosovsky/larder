@@ -83,6 +83,15 @@ function pausedMutation(
   return mutation;
 }
 
+/** The envelope another context leaves behind once it has drained the queue. */
+function drainedEnvelope(queue: { persistOptions: { buster?: string } }) {
+  return superjson.stringify({
+    timestamp: Date.now(),
+    buster: queue.persistOptions.buster ?? "",
+    clientState: { queries: [], mutations: [] },
+  } satisfies PersistedClient);
+}
+
 /** A query holding data, which is the only kind that may be persisted. */
 function successfulQuery(queryClient: QueryClient, queryKey: QueryKey) {
   const query = queryClient
@@ -217,17 +226,34 @@ describe("installOfflineQueue: delivery", () => {
   });
 
   it("does not deliver a restored mutation another context already sent", async () => {
-    const { queryClient, queue } = install();
+    const { queryClient, queue, entries } = install();
     const send = vi.fn(() => Promise.resolve("ok"));
     pausedMutation(queryClient, [["cart", "setStatus"]], send);
 
-    // `onRestored` marks what came back from storage. Storage is empty here,
-    // which is exactly what a second open context sees once the first one has
-    // delivered the shared envelope and rewritten it.
+    // What a second open context sees once the first has delivered the shared
+    // envelope and rewritten it: the envelope is *there*, and no longer lists
+    // the mutation.
+    entries.set(OFFLINE_CACHE_KEY, drainedEnvelope(queue));
+
     queue.onRestored();
     await queue.flush();
 
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("delivers a restored mutation when there is no envelope to check against", async () => {
+    const { queryClient, queue } = install();
+    const send = vi.fn(() => Promise.resolve("ok"));
+    pausedMutation(queryClient, [["cart", "setStatus"]], send);
+
+    // An *absent* envelope is not evidence of delivery — a context that
+    // drained the queue always leaves one behind. Absent means expired,
+    // purged, or a read that raced a write, and dropping on that would throw
+    // away a tap nobody has sent.
+    queue.onRestored();
+    await queue.flush();
+
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("delivers a restored mutation that storage still lists as queued", async () => {
@@ -261,25 +287,25 @@ describe("installOfflineQueue: delivery", () => {
 
   it("returns from onRestored without waiting for delivery", async () => {
     const { queryClient, queue } = install();
-    let settled = false;
+    let started = false;
     // A delivery that never finishes — the captive-portal retry loop, or
     // simply a slow connection. `PersistQueryClientProvider` chains
     // `onSuccess` before it flips `isRestoring` and subscribes the persister,
     // so if this waited, the app would sit in its restoring state and
     // persist nothing at all for the whole session.
-    pausedMutation(
-      queryClient,
-      [["cart", "setStatus"]],
-      () =>
-        new Promise(() => {
-          settled = true;
-        }),
-    );
+    pausedMutation(queryClient, [["cart", "setStatus"]], () => {
+      started = true;
+      return new Promise(() => undefined);
+    });
 
+    // Returns synchronously, even though the delivery it starts never ends.
+    // This is the assertion that bites: making `onRestored` hand back the
+    // flush promise fails right here.
     expect(queue.onRestored()).toBeUndefined();
 
-    await Promise.resolve();
-    expect(settled).toBe(false);
+    // And the never-ending delivery really did start in the background,
+    // rather than being skipped.
+    await vi.waitFor(() => expect(started).toBe(true));
   });
 });
 

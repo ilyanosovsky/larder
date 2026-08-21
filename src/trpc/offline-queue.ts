@@ -319,6 +319,19 @@ export function installOfflineQueue(
       return;
     }
 
+    if (stored === undefined) {
+      // **No envelope is not evidence of delivery.** A context that drained
+      // the queue leaves an envelope behind that simply no longer lists it
+      // (`deliveryRound` always rewrites before releasing the lock), so
+      // "delivered elsewhere" always looks like a *present* envelope. An
+      // absent one means something else — the entry expired, sign-out purged
+      // it, the read raced a write — and dropping on that would throw away
+      // taps nobody has sent. Deliver, and accept the duplicate risk that
+      // only exists if a second context is running right now.
+      restored = [];
+      return;
+    }
+
     const stillQueued = persistedMutationIdentities(stored);
     const cache = queryClient.getMutationCache();
 
@@ -355,20 +368,37 @@ export function installOfflineQueue(
     await queryClient.invalidateQueries(cartFilter);
   };
 
+  /**
+   * One delivery round, start to finish, **inside** the lock.
+   *
+   * The rewrite has to be in here with the sending. Released a moment early —
+   * with the save left to run after — a second context could acquire the lock
+   * and read the envelope while it still listed everything this one has just
+   * delivered, and send all of it again. Holding the lock until storage says
+   * so is the whole point of taking it.
+   *
+   * `finally`, so a `deliver` that throws still leaves storage describing
+   * what actually happened.
+   */
+  const deliveryRound = async (): Promise<void> => {
+    try {
+      await deliver();
+    } finally {
+      // The event-driven save covers this too; doing it explicitly closes the
+      // window between a mutation settling and the persister's subscription
+      // noticing it.
+      await saveNow().catch(() => undefined);
+    }
+  };
+
   const flush = async (): Promise<void> => {
     try {
-      await withDeliveryLock(deliver);
+      await withDeliveryLock(deliveryRound);
     } catch {
       // Per-mutation failures are already swallowed inside `deliver`;
       // anything reaching here is a storage or lock problem that an event
       // listener cannot act on, and must not become an unhandled rejection.
     }
-
-    // Whatever happened, storage must stop listing what is no longer queued.
-    // The event-driven save covers this too; doing it explicitly closes the
-    // window between a mutation settling and the persister's subscription
-    // noticing it.
-    await saveNow().catch(() => undefined);
   };
 
   const onRestored = (): void => {
