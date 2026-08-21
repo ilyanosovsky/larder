@@ -237,8 +237,10 @@ export function AutocompleteSheet({
     setError(null);
 
     // A product the household already has needs no write at all — the
-    // quantity step attaches to the row it already owns.
-    if (hit.source === "catalog" && hit.productId !== null) {
+    // quantity step attaches to the row it already owns. The id is what says
+    // so, rather than `source`: `productId === null` is the search contract's
+    // own definition of "a reference entry, not created yet".
+    if (hit.productId !== null) {
       enterQuantity(
         {
           id: hit.productId,
