@@ -435,7 +435,12 @@ export const cartRouter = createTRPCRouter({
             existing: existing
               ? {
                   qty: existing.qty,
-                  unit: toUnit(existing.unit),
+                  // The unit as stored, deliberately not through `toUnit`:
+                  // degrading an unrecognized unit to «шт» here would let it
+                  // merge into a «шт» addition, changing the quantity while
+                  // leaving the row's own unit untouched. `toUnit` is for
+                  // rendering (`toCartItemOutput`), never for deciding.
+                  unit: existing.unit,
                   status: existing.status,
                 }
               : null,

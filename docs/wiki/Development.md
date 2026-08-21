@@ -246,13 +246,13 @@ The index is the **authority, not a pre-check**. Adding a product that is alread
 
 `decideCartAdd({ existing, addition, restore })` is the decision half of `cart.add` with no database in it. Given the product's existing **active** row:
 
-| Existing active row            | Outcome        | What happens                                                                |
-| ------------------------------ | -------------- | --------------------------------------------------------------------------- |
-| none                           | `added`        | new `needed` line, `addedBy` = caller                                       |
-| `needed`/`ordered`, same unit  | `merged`       | `qty += added`, nothing else changes; response carries `previousQty`        |
-| `needed`/`ordered`, other unit | `unitMismatch` | row untouched — the screen asks                                             |
-| `bought`                       | `boughtExists` | row untouched — the screen offers «вернуть в нужно»                         |
-| `bought` + `restore: true`     | `restored`     | → `needed`, **new** qty and unit, buyer and `orderedVia` cleared, note kept |
+| Existing active row            | Outcome        | What happens                                                                                                       |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| none                           | `added`        | new `needed` line, `addedBy` = caller                                                                              |
+| `needed`/`ordered`, same unit  | `merged`       | `qty += added` (capped at `MAX_QTY`), nothing else changes; response carries `previousQty`                         |
+| `needed`/`ordered`, other unit | `unitMismatch` | row untouched — the screen asks                                                                                    |
+| `bought`                       | `boughtExists` | row untouched — the screen offers «вернуть в нужно»                                                                |
+| `bought` + `restore: true`     | `restored`     | → `needed`, **new** qty and unit, re-credited to the caller (`addedBy`), buyer and `orderedVia` cleared, note kept |
 
 Three of those are decisions rather than implementation details:
 
@@ -260,7 +260,9 @@ Three of those are decisions rather than implementation details:
 - **`ordered` merges without falling back to `needed`.** The partner has already put that line in a delivery order; raising the quantity does not un-order it. Symmetrically, `ordered → bought` **keeps** `orderedVia`: a delivered Wolt order was still bought at Wolt.
 - **A `bought` line takes two calls.** The restored line takes the _new_ quantity rather than a sum, because the old one has been paid for. `restore` is scoped to exactly that case — sent for a line that is not bought it is ignored and the ordinary rules apply, so a stale confirmation cannot mean something the shopper never asked for.
 
-Quantities are rounded to the column's own scale, so the number a decision reports is the number the row will hold: 0.1 + 0.2 decides `0.3`, not `0.30000000000000004`. `MIN_QTY` (0.001) is a real input bound, not pedantry — anything smaller rounds down to zero and creates a line for none of something.
+Quantities are rounded to the column's own scale, so the number a decision reports is the number the row will hold: 0.1 + 0.2 decides `0.3`, not `0.30000000000000004`. Both bounds are real rather than pedantry: `MIN_QTY` (0.001) because anything smaller rounds down to zero and creates a line for none of something, and `MAX_QTY` (10 000) because it bounds **a merged total as well as a single addition** — nobody buys ten thousand of anything, and capping the sum keeps a long run of merges from pushing `numeric(10, 3)` past its own range and turning an ordinary tap into a 500.
+
+A unit is compared **exactly as the row stores it**. `list` degrades a unit the app no longer recognizes to «шт» so one out-of-band row cannot fail the whole cart's output validation, but the merge decision never sees that substitution — otherwise a row holding «мешок» would look like a «шт» row and silently sum into it, changing the quantity while leaving the stored unit alone. Compared raw, it simply falls to `unitMismatch` and a person decides.
 
 ### Concurrency in `cart.add`
 

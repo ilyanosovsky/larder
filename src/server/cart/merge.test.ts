@@ -112,7 +112,16 @@ describe("decideCartAdd — merging into an open line", () => {
         addition: { qty: MAX_QTY, unit: "шт" },
         restore: false,
       }),
-    ).toMatchObject({ outcome: "merged", qty: MAX_QTY });
+      // `previousQty` is asserted here too, and this is the one case where it
+      // pins the value: everywhere else `existing.qty` happens to equal
+      // `merged − added`, so deriving it by subtraction would pass. Capping
+      // breaks that identity (10 000 + 10 000 caps to 10 000), which is what
+      // makes a derived `previousQty` visibly wrong — it would report 0.
+    ).toMatchObject({
+      outcome: "merged",
+      qty: MAX_QTY,
+      previousQty: MAX_QTY,
+    });
   });
 
   it("merges an open line even when `restore` is set", () => {
@@ -148,6 +157,19 @@ describe("decideCartAdd — a different unit", () => {
         restore: false,
       }),
     ).not.toHaveProperty("qty");
+  });
+
+  it("treats a unit the app no longer recognizes as a mismatch, not as «шт»", () => {
+    // The stored value is compared as stored. If the router normalized it
+    // first, «мешок» would arrive here as «шт» and sum into a «шт» addition —
+    // changing the quantity while the row's own unit stayed «мешок».
+    expect(
+      decideCartAdd({
+        existing: line({ qty: 2, unit: "мешок" }),
+        addition: { qty: 6, unit: "шт" },
+        restore: false,
+      }),
+    ).toEqual({ outcome: "unitMismatch" });
   });
 
   it("refuses the mismatch with `restore` too", () => {

@@ -42,7 +42,21 @@ export const MAX_QTY = 10_000;
 /** A product's existing active row (`trip_id IS NULL`), as the rules see it. */
 export interface ActiveCartLine {
   qty: number;
-  unit: Unit;
+  /**
+   * The unit **exactly as the row stores it** — a raw `string`, not a `Unit`.
+   *
+   * The column is text, so it can hold a value the app no longer recognizes
+   * (a unit dropped from `UNITS`, a row edited out of band). Rendering degrades
+   * such a value to «шт» so one bad row cannot fail the whole cart's output
+   * validation — but the *merge decision* must never see that substitution.
+   * Comparing the degraded value would make a row holding «мешок» look like a
+   * «шт» row and silently sum into it: the quantity would change while the
+   * stored unit did not, and the response would report a unit the row does not
+   * have. Compared raw, an unrecognized unit simply never matches, so it falls
+   * to `unitMismatch` and a person decides — which is the whole point of the
+   * rule.
+   */
+  unit: string;
   status: CartItemStatus;
 }
 
@@ -99,7 +113,9 @@ function roundQty(value: number): number {
  * program can pick, so the row is left alone and the screen asks — the same
  * principle VISION §3.4 states for building the cart from the week's menu.
  * Guessing here would quietly corrupt a shopping list, and the shopper would
- * only find out at the shelf.
+ * only find out at the shelf. The comparison is against the unit the row
+ * actually stores (see `ActiveCartLine.unit`), so a value the app no longer
+ * recognizes falls here too rather than being normalized into a false match.
  *
  * **`ordered` merges without falling back to `needed`.** The partner has
  * already put that line in a delivery order; raising the quantity does not

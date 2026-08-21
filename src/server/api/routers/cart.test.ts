@@ -158,9 +158,13 @@ describe("cart.list", () => {
 
     await caller.cart.list();
 
+    // Compared whole, not with `toContain`: a substring check on
+    // `"sort_order"` also passes for `desc(...)`, and one on `"name"` passes
+    // for the *categories* name — both of which would break the sectioning
+    // while leaving the test green.
     const select = stub.statements[1];
-    expect(compile(select?.orderBys[0])).toContain('"sort_order"');
-    expect(compile(select?.orderBys[1])).toContain('"name"');
+    expect(compile(select?.orderBys[0])).toBe('"categories"."sort_order" asc');
+    expect(compile(select?.orderBys[1])).toBe('"products"."name" asc');
   });
 
   it("reads only this household's active lines", async () => {
@@ -191,6 +195,22 @@ describe("cart.list", () => {
 });
 
 describe("cart.add — a product not in the cart", () => {
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(
+      caller.cart.add({ productId: PRODUCT_ID, qty: 1, unit: "шт" }),
+    ).rejects.toSatisfy(hasCode("UNAUTHORIZED"));
+  });
+
+  it("is refused to a caller without a household", async () => {
+    const { caller } = callerWith([[]]);
+
+    await expect(
+      caller.cart.add({ productId: PRODUCT_ID, qty: 1, unit: "шт" }),
+    ).rejects.toSatisfy(hasCode("FORBIDDEN"));
+  });
+
   it("inserts a new needed line credited to the caller", async () => {
     const { caller, stub } = callerWith([
       ...addPreamble(),
@@ -315,6 +335,24 @@ describe("cart.add — merging", () => {
     expect(compile(stub.statements[3]?.wheres[0])).toContain('"id"');
   });
 
+  it("never merges into a unit the app no longer recognizes", async () => {
+    // A row edited out of band holds «мешок». `list` degrades that to «шт» so
+    // one bad row cannot fail the whole cart's output validation — but if the
+    // *decision* saw the degraded value, adding «6 шт» would sum into it: the
+    // quantity would become 8 while the row still stored «мешок», and the
+    // response would claim «8 шт» for a row that has no such unit.
+    const { caller, stub } = callerWith([
+      ...addPreamble([cartRow({ qty: 2, unit: "мешок" })]),
+    ]);
+
+    await expect(
+      caller.cart.add({ productId: PRODUCT_ID, qty: 6, unit: "шт" }),
+    ).resolves.toMatchObject({ outcome: "unitMismatch" });
+
+    // household → product → lock. Nothing was written.
+    expect(stub.statements).toHaveLength(3);
+  });
+
   it("leaves a differing unit alone and hands the row back", async () => {
     const { caller, stub } = callerWith([
       ...addPreamble([cartRow({ qty: 1, unit: "шт" })]),
@@ -383,6 +421,13 @@ describe("cart.add — a line already bought in this trip", () => {
       orderedVia: null,
     });
     expect(values).not.toHaveProperty("note");
+
+    // The restore UPDATE is a write like any other and carries the same guard
+    // — without this it was the one WHERE-bearing statement in the router that
+    // no test compiled.
+    expectScopedByHousehold(stub.statements[3]);
+    expectActiveOnly(stub.statements[3]);
+    expect(compile(stub.statements[3]?.wheres[0])).toContain('"id"');
   });
 
   it("takes the new quantity rather than summing — the old one was paid for", async () => {
@@ -672,6 +717,22 @@ describe("cart.setStatus", () => {
 });
 
 describe("cart.updateItem", () => {
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(
+      caller.cart.updateItem({ id: ITEM_ID, qty: 3 }),
+    ).rejects.toSatisfy(hasCode("UNAUTHORIZED"));
+  });
+
+  it("is refused to a caller without a household", async () => {
+    const { caller } = callerWith([[]]);
+
+    await expect(
+      caller.cart.updateItem({ id: ITEM_ID, qty: 3 }),
+    ).rejects.toSatisfy(hasCode("FORBIDDEN"));
+  });
+
   it("rejects an empty patch before touching the database", async () => {
     const { caller, stub } = callerWith([[membershipRow]]);
 
