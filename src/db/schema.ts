@@ -212,6 +212,149 @@ export const products = pgTable(
 );
 
 /**
+ * One closed shopping run (VISION §3.1, §5) — what «Завершить закупку»
+ * creates.
+ *
+ * There is no "open trip" row and no `openedAt`: a trip only ever comes into
+ * existence at the moment it is closed, when task 3.2 stamps its id onto every
+ * `bought` cart item in one statement. Until then the household simply has
+ * active cart items, and "the current trip" is the set of rows with
+ * `trip_id IS NULL` — which is precisely what the cart's partial unique index
+ * is built on. Modelling an open trip as a row would mean a second source of
+ * truth for the same fact, and a household could then have zero or two of
+ * them.
+ *
+ * The table exists now, ahead of the endpoint that writes it, purely so
+ * `cart_items.trip_id` has a foreign key target from the first migration —
+ * the invariant below is unexpressible without it.
+ */
+export const shoppingTrips = pgTable(
+  "shopping_trips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    closedAt: timestamp("closed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("shopping_trips_householdId_closedAt_idx").on(
+      table.householdId,
+      table.closedAt,
+    ),
+  ],
+);
+
+/**
+ * `нужно` → `заказано` → `куплено` (VISION §3.1). `ordered` is the delivery
+ * state (Wolt Market, Carrefour): the other partner sees there is nothing left
+ * to buy in a shop. It is a station on the way to `bought`, not a terminal
+ * state — «Заказ получен» moves the group on.
+ */
+export const cartItemStatusEnum = pgEnum("cart_item_status", [
+  "needed",
+  "ordered",
+  "bought",
+]);
+
+/**
+ * A line in the household's shared shopping list (VISION §3.1, §5).
+ *
+ * **The invariant this table exists for: one active row per product.** It is
+ * the partial unique index `(product_id) WHERE trip_id IS NULL` — active means
+ * "not yet carried off by a closed trip", so a product may appear once in the
+ * live cart and any number of times across purchase history. The index needs
+ * no `household_id`: a product row belongs to exactly one household, so
+ * uniqueness per product is already at least as strict as uniqueness per
+ * (household, product) — never weaker.
+ *
+ * That is a statement about `products`, not about this table's own foreign
+ * keys, which are independent and therefore do **not** by themselves force
+ * `cart_items.household_id` to equal `products.household_id`. Keeping the two
+ * in step is the router's job: `cart.add` checks the client's `productId`
+ * against the caller's own catalog before it inserts, exactly as
+ * `product.update` checks a `categoryId` against the caller's own departments
+ * (the same shape of guard, for the same reason).
+ *
+ * The index is the authority, not a pre-check: adding a product that is
+ * already in the cart raises the existing row's quantity instead of minting a
+ * second one (`src/server/cart/merge.ts`), and two partners adding «помидоры»
+ * at the same instant race in Postgres rather than on a read. «Помидоры и
+ * вверху, и внизу» — the note-app pain this whole product started from — is
+ * impossible by construction, not by convention. Application code must never
+ * work around this index (AGENTS.md).
+ *
+ * `product_id` is `restrict`, unlike the household-cascading columns around
+ * it: purchase history that still points at a product must not lose what was
+ * actually bought. Both user references are `set null` — the cart belongs to
+ * the household, not to whoever typed the line, and a departing member must
+ * not take the shopping list with them.
+ *
+ * `trip_id` deliberately has no cascade in either direction: deleting a trip
+ * is not a thing the app does, and if it ever were, silently deleting the
+ * purchase records that name it is the last thing anyone would want.
+ *
+ * `qty` is `numeric(10, 3)` in `number` mode — «0.5 кг» has to survive a round
+ * trip, which rules out an integer column, and a float would make «0.1 + 0.2»
+ * a support ticket. Three decimals is the resolution groceries are actually
+ * bought at; the range (up to 9 999 999.999) stays far inside what a double
+ * represents exactly, so the mode is lossless here.
+ *
+ * `unit` and `ordered_via` are `text`, not enums: both are re-validated on
+ * read (`unitSchema`, `orderedViaSchema`) the same way `products.default_unit`
+ * is, and neither wants a migration every time the list grows. `status` *is* a
+ * real enum — it drives every branch of the merge rules, and an unknown value
+ * there would have no safe fallback.
+ */
+export const cartItems = pgTable(
+  "cart_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    qty: numeric("qty", { precision: 10, scale: 3, mode: "number" }).notNull(),
+    /** One of `UNITS` (`src/lib/units.ts`), stored as text. */
+    unit: text("unit").notNull(),
+    status: cartItemStatusEnum("status").notNull().default("needed"),
+    /** Free-form, e.g. «покрупнее» (VISION §3.1). */
+    note: text("note"),
+    addedBy: text("added_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    /** Who is taking it — «у нас закупки разделены» (VISION §3.1). */
+    buyerId: text("buyer_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    /** `wolt` / `carrefour` / `other`, meaningful only while `ordered`. */
+    orderedVia: text("ordered_via"),
+    /** Null while the item is active; stamped by «Завершить закупку». */
+    tripId: uuid("trip_id").references(() => shoppingTrips.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cart_items_productId_active_uidx")
+      .on(table.productId)
+      .where(sql`trip_id is null`),
+    index("cart_items_householdId_tripId_idx").on(
+      table.householdId,
+      table.tripId,
+    ),
+    index("cart_items_tripId_idx").on(table.tripId),
+  ],
+);
+
+/**
  * A household's kitchen equipment and headcount (VISION §3.3, §5): the
  * "kitchen profile" a recipe is checked against and the assistant reads for
  * "adapt this to what we have". Set from S2 onboarding (skippable) and

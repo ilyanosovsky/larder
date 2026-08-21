@@ -1,3 +1,4 @@
+import { cartRouter } from "@/server/api/routers/cart";
 import { categoryRouter } from "@/server/api/routers/category";
 import { healthRouter } from "@/server/api/routers/health";
 import { householdRouter } from "@/server/api/routers/household";
@@ -7,7 +8,7 @@ import { productRouter } from "@/server/api/routers/product";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
- * The single API surface. Every feature router (cart, pantry, recipes, menu,
+ * The single API surface. Every feature router (pantry, recipes, menu,
  * assistant) gets mounted here under its own namespace.
  */
 export const appRouter = createTRPCRouter({
@@ -16,6 +17,7 @@ export const appRouter = createTRPCRouter({
   invite: inviteRouter,
   category: categoryRouter,
   product: productRouter,
+  cart: cartRouter,
   kitchenProfile: kitchenProfileRouter,
 });
 

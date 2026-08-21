@@ -95,7 +95,7 @@ WHERE id = $1 AND used_at IS NULL AND expires_at > now()
 
 Both conditions have to be there. Dropping `used_at IS NULL` lets two people redeem one link; dropping `expires_at > now()` lets a request that crosses the TTL in flight redeem an expired one. The membership insert is guarded the same way, by the unique index on `household_members.user_id` (the "one household per user" MVP invariant). Two people opening the same link therefore race in Postgres; the loser gets `NOT_FOUND` or `CONFLICT`, never a duplicate row.
 
-`isUniqueViolation()` in `src/server/db-errors.ts` turns that index violation into a domain error instead of a 500 — reuse it for the cart invariant in task 2.1. It **walks the `cause` chain**, which is not optional: since drizzle-orm 0.44 the postgres.js error arrives wrapped in a `DrizzleQueryError`, so a top-level `code` check silently stops matching and every lost race becomes an INTERNAL_SERVER_ERROR.
+`isUniqueViolation()` in `src/server/db-errors.ts` turns that index violation into a domain error instead of a 500 — the cart's own invariant reuses it (see [Cart](#cart)). It **walks the `cause` chain**, which is not optional: since drizzle-orm 0.44 the postgres.js error arrives wrapped in a `DrizzleQueryError`, so a top-level `code` check silently stops matching and every lost race becomes an INTERNAL_SERVER_ERROR.
 
 ### Household routers
 
@@ -219,6 +219,79 @@ The sheet debounces input by 200 ms and keeps the previous list on screen while 
 
 The «Покупки» tab is a deliberately lean catalog view — **task 2.3 replaces it with S3 «Корзина»**, reading from this same router. The quantity stepper DESIGN_BRIEF S4 describes belongs to the cart and lands with it; there is a `TODO(2.3)` on the line where an added product will join it.
 
+## Cart
+
+The shared shopping list (VISION §3.1) — the product's core screen, and the one place a database invariant does most of the design work.
+
+`cart_items` (`src/db/schema.ts`): `householdId`, `productId` (FK `restrict` — purchase history must not lose what was actually bought), `qty`, `unit`, `status`, `note`, `addedBy`/`buyerId` (both `set null` — the cart belongs to the household, not to whoever typed the line), `orderedVia`, `tripId`, `createdAt`, `updatedAt`.
+
+### The one-active-row invariant
+
+```sql
+CREATE UNIQUE INDEX "cart_items_productId_active_uidx"
+  ON "cart_items" ("product_id") WHERE trip_id is null;
+```
+
+**Active** means "not yet carried off by a closed trip", so a product appears at most once in the live cart and any number of times across history. The index needs no `household_id`: a product row belongs to exactly one household, so uniqueness per product is already at least as strict as uniqueness per (household, product) — never weaker.
+
+That is a property of `products`, not of `cart_items`' own foreign keys. Those are independent, so the database alone does **not** force `cart_items.household_id` to equal `products.household_id` — keeping the two in step is the router's job (`cart.add` checks the client's `productId` against the caller's own catalog before inserting). This is the same app-level guard `product.update` already applies to a `categoryId`, and it is a deliberate consistency choice rather than an oversight: closing it in the database would mean composite `(household_id, id)` keys on `products`, `categories` and `shopping_trips` alike, which is a repo-wide tenancy decision rather than something one feature PR should introduce for one table.
+
+The index is the **authority, not a pre-check**. Adding a product that is already in the cart raises the existing line instead of minting a second one, and two partners doing it at the same instant race in Postgres rather than on a read. «Помидоры и вверху, и внизу» — the note-app pain this whole product started from — is impossible by construction. Application code must never work around it (AGENTS.md).
+
+`shopping_trips` exists ahead of the endpoint that writes it (task 3.2) purely so `trip_id` has a foreign key target — the index is unexpressible without one. There is deliberately no "open trip" row: a trip is only ever created at the moment it is closed, and "the current trip" is simply the set of rows with `trip_id IS NULL`. An open-trip row would be a second source of truth for the same fact, and a household could then have zero or two of them.
+
+`qty` is `numeric(10, 3)` in drizzle's `number` mode — «0.5 кг» has to survive a round trip, and a float would make «0.1 + 0.2» a support ticket. `unit` and `orderedVia` are `text` re-validated on read (the same treatment `products.default_unit` gets); `status` is a real pg enum, because it drives every branch of the merge rules and an unknown value there would have no safe fallback.
+
+### Merge rules (`src/server/cart/merge.ts`, pure, unit-tested)
+
+`decideCartAdd({ existing, addition, restore })` is the decision half of `cart.add` with no database in it. Given the product's existing **active** row:
+
+| Existing active row            | Outcome        | What happens                                                                                                       |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| none                           | `added`        | new `needed` line, `addedBy` = caller                                                                              |
+| `needed`/`ordered`, same unit  | `merged`       | `qty += added` (capped at `MAX_QTY`), nothing else changes; response carries `previousQty`                         |
+| `needed`/`ordered`, other unit | `unitMismatch` | row untouched — the screen asks                                                                                    |
+| `bought`                       | `boughtExists` | row untouched — the screen offers «вернуть в нужно»                                                                |
+| `bought` + `restore: true`     | `restored`     | → `needed`, **new** qty and unit, re-credited to the caller (`addedBy`), buyer and `orderedVia` cleared, note kept |
+
+Three of those are decisions rather than implementation details:
+
+- **Different units are never summed.** «200 г» + «1 шт» has no answer a program can pick, so the row is left alone — the same principle VISION §3.4 states for building the cart from the week's menu. Guessing would quietly corrupt a shopping list and the shopper would find out at the shelf.
+- **`ordered` merges without falling back to `needed`.** The partner has already put that line in a delivery order; raising the quantity does not un-order it. Symmetrically, `ordered → bought` **keeps** `orderedVia`: a delivered Wolt order was still bought at Wolt.
+- **A `bought` line takes two calls.** The restored line takes the _new_ quantity rather than a sum, because the old one has been paid for. `restore` is scoped to exactly that case — sent for a line that is not bought it is ignored and the ordinary rules apply, so a stale confirmation cannot mean something the shopper never asked for.
+
+Quantities are rounded to the column's own scale, so the number a decision reports is the number the row will hold: 0.1 + 0.2 decides `0.3`, not `0.30000000000000004`. Both bounds are real rather than pedantry: `MIN_QTY` (0.001) because anything smaller rounds down to zero and creates a line for none of something, and `MAX_QTY` (10 000) because it bounds **a merged total as well as a single addition** — nobody buys ten thousand of anything, and capping the sum keeps a long run of merges from pushing `numeric(10, 3)` past its own range and turning an ordinary tap into a 500.
+
+A unit is compared **exactly as the row stores it**. `list` degrades a unit the app no longer recognizes to «шт» so one out-of-band row cannot fail the whole cart's output validation, but the merge decision never sees that substitution — otherwise a row holding «мешок» would look like a «шт» row and silently sum into it, changing the quantity while leaving the stored unit alone. Compared raw, it simply falls to `unitMismatch` and a person decides.
+
+### Concurrency in `cart.add`
+
+Inside one transaction: `SELECT … FOR UPDATE` the product's active row, decide, write. The lock is what makes the read-decide-write safe — two partners adding «помидоры» at once would otherwise both read «2 шт», both compute «3 шт», and one increment would vanish.
+
+A product with **no** active row locks nothing, so the insert can still lose the unique index. It therefore runs inside a **savepoint** (drizzle's nested `transaction`), and that is not decoration: in Postgres a unique violation aborts the _entire_ enclosing transaction, so catching 23505 without one would leave the recovery read failing with 25P02 instead of finding the winner. Rolling back to the savepoint restores a usable transaction, the loser re-reads the winner's row under a lock, and the same merge rules apply to it. Two passes is the whole budget — after a lost race an active row provably exists, so a second miss is a bug, not something to retry.
+
+`isUniqueViolation()` (`src/server/db-errors.ts`) is what recognizes the violation; it walks the `cause` chain, which is not optional since drizzle 0.44 wraps driver errors.
+
+### `cart` router
+
+| Procedure         | Boundary             | Notes                                                                          |
+| ----------------- | -------------------- | ------------------------------------------------------------------------------ |
+| `cart.list`       | `householdProcedure` | Active lines only, joined with product, department and both member names       |
+| `cart.add`        | `householdProcedure` | `{ productId, qty, unit, note?, restore? }` → the five-way outcome union above |
+| `cart.updateItem` | `householdProcedure` | Partial patch of qty/unit/note/buyerId/orderedVia; LWW                         |
+| `cart.setStatus`  | `householdProcedure` | `{ id, status, orderedVia? }`; LWW                                             |
+| `cart.remove`     | `householdProcedure` | Hard delete of the active line — **idempotent**                                |
+
+`list` returns rows ordered by department `sortOrder` then product name, which is exactly the contract `groupProductsByCategory` (`src/lib/group-products.ts`) assumes — it cuts an already-ordered list into sections by walking it, so a different order would silently produce two sections for one department. `addedBy` and `buyerId` join `users` twice under aliases: «кто добавил» and «кто купил» are both on the row and are usually different people. `updatedAt` is on the wire for task 2.2, which highlights lines that changed between refetches.
+
+`setStatus` gives each status the fields that only make sense in it, so a row can never describe two states at once: `bought` stamps the caller as buyer, `needed` clears both the buyer and the delivery service, `ordered` records `orderedVia` when the screen offers one.
+
+**Every statement repeats `household_id` alongside the primary key**, and every mutation additionally requires `trip_id IS NULL` — an id from the client never reaches a write on its own (VISION §6.7), and a line carried off by a closed trip is purchase history rather than something the cart screen may edit. A client-sent `productId` is checked against the caller's own catalog before it reaches a write, and a `buyerId` against the household's members, for the same reason `product.update` checks a `categoryId`: the foreign key only proves the row exists, not that it belongs here.
+
+`remove` is deliberately idempotent — no NOT_FOUND when nothing matched. The cart is shared, so both partners removing the same line is ordinary rather than an error, and the offline queue task 2.4 adds will replay mutations after a reconnect.
+
+There is no UI yet: task 2.3 builds S3 on this router, and 2.2 adds the refetch sync around it.
+
 ## Kitchen profile
 
 A household's equipment checklist + headcount (VISION §3.3, §5) — what a recipe is checked against, and what the assistant reads for "adapt this to what we have" once it exists. Task 1.4 builds the model, the router, the S2 onboarding step and a first S12 settings section; the assistant integration is later.
@@ -302,7 +375,7 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 
 - `unusableDb` — a Proxy that throws on any property access, so a test can prove a procedure rejected _before_ it queried.
 - `unusableOpenai` — the same idea for `ctx.openai()`. It is the default in both contexts below, so a test that unexpectedly reaches an AI call fails loudly instead of dialing a paid API.
-- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters.
+- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters, plus `txDepth`, the transaction nesting a statement was issued at (`0` bare, `1` in a transaction, `2` in a savepoint). `txDepth` exists because some nesting is load-bearing rather than stylistic — see the cart's insert-inside-a-savepoint — and the stub has no database to reveal it any other way.
 - `anonymousContext(db, openai?)` / `signedInContext(db, openai?)` — the two contexts to hand `createCaller`.
 
 Business rules that do not need a query at all (invite validity, accept decisions) live as pure functions and are tested directly. No test opens a database connection.

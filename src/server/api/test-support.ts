@@ -109,6 +109,20 @@ export interface RecordedStatement {
    * reference, so a test compiles it the same way `wheres` are compiled.
    */
   onConflict: { target: unknown; set: unknown } | null;
+  /**
+   * How many `transaction()` callbacks the statement was issued inside: `0`
+   * for a bare statement, `1` inside a transaction, `2` inside a nested one.
+   *
+   * Drizzle turns a nested `transaction()` into a **savepoint**, and for some
+   * writes that nesting is load-bearing rather than stylistic: an insert that
+   * may violate a unique index has to sit in one, because in Postgres the
+   * violation otherwise aborts the whole enclosing transaction and every
+   * following statement fails with 25P02. The stub cannot reproduce that — it
+   * has no database — so recording the depth is what lets a test assert the
+   * savepoint is there. Without it, deleting the nesting would keep every
+   * other assertion green and only fail against a real Postgres.
+   */
+  txDepth: number;
 }
 
 /**
@@ -132,10 +146,13 @@ export interface DbStub {
  * is a no-op that returns `this`, and awaiting one shifts the next queued
  * result off `results`. `transaction(fn)` runs `fn` against the same stub —
  * these tests are about the router's decisions, not about rollback semantics.
+ * It does count how deeply it is nested, though, so a test can still prove a
+ * write was issued inside a savepoint (see `txDepth`).
  */
 export function createDbStub(results: StubResult[] = []): DbStub {
   const queue = [...results];
   const statements: RecordedStatement[] = [];
+  let txDepth = 0;
 
   function begin(
     kind: RecordedStatement["kind"],
@@ -151,6 +168,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       orderBys: [],
       lock: null,
       onConflict: null,
+      txDepth,
     };
     statements.push(statement);
 
@@ -206,7 +224,14 @@ export function createDbStub(results: StubResult[] = []): DbStub {
     insert: (table: Table) => begin("insert", table),
     update: (table: Table) => begin("update", table),
     delete: (table: Table) => begin("delete", table),
-    transaction: <TResult>(fn: (tx: unknown) => Promise<TResult>) => fn(db),
+    transaction: async <TResult>(fn: (tx: unknown) => Promise<TResult>) => {
+      txDepth += 1;
+      try {
+        return await fn(db);
+      } finally {
+        txDepth -= 1;
+      }
+    },
   };
 
   return { db: db as unknown as TRPCContext["db"], statements };
