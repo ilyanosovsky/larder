@@ -294,8 +294,34 @@ export function CartScreen() {
         }
         showToast(t("statusError"));
       },
-      onSettled: (_data, _error, variables) => {
+      onSettled: (_data, error, variables) => {
         markPending(variables.id, false);
+
+        /**
+         * Marked **again**, at the moment the write actually lands.
+         *
+         * `onMutate`'s mark is stamped with `now + HIGHLIGHT_MS`, which is
+         * the right window for a tap delivered in the next 200ms. A tap made
+         * offline is delivered when the connection comes back — minutes
+         * later — and by then that mark is long expired, so the refetch
+         * below would report the row as changed and light it up as
+         * «партнёр что-то поменял» for something the shopper did themselves.
+         * Re-marking here covers the refetch this line is about to trigger,
+         * whenever that turns out to be.
+         *
+         * Only on success: a failed write changed nothing on the server, so
+         * there is no refetch result to suppress — and suppressing anyway
+         * would mute a partner's genuine change to the same row.
+         */
+        if (error === null) {
+          markOwnChange(
+            ownChangesRef.current,
+            variables.id,
+            Date.now(),
+            HIGHLIGHT_MS,
+          );
+        }
+
         void queryClient.invalidateQueries(cartFilter);
       },
     }),
@@ -405,9 +431,12 @@ export function CartScreen() {
   return (
     <section className={styles.screen}>
       {/* Mockup 1c: a `--null` strip flush under the household header. Its
-          promise («изменения сохранятся») is the queue's, not a hope — every
-          tap made from here is persisted to IndexedDB before the tab can be
-          killed (see `src/trpc/offline-queue.ts`). */}
+          promise («изменения сохранятся») is the queue's: a tap made from
+          here is written to IndexedDB as soon as it is dispatched, and again
+          when the page is hidden, so it survives iOS killing the PWA and is
+          delivered when the connection returns (`src/trpc/offline-queue.ts`).
+          What it does not promise is instant durability — the write is one
+          async hop away, so a kill inside that hop still loses the tap. */}
       {isOnline ? null : (
         <p className={styles.offlineBanner} role="status">
           {t("offlineBanner")}

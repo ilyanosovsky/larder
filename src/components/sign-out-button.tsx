@@ -10,6 +10,13 @@ import { LOGIN_PATH } from "@/lib/auth-redirect";
 
 import styles from "./sign-out-button.module.css";
 
+/**
+ * How long signing out waits for the offline queue to land, in ms. Long
+ * enough for a handful of writes on a slow connection, short enough that
+ * «Выйти» never feels stuck.
+ */
+const QUEUE_FLUSH_TIMEOUT_MS = 2000;
+
 export function SignOutButton() {
   const t = useTranslations("auth");
   const router = useRouter();
@@ -22,6 +29,23 @@ export function SignOutButton() {
     setFailed(false);
 
     try {
+      /**
+       * One bounded attempt to land the offline queue, **before** the session
+       * is invalidated — after `signOut()` every queued write would come back
+       * UNAUTHORIZED, and after `clear()` there would be nothing left to send.
+       *
+       * An attempt, not a guarantee. `resumePausedMutations` resolves
+       * immediately when the device is offline, and the race caps how long
+       * signing out can be held up by a slow one. Whatever has not landed by
+       * then is dropped together with the cache below: the auth boundary wins
+       * over an undelivered tap, because the alternative is keeping one
+       * person's writes on a device the next person is about to sign in on.
+       */
+      await Promise.race([
+        queryClient.resumePausedMutations(),
+        new Promise((resolve) => setTimeout(resolve, QUEUE_FLUSH_TIMEOUT_MS)),
+      ]);
+
       // Better Auth client methods resolve with { data, error } instead of
       // rejecting — an error must block navigation, or the login page would
       // bounce the still-active session straight back home.
@@ -38,9 +62,7 @@ export function SignOutButton() {
       // Another person signing in on this device would then be shown the
       // previous household's cart out of storage. Clearing also emits the
       // cache events the persister listens to, so the stored copy goes with
-      // it. A queued offline change is dropped along the way: reaching this
-      // line means `signOut()` just made a successful request, so the queue
-      // had already been delivered.
+      // it.
       queryClient.clear();
 
       router.replace(LOGIN_PATH);

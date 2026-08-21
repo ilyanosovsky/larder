@@ -1,12 +1,19 @@
 import {
   QueryClient,
+  type Mutation,
   type MutationKey,
   type QueryKey,
 } from "@tanstack/react-query";
+import type {
+  AsyncStorage,
+  PersistedClient,
+} from "@tanstack/react-query-persist-client";
 import { createTRPCClient, httpBatchStreamLink } from "@trpc/client";
 import superjson from "superjson";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { mutationIdentity } from "@/lib/sync/delivery";
+import { OFFLINE_CACHE_KEY } from "@/lib/sync/offline-cache";
 import type { AppRouter } from "@/server/api/root";
 
 import {
@@ -17,7 +24,8 @@ import {
 /**
  * A client that is never called: `installOfflineQueue` only needs it to build
  * the tRPC option-proxy, and the proxy does not touch the transport until a
- * `mutationFn` actually runs. No request leaves this file.
+ * `mutationFn` actually runs. Every mutation exercised below carries its own
+ * fake function, so no request leaves this file.
  */
 function makeClient() {
   return createTRPCClient<AppRouter>({
@@ -30,18 +38,48 @@ function makeClient() {
   });
 }
 
+/** The persister's storage, in memory — CI has no IndexedDB. */
+function memoryStorage() {
+  const entries = new Map<string, string>();
+
+  const storage: AsyncStorage<string> = {
+    getItem: (key) => Promise.resolve(entries.get(key)),
+    setItem: (key, value) => Promise.resolve(entries.set(key, value)),
+    removeItem: (key) => {
+      entries.delete(key);
+      return Promise.resolve();
+    },
+  };
+
+  return { storage, entries };
+}
+
 function install() {
   const queryClient = new QueryClient();
-  const queue = installOfflineQueue(queryClient, makeClient());
-  return { queryClient, queue };
+  const { storage, entries } = memoryStorage();
+  const queue = installOfflineQueue(queryClient, makeClient(), { storage });
+  return { queryClient, queue, entries };
 }
 
 /** A paused mutation in `queryClient`'s cache, as a restore would rebuild it. */
-function pausedMutation(queryClient: QueryClient, mutationKey: MutationKey) {
+function pausedMutation(
+  queryClient: QueryClient,
+  mutationKey: MutationKey,
+  mutationFn?: () => Promise<unknown>,
+): Mutation<unknown, Error, unknown, unknown> {
   const mutation = queryClient
     .getMutationCache()
-    .build<unknown, Error, unknown, unknown>(queryClient, { mutationKey });
-  mutation.state = { ...mutation.state, isPaused: true };
+    .build<unknown, Error, unknown, unknown>(queryClient, {
+      mutationKey,
+      ...(mutationFn ? { mutationFn } : {}),
+    });
+  mutation.state = {
+    ...mutation.state,
+    status: "pending",
+    isPaused: true,
+    submittedAt: 1000,
+    variables: { id: "row" },
+  };
   return mutation;
 }
 
@@ -63,13 +101,35 @@ function successfulQuery(queryClient: QueryClient, queryKey: QueryKey) {
  * keep working right up until a reload, then be empty — and only this test
  * would notice.
  */
-describe("installOfflineQueue", () => {
+describe("installOfflineQueue: registration", () => {
   it("gives every cart mutation a function to run after a restore", () => {
     const { queryClient } = install();
 
     for (const path of ["add", "setStatus", "updateItem", "remove"]) {
       const defaults = queryClient.getMutationDefaults([["cart", path]]);
       expect(defaults.mutationFn, path).toBeTypeOf("function");
+    }
+  });
+
+  it("gives every cart mutation the delivery retry policy", () => {
+    const { queryClient } = install();
+
+    for (const path of ["add", "setStatus", "updateItem", "remove"]) {
+      const { retry } = queryClient.getMutationDefaults([["cart", path]]);
+      expect(retry, path).toBeTypeOf("function");
+
+      const shouldRetry = retry as (count: number, error: unknown) => boolean;
+      // Undelivered: keep it alive, however many times it has failed. This is
+      // what stops a captive portal from erasing the queue.
+      expect(shouldRetry(9, new TypeError("Failed to fetch")), path).toBe(true);
+      // Answered by the server: no point sending it again.
+      expect(
+        shouldRetry(
+          0,
+          Object.assign(new Error("x"), { data: { code: "NOT_FOUND" } }),
+        ),
+        path,
+      ).toBe(false);
     }
   });
 
@@ -80,7 +140,9 @@ describe("installOfflineQueue", () => {
       queryClient.getMutationDefaults([["product", "create"]]).mutationFn,
     ).toBeUndefined();
   });
+});
 
+describe("installOfflineQueue: persist filters", () => {
   it("persists a paused cart mutation built by the real option-proxy", () => {
     const { queryClient, queue } = install();
     const shouldDehydrate =
@@ -127,11 +189,122 @@ describe("installOfflineQueue", () => {
     expect(queue.persistOptions.buster).toBe(inert.buster);
     expect(queue.persistOptions.maxAge).toBe(inert.maxAge);
   });
+});
 
-  it("flushes to a no-op when nothing is queued", async () => {
-    const { queue } = install();
+describe("installOfflineQueue: delivery", () => {
+  it("does nothing when nothing is queued", async () => {
+    const { queue, entries } = install();
 
     await expect(queue.flush()).resolves.toBeUndefined();
+    // The save still runs — an empty envelope is how storage stops listing
+    // what has already gone.
+    expect(entries.has(OFFLINE_CACHE_KEY)).toBe(true);
+  });
+
+  it("delivers a queued mutation and clears it out of storage", async () => {
+    const { queryClient, queue, entries } = install();
+    const send = vi.fn(() => Promise.resolve("ok"));
+    pausedMutation(queryClient, [["cart", "setStatus"]], send);
+
+    await queue.flush();
+
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const stored = superjson.parse<PersistedClient>(
+      entries.get(OFFLINE_CACHE_KEY) ?? "",
+    );
+    expect(stored.clientState.mutations).toHaveLength(0);
+  });
+
+  it("does not deliver a restored mutation another context already sent", async () => {
+    const { queryClient, queue } = install();
+    const send = vi.fn(() => Promise.resolve("ok"));
+    pausedMutation(queryClient, [["cart", "setStatus"]], send);
+
+    // `onRestored` marks what came back from storage. Storage is empty here,
+    // which is exactly what a second open context sees once the first one has
+    // delivered the shared envelope and rewritten it.
+    queue.onRestored();
+    await queue.flush();
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("delivers a restored mutation that storage still lists as queued", async () => {
+    const { queryClient, queue, entries } = install();
+    const send = vi.fn(() => Promise.resolve("ok"));
+    const mutation = pausedMutation(queryClient, [["cart", "setStatus"]], send);
+
+    // Storage agrees this one is still undelivered.
+    entries.set(
+      OFFLINE_CACHE_KEY,
+      superjson.stringify({
+        timestamp: Date.now(),
+        buster: queue.persistOptions.buster ?? "",
+        clientState: {
+          queries: [],
+          mutations: [
+            {
+              mutationKey: mutation.options.mutationKey,
+              state: mutation.state,
+            },
+          ],
+        },
+      } satisfies PersistedClient),
+    );
+
+    queue.onRestored();
+    await queue.flush();
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns from onRestored without waiting for delivery", async () => {
+    const { queryClient, queue } = install();
+    let settled = false;
+    // A delivery that never finishes — the captive-portal retry loop, or
+    // simply a slow connection. `PersistQueryClientProvider` chains
+    // `onSuccess` before it flips `isRestoring` and subscribes the persister,
+    // so if this waited, the app would sit in its restoring state and
+    // persist nothing at all for the whole session.
+    pausedMutation(
+      queryClient,
+      [["cart", "setStatus"]],
+      () =>
+        new Promise(() => {
+          settled = true;
+        }),
+    );
+
+    expect(queue.onRestored()).toBeUndefined();
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+  });
+});
+
+describe("installOfflineQueue: the stored envelope", () => {
+  it("round-trips a Date through the production serializer", async () => {
+    // Not a test of superjson — a test that the *persister this app builds*
+    // is wired to it. Deleting the serialize/deserialize options leaves every
+    // other test passing and turns a queued `Date` into a string.
+    const { queryClient, queue, entries } = install();
+
+    const query = successfulQuery(queryClient, [
+      ["cart", "list"],
+      { type: "query" },
+    ]);
+    query.setData([{ id: "row", updatedAt: new Date("2026-08-21T10:00:00Z") }]);
+
+    await queue.saveNow();
+
+    const restored = await queue.persistOptions.persister.restoreClient();
+    const rows = restored?.clientState.queries[0]?.state.data as
+      { updatedAt: unknown }[] | undefined;
+
+    expect(rows?.[0]?.updatedAt).toBeInstanceOf(Date);
+    // And the raw entry really is what came out of the app's serializer.
+    expect(entries.get(OFFLINE_CACHE_KEY)).toContain("Date");
   });
 });
 
@@ -140,5 +313,28 @@ describe("createInertPersistOptions", () => {
     const { persister } = createInertPersistOptions();
 
     await expect(persister.restoreClient()).resolves.toBeUndefined();
+  });
+});
+
+describe("mutationIdentity across a real dehydrate", () => {
+  it("names a stored mutation the same way the cache does", async () => {
+    const { queryClient, queue, entries } = install();
+    const mutation = pausedMutation(queryClient, [["cart", "setStatus"]]);
+
+    await queue.saveNow();
+
+    const stored = superjson.parse<PersistedClient>(
+      entries.get(OFFLINE_CACHE_KEY) ?? "",
+    );
+    const persisted = stored.clientState.mutations[0];
+
+    expect(
+      mutationIdentity(persisted?.mutationKey, persisted?.state.submittedAt),
+    ).toBe(
+      mutationIdentity(
+        mutation.options.mutationKey,
+        mutation.state.submittedAt,
+      ),
+    );
   });
 });

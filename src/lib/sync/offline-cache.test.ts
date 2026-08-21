@@ -32,7 +32,30 @@ function mutation(
   mutationKey: readonly unknown[] | undefined,
   isPaused: boolean,
 ): PersistableMutation {
-  return { options: { mutationKey }, state: { isPaused } };
+  return {
+    options: { mutationKey },
+    state: {
+      status: "pending",
+      isPaused,
+      failureCount: 0,
+      failureReason: null,
+    },
+  };
+}
+
+/** Not paused, but retrying after a failure the router never answered. */
+function retryingMutation(
+  mutationKey: readonly unknown[],
+): PersistableMutation {
+  return {
+    options: { mutationKey },
+    state: {
+      status: "pending",
+      isPaused: false,
+      failureCount: 1,
+      failureReason: new TypeError("Failed to fetch"),
+    },
+  };
 }
 
 describe("matchesTrpcPath", () => {
@@ -109,6 +132,23 @@ describe("createOfflineCacheFilters", () => {
   it("does not persist an in-flight cart mutation — it may already have landed", () => {
     expect(
       filters.shouldDehydrateMutation(mutation(CART_SET_STATUS_KEY, false)),
+    ).toBe(false);
+  });
+
+  it("persists a cart mutation retrying after an undelivered failure", () => {
+    // Wider than TanStack's paused-only default on purpose: a captive portal
+    // makes the first attempt fail, which un-pauses the mutation — and a
+    // paused-only filter would then erase the whole queue from storage.
+    expect(
+      filters.shouldDehydrateMutation(retryingMutation(CART_SET_STATUS_KEY)),
+    ).toBe(true);
+  });
+
+  it("still scopes the retrying case to the cart router", () => {
+    expect(
+      filters.shouldDehydrateMutation(
+        retryingMutation([["product", "create"]]),
+      ),
     ).toBe(false);
   });
 

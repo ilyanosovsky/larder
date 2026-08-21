@@ -1,6 +1,8 @@
 import type { PersistedClient } from "@tanstack/react-query-persist-client";
 import superjson from "superjson";
 
+import { isQueuedMutationState } from "./delivery";
+
 /**
  * What the offline queue writes to IndexedDB, and the rules for reading it
  * back — the pure half of task 2.4 (VISION §6.3). The browser wiring that
@@ -83,7 +85,12 @@ export interface PersistableQuery {
 /** Same idea for a `Mutation`. */
 export interface PersistableMutation {
   readonly options: { readonly mutationKey?: readonly unknown[] | undefined };
-  readonly state: { readonly isPaused: boolean };
+  readonly state: {
+    readonly status: string;
+    readonly isPaused: boolean;
+    readonly failureCount: number;
+    readonly failureReason: unknown;
+  };
 }
 
 export interface OfflineCacheFilters {
@@ -132,16 +139,16 @@ export function matchesTrpcPath(
 /**
  * What gets written to IndexedDB, and — just as importantly — what does not.
  *
- * **Mutations: paused `cart.*` only.** "Paused" is what makes a replay safe:
- * with TanStack's default `networkMode: "online"` a mutation dispatched while
- * offline pauses *before* its `mutationFn` runs, so a paused mutation
- * provably never reached the server and delivering it later cannot duplicate
- * anything. An in-flight one carries no such proof — the tab can be killed
- * between the request leaving and the response arriving — and `cart.add`
- * **merges**, so replaying an add that did land turns «2 шт» into «4 шт» with
- * nothing on screen to explain it. Persisting only paused mutations is also
- * TanStack's own default; it is spelled out here because it is a correctness
- * decision, not an inherited one.
+ * **Mutations: `cart.*` ones the router provably has not seen** —
+ * `isQueuedMutationState` (`./delivery.ts`) decides, and the reasoning for
+ * both halves of that test lives there. Deliberately **wider** than
+ * TanStack's own `defaultShouldDehydrateMutation`, which persists paused
+ * mutations only: a mutation retrying after an undelivered failure is not
+ * paused, so a paused-only filter erases the queue from storage the moment a
+ * captive portal makes the first delivery attempt fail. Still narrower than
+ * "everything pending" — a first attempt in flight carries no evidence
+ * either way, and `cart.add` **merges**, so replaying one that did land turns
+ * «2 шт» into «4 шт» with nothing on screen to explain it.
  *
  * **Queries: a successful `cart.list` only.** It is the one query worth
  * having before the network answers. Everything else (the catalog, category
@@ -163,7 +170,7 @@ export function createOfflineCacheFilters(
       query.state.status === "success" &&
       matchesTrpcPath(query.queryKey, cartListKey),
     shouldDehydrateMutation: (mutation) =>
-      mutation.state.isPaused &&
+      isQueuedMutationState(mutation.state) &&
       matchesTrpcPath(mutation.options.mutationKey, cartPathKey),
   };
 }

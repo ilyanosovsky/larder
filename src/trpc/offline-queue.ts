@@ -2,19 +2,27 @@ import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persi
 import {
   focusManager,
   onlineManager,
+  type Mutation,
   type MutationFunction,
   type MutationKey,
   type QueryClient,
 } from "@tanstack/react-query";
-import type {
-  AsyncStorage,
-  PersistQueryClientOptions,
-  Persister,
+import {
+  persistQueryClientSave,
+  type AsyncStorage,
+  type PersistQueryClientOptions,
+  type Persister,
 } from "@tanstack/react-query-persist-client";
 import type { TRPCClient } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { createStore, del, get, set, type UseStore } from "idb-keyval";
 
+import {
+  isQueuedMutationState,
+  mutationIdentity,
+  persistedMutationIdentities,
+  shouldRetryDelivery,
+} from "@/lib/sync/delivery";
 import {
   createOfflineCacheFilters,
   deserializeOfflineCache,
@@ -36,12 +44,54 @@ export type OfflinePersistOptions = Omit<
 export interface OfflineQueue {
   readonly persistOptions: OfflinePersistOptions;
   /**
-   * Deliver whatever is queued, then re-read the cart. Wired to the events
-   * below; also handed to `PersistQueryClientProvider`'s `onSuccess`, which
-   * is the moment a queue restored from IndexedDB first exists in memory.
+   * Deliver whatever is queued, then re-read the cart and rewrite storage.
+   *
+   * Resolves when the round is done and **never rejects**, so a caller may
+   * await it or ignore it. Production callers ignore it: with a queue that
+   * retries until the server answers, a round can outlive the session.
    */
   readonly flush: () => Promise<void>;
+  /**
+   * Handed to `PersistQueryClientProvider`'s `onSuccess`: the moment a queue
+   * read back from IndexedDB first exists in memory. Returns **void, at
+   * once** — the provider chains this before flipping `isRestoring`, and does
+   * not subscribe the persister until it flips.
+   */
+  readonly onRestored: () => void;
+  /** Write the current cache to storage now, bypassing the save throttle. */
+  readonly saveNow: () => Promise<void>;
 }
+
+export interface OfflineQueueOptions {
+  /**
+   * Where the queue is kept. Defaults to IndexedDB through `idb-keyval`;
+   * overridden in tests, which have neither an IndexedDB nor a reason to
+   * exercise one.
+   */
+  readonly storage?: AsyncStorage<string>;
+}
+
+/**
+ * The persister writes on every cache event, so the throttle only decides how
+ * long a tap may sit in memory before it is durable. On iOS a backgrounded
+ * PWA has its timers suspended and may then be killed outright, so a deferred
+ * save is a save that never happens — and the S3 banner promises «изменения
+ * сохранятся». The payload is one cart list plus a handful of queued
+ * mutations, so writing it per event costs nothing worth trading a lost tap
+ * for. `asyncThrottle` still coalesces anything raised inside the same tick.
+ */
+const SAVE_THROTTLE_MS = 0;
+
+/**
+ * How long to wait for another context (a PWA and a browser tab can both be
+ * open on the same origin, sharing this storage) to finish delivering before
+ * giving up on this round. Delivery keeps running there; the next `online` or
+ * focus event brings us back.
+ */
+const DELIVERY_LOCK_TIMEOUT_MS = 5_000;
+
+/** Web Locks name, scoped like the IndexedDB database is. */
+const DELIVERY_LOCK_NAME = `${OFFLINE_CACHE_DB_NAME}:delivery`;
 
 /**
  * The `AsyncStorage` the persister writes through.
@@ -64,7 +114,7 @@ function createIndexedDbStorage(): AsyncStorage<string> {
 }
 
 /**
- * Gives one restored mutation its function back.
+ * Gives one restored mutation its function and its retry policy back.
  *
  * A dehydrated mutation carries its key, its variables and its state — never
  * its `mutationFn`, which is a closure and cannot be written to disk. On
@@ -72,9 +122,15 @@ function createIndexedDbStorage(): AsyncStorage<string> {
  * which merges in whatever `setMutationDefaults` registered for a matching
  * key; without that, resuming the queue fails with «No mutationFn found».
  *
- * The default is **only** the function. The rich optimistic wiring —
- * `onMutate`'s cache patch, the per-row rollback, the toast, the own-change
- * mark — stays at the S3 call sites, and deliberately does not run here:
+ * `retry` is registered here rather than at the call sites so that **every**
+ * cart write — live or resumed — is delivered under the same policy
+ * (`shouldRetryDelivery`, `src/lib/sync/delivery.ts`): keep trying while the
+ * server has not answered, give up the moment it has. A call site can still
+ * override it, and none currently does.
+ *
+ * Nothing else is defaulted. The rich optimistic wiring — `onMutate`'s cache
+ * patch, the per-row rollback, the toast, the own-change mark — stays at the
+ * S3 call sites, and deliberately does not run on resume:
  *
  * - A restored mutation never calls `onMutate` at all. TanStack skips it for
  *   a mutation whose state is already `pending` (`Mutation#execute`), which
@@ -85,7 +141,7 @@ function createIndexedDbStorage(): AsyncStorage<string> {
  *   belonged to was closed hours ago.
  *
  * So the resume path is deliberately simpler than the live one: deliver, then
- * let `flush` re-read the cart, and whatever the server says is what the
+ * let the queue re-read the cart, and whatever the server says is what the
  * screen shows. That is the same last-write-wins bargain VISION §3.1 already
  * makes for two people editing one row.
  */
@@ -98,56 +154,101 @@ function registerMutationDefault<TData, TVariables>(
 ): void {
   queryClient.setMutationDefaults(options.mutationKey, {
     mutationFn: options.mutationFn,
+    retry: shouldRetryDelivery,
   });
 }
 
-/** Whether anything is actually waiting, so a flush can be free when idle. */
-function hasQueuedMutations(queryClient: QueryClient): boolean {
+/** Every mutation waiting to be delivered, live or restored from storage. */
+function queuedMutations(
+  queryClient: QueryClient,
+): Mutation<unknown, Error, unknown, unknown>[] {
   return queryClient
     .getMutationCache()
     .getAll()
-    .some((mutation) => mutation.state.isPaused);
+    .filter((mutation) => isQueuedMutationState(mutation.state));
+}
+
+/**
+ * Runs `work` under an exclusive Web Lock, so two contexts on the same origin
+ * cannot deliver the same restored queue at once.
+ *
+ * Feature-detected (Web Locks is iOS 15.4+): where it is missing, delivery
+ * simply runs, which is the behaviour without this wrapper at all. The
+ * timeout matters as much as the lock — a context stuck retrying against a
+ * captive portal holds the lock for as long as that lasts, and boot in
+ * another tab must not wait on it. Giving up is safe: nothing was delivered,
+ * and the next `online` or focus event tries again.
+ */
+async function withDeliveryLock(work: () => Promise<void>): Promise<void> {
+  const locks: LockManager | undefined =
+    typeof navigator === "undefined" ? undefined : navigator.locks;
+
+  if (locks === undefined) {
+    await work();
+    return;
+  }
+
+  try {
+    await locks.request(
+      DELIVERY_LOCK_NAME,
+      {
+        mode: "exclusive",
+        signal: AbortSignal.timeout(DELIVERY_LOCK_TIMEOUT_MS),
+      },
+      async () => {
+        await work();
+      },
+    );
+  } catch {
+    // AbortError (another context is still delivering) or an environment
+    // that refused the lock. Either way this round is skipped, not failed.
+  }
 }
 
 /**
  * The offline queue (VISION §6.3), wired to one browser QueryClient.
  *
  * The queue itself is not written here — it is TanStack's own paused-mutation
- * machinery, made durable. Three pieces:
+ * machinery, made durable. Four pieces:
  *
  * 1. **Persistence.** `PersistQueryClientProvider` writes the dehydrated
  *    cache to IndexedDB on every cache event and reads it back on startup.
  *    `localStorage` would not do: iOS evicts it more eagerly, it is
  *    synchronous on the main thread, and it is capped at a few MB.
- * 2. **Mutation defaults**, so a restored mutation has a function to run.
+ * 2. **Mutation defaults**, so a restored mutation has a function to run and
+ *    a retry policy that will not throw it away.
  * 3. **Delivery triggers.** `QueryClient#mount` already resumes paused
  *    mutations on `onlineManager`'s `online` event *and* on `focusManager`'s
  *    `visibilitychange` — which together are exactly VISION §6.3's «доставка
  *    при открытом приложении по событию online», including the iOS-PWA
  *    reopen. There is no Background Sync API on iOS and none is emulated
  *    here: nothing is delivered while the app is closed, by design.
+ * 4. **Explicit saves** at the two moments the throttle cannot be trusted:
+ *    when the page is hidden or unloaded, and once a delivery round is done.
  *
- * What the subscriptions below add on top of TanStack's own is the **refetch
- * after** the queue drains. `QueryClient#mount` does invalidate-ish work of
- * its own (`queryCache.onOnline()`), but S3 mutes its passive refetch
- * triggers while `useIsMutating` is non-zero — and resumed mutations are
- * counted as mutating — so that refetch can be swallowed by a mute React has
- * not re-rendered out of yet. Invalidating explicitly once every resumed
- * mutation has settled is what guarantees the screen ends up showing the
- * server's answer rather than the optimistic guess it inherited.
+ * What the subscriptions below add on top of TanStack's own resume is the
+ * **refetch after** the queue drains, plus the restored mutations TanStack
+ * would not resume by itself (`resumePausedMutations` looks only at paused
+ * ones, and a mutation retrying after an undelivered failure is not paused).
+ * S3 mutes its passive refetch triggers while `useIsMutating` is non-zero,
+ * and resumed mutations count as mutating, so TanStack's own post-resume
+ * `queryCache.onOnline()` can be swallowed by a mute React has not re-rendered
+ * out of yet. Invalidating once delivery is done is what guarantees the
+ * screen ends up showing the server's answer.
  *
- * **A resumed mutation that fails is dropped, not retried.** Mutations keep
- * TanStack's default `retry: 0`, so a replay that reaches the server and is
- * rejected (a row a partner already removed, a CONFLICT) settles as an error,
- * loses its `isPaused` flag and is therefore no longer persisted — it cannot
- * wedge the queue or come back on the next reload. Nothing is announced: the
- * tap it belonged to happened in a previous session, and the invalidate that
- * follows puts the true state on screen, which is the honest answer to «что в
- * корзине сейчас».
+ * **A rejected replay is dropped; an unanswered one is not.** See
+ * `src/lib/sync/delivery.ts` — the drop policy is scoped to failures the
+ * server actually produced. A dropped mutation settles as an error, stops
+ * matching the queue test, and is therefore no longer persisted: it cannot
+ * wedge the queue or come back on the next reload, and since no mutation sets
+ * a `scope`, nothing queues behind it either. Nothing is announced — the tap
+ * belonged to a previous session, and the invalidate that follows puts the
+ * true state on screen.
  */
 export function installOfflineQueue(
   queryClient: QueryClient,
   trpcClient: TRPCClient<AppRouter>,
+  options: OfflineQueueOptions = {},
 ): OfflineQueue {
   const trpc = createTRPCOptionsProxy<AppRouter>({
     client: trpcClient,
@@ -160,20 +261,119 @@ export function installOfflineQueue(
   registerMutationDefault(queryClient, trpc.cart.remove.mutationOptions());
 
   const cartFilter = trpc.cart.pathFilter();
+  const filters = createOfflineCacheFilters(
+    trpc.cart.pathKey(),
+    trpc.cart.list.queryKey(),
+  );
 
-  const flush = async (): Promise<void> => {
-    if (!hasQueuedMutations(queryClient)) {
+  const persister = createAsyncStoragePersister({
+    key: OFFLINE_CACHE_KEY,
+    storage: options.storage ?? createIndexedDbStorage(),
+    serialize: serializeOfflineCache,
+    deserialize: deserializeOfflineCache,
+    throttleTime: SAVE_THROTTLE_MS,
+  });
+
+  const saveNow = (): Promise<void> =>
+    persistQueryClientSave({
+      queryClient,
+      persister,
+      buster: OFFLINE_CACHE_BUSTER,
+      dehydrateOptions: filters,
+    });
+
+  /**
+   * Mutations that came back from storage, captured the moment the restore
+   * finished — before anything this session dispatched can be mistaken for
+   * one. Only these are checked against storage below; a live tap has not
+   * been anywhere near another context.
+   */
+  let restored: readonly Mutation<unknown, Error, unknown, unknown>[] = [];
+
+  /**
+   * Forget restored mutations that storage no longer lists as queued: another
+   * context (the PWA and a browser tab can both be open) restored the same
+   * envelope and has already sent them. Delivering them again would merge a
+   * `cart.add` twice.
+   */
+  const dropAlreadyDelivered = async (): Promise<void> => {
+    if (restored.length === 0) {
       return;
     }
 
+    let stored;
     try {
-      await queryClient.resumePausedMutations();
-      await queryClient.invalidateQueries(cartFilter);
+      stored = await persister.restoreClient();
     } catch {
-      // Both calls already swallow per-mutation and per-query failures;
-      // anything that still surfaces here is not actionable and must not
-      // become an unhandled rejection inside an event listener.
+      // Storage is unreadable. Delivering without the cross-check risks a
+      // duplicate only in the two-contexts-at-once case; skipping delivery
+      // would risk losing the tap in every case. Deliver.
+      restored = [];
+      return;
     }
+
+    const stillQueued = persistedMutationIdentities(stored);
+    const cache = queryClient.getMutationCache();
+
+    for (const mutation of restored) {
+      const identity = mutationIdentity(
+        mutation.options.mutationKey,
+        mutation.state.submittedAt,
+      );
+      if (!stillQueued.has(identity)) {
+        cache.remove(mutation);
+      }
+    }
+
+    restored = [];
+  };
+
+  const deliver = async (): Promise<void> => {
+    await dropAlreadyDelivered();
+
+    const queued = queuedMutations(queryClient);
+    if (queued.length === 0) {
+      return;
+    }
+
+    // `continue()` rather than `resumePausedMutations()`: the latter looks
+    // only at paused mutations, and one retrying after an undelivered
+    // failure — restored from storage, with no retryer of its own yet — is
+    // just as much a member of the queue. `continue()` covers both, resuming
+    // a paused retryer or executing a restored mutation from its variables.
+    await Promise.all(
+      queued.map((mutation) => mutation.continue().catch(() => undefined)),
+    );
+
+    await queryClient.invalidateQueries(cartFilter);
+  };
+
+  const flush = async (): Promise<void> => {
+    try {
+      await withDeliveryLock(deliver);
+    } catch {
+      // Per-mutation failures are already swallowed inside `deliver`;
+      // anything reaching here is a storage or lock problem that an event
+      // listener cannot act on, and must not become an unhandled rejection.
+    }
+
+    // Whatever happened, storage must stop listing what is no longer queued.
+    // The event-driven save covers this too; doing it explicitly closes the
+    // window between a mutation settling and the persister's subscription
+    // noticing it.
+    await saveNow().catch(() => undefined);
+  };
+
+  const onRestored = (): void => {
+    restored = queuedMutations(queryClient);
+    // Deliberately **not** awaited, and `onRestored` returns nothing.
+    // `PersistQueryClientProvider` chains its `onSuccess` before flipping
+    // `isRestoring` to false, and it only subscribes the persister once that
+    // flips — so awaiting delivery here would leave the app in its restoring
+    // state, and nothing persisted at all, for as long as delivery took.
+    // With a queue that retries until the server answers, "as long as it
+    // took" can be the whole session.
+    void flush();
   };
 
   // Never unsubscribed: both the client and these listeners live for the
@@ -190,20 +390,26 @@ export function installOfflineQueue(
     }
   });
 
-  const filters = createOfflineCacheFilters(
-    trpc.cart.pathKey(),
-    trpc.cart.list.queryKey(),
-  );
+  if (typeof window !== "undefined") {
+    // The last chance to write. `pagehide` is the one that fires on iOS
+    // (where `beforeunload` and `unload` are unreliable), and
+    // `visibilitychange` → hidden is the one that fires when the PWA is
+    // backgrounded — after which its timers stop and it may never run again.
+    const save = () => void saveNow().catch(() => undefined);
+    window.addEventListener("pagehide", save);
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        save();
+      }
+    });
+  }
 
   return {
     flush,
+    onRestored,
+    saveNow,
     persistOptions: {
-      persister: createAsyncStoragePersister({
-        key: OFFLINE_CACHE_KEY,
-        storage: createIndexedDbStorage(),
-        serialize: serializeOfflineCache,
-        deserialize: deserializeOfflineCache,
-      }),
+      persister,
       buster: OFFLINE_CACHE_BUSTER,
       maxAge: OFFLINE_CACHE_MAX_AGE_MS,
       dehydrateOptions: filters,

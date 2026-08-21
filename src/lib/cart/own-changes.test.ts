@@ -102,3 +102,56 @@ describe("withoutOwnChanges", () => {
     expect([...visible]).toEqual(["c"]);
   });
 });
+
+/**
+ * The offline queue (task 2.4) breaks the assumption the window was sized
+ * for: a tap can be dispatched now and delivered when the connection comes
+ * back, minutes later. `cart-screen.tsx` therefore marks the row **twice** —
+ * once in `onMutate`, once in `onSettled` — and these pin why the second one
+ * is load-bearing rather than redundant.
+ */
+describe("a change queued offline and delivered much later", () => {
+  it("is no longer suppressed by the mark made when it was tapped", () => {
+    const marks = new Map<string, number>();
+    markOwnChange(marks, "mine", 0, TTL);
+
+    // The connection returns five minutes later and the write lands; the
+    // invalidate that follows reports the row as changed.
+    const deliveredAt = 300_000;
+
+    expect(withoutOwnChanges(new Set(["mine"]), marks, deliveredAt)).toEqual(
+      new Set(["mine"]),
+    );
+  });
+
+  it("is suppressed once the row is marked again at delivery time", () => {
+    const marks = new Map<string, number>();
+    markOwnChange(marks, "mine", 0, TTL);
+
+    const deliveredAt = 300_000;
+    markOwnChange(marks, "mine", deliveredAt, TTL);
+
+    // The refetch triggered by that same delivery arrives a moment later.
+    expect(
+      withoutOwnChanges(new Set(["mine"]), marks, deliveredAt + 200),
+    ).toEqual(new Set());
+  });
+
+  it("still lets the row light up for a partner change after the new window", () => {
+    const marks = new Map<string, number>();
+    const deliveredAt = 300_000;
+    markOwnChange(marks, "mine", deliveredAt, TTL);
+
+    expect(
+      withoutOwnChanges(new Set(["mine"]), marks, deliveredAt + TTL + 1),
+    ).toEqual(new Set(["mine"]));
+  });
+
+  it("prunes the stale mark rather than letting the map grow all trip", () => {
+    const marks = new Map<string, number>();
+    markOwnChange(marks, "first", 0, TTL);
+    markOwnChange(marks, "second", 300_000, TTL);
+
+    expect([...marks.keys()]).toEqual(["second"]);
+  });
+});

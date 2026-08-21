@@ -91,7 +91,12 @@ interface ClientRuntime {
   queryClient: QueryClient;
   trpcClient: TRPCClient<AppRouter>;
   persistOptions: OfflinePersistOptions;
-  onRestored: () => Promise<void>;
+  /**
+   * Must return promptly: `PersistQueryClientProvider` chains this before it
+   * flips `isRestoring` to false, and it does not subscribe the persister
+   * until that flips.
+   */
+  onRestored: () => void;
 }
 
 let browserRuntime: ClientRuntime | undefined;
@@ -104,7 +109,7 @@ function getRuntime(): ClientRuntime {
       queryClient: makeQueryClient(),
       trpcClient: makeTRPCClient(),
       persistOptions: createInertPersistOptions(),
-      onRestored: () => Promise.resolve(),
+      onRestored: () => undefined,
     };
   }
 
@@ -124,7 +129,7 @@ function getRuntime(): ClientRuntime {
       queryClient,
       trpcClient,
       persistOptions: queue.persistOptions,
-      onRestored: queue.flush,
+      onRestored: queue.onRestored,
     };
   }
 
