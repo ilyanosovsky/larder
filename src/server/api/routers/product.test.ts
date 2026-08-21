@@ -269,8 +269,12 @@ describe("product.list", () => {
 
     const select = stub.statements[1];
     expectScopedByHousehold(select);
-    expect(compile(select?.orderBys[0])).toContain('"sort_order"');
-    expect(compile(select?.orderBys[1])).toContain('"name"');
+    // Compared whole, not with `toContain`: a substring check on
+    // `"sort_order"` also passes for `desc(...)`, and one on `"name"` also
+    // passes for the *categories* name — both of which would break the
+    // sectioning while leaving the test green.
+    expect(compile(select?.orderBys[0])).toBe('"categories"."sort_order" asc');
+    expect(compile(select?.orderBys[1])).toBe('"products"."name" asc');
   });
 });
 
