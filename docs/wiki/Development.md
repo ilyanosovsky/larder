@@ -425,7 +425,11 @@ The defaults are **only** the function; the rich optimistic wiring stays at the 
 
 **Signing out clears the cache** (`sign-out-button.tsx`): the query client is a tab-lifetime singleton and sign-out does not reload the page, so without `queryClient.clear()` the next person to sign in on the device would be shown the previous household's cart — now out of storage rather than just out of memory. Clearing emits the cache events the persister listens to, so the stored copy goes with it.
 
-**Two known limits, both accepted for the MVP.** There is no service worker yet, so opening the app cold while offline still fails at the HTML request — the queue covers "went offline while it was open, then the PWA was killed", which is the iOS case VISION §6.3 is written about. And the per-row tap lock from task 2.3 is not released when a mutation pauses, so a row with a queued change cannot be re-tapped until the queue drains within that session; across a reload the lock is gone while the queued mutation is not, and two queued changes to one row resolve by last-write-wins like any other conflict.
+**Known limits, all accepted for the MVP.**
+
+- **No service worker yet**, so opening the app cold while offline still fails at the HTML request. The queue covers "went offline while it was open, then the PWA was killed" — the iOS case VISION §6.3 is written about.
+- **The per-row tap lock from task 2.3 is not released when a mutation pauses**, so a row with a queued change cannot be re-tapped until the queue drains within that session. Across a reload the lock is gone while the queued mutation is not; two queued changes to one row then resolve by last-write-wins like any other conflict.
+- **The add flow is effectively online-only.** S4's autocomplete query pauses offline and says so («Нет связи — поиск недоступен»), so the flow normally dead-ends at the search step. The one way past it is to open S4 online, get results, then go offline before tapping «В корзину»: the `add` is queued and will be delivered, but `submitAdd` awaits `mutateAsync` for the outcome that decides the toast — added / merged / unit conflict / already bought — so the sheet's «Добавляем…» stays up until the connection returns or the person closes it by hand. Guessing an outcome the server has not decided is worse than waiting for it, so the honest fix is an offline add path with its own copy — a job for 2.5, which reworks that sheet anyway.
 
 ## Kitchen profile
 
