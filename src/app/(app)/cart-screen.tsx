@@ -469,7 +469,7 @@ export function CartScreen() {
  */
 function CartSkeleton({ label }: { label: string }) {
   return (
-    <div className={styles.skeleton} role="status" aria-label={label}>
+    <div role="status" aria-label={label}>
       {SKELETON_SECTIONS.map((widths, sectionIndex) => (
         <div key={sectionIndex}>
           <div className={styles.skeletonHeader}>
