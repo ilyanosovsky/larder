@@ -65,7 +65,6 @@ export function CartItemSheet({
   const [unit, setUnit] = useState<Unit>("шт");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
   // Closed whenever there is no row to show — including the rare instant a
@@ -76,19 +75,64 @@ export function CartItemSheet({
   // `cart.add` always mints a fresh one), so there is nothing for it to point
   // back at by mistake.
   const sheetOpen = open && item !== null;
+  const itemId = item?.id ?? null;
 
   useEffect(() => {
-    if (sheetOpen && item) {
-      setQty(item.qty);
-      setUnit(item.unit);
-      setNote(item.note ?? "");
-      setError(null);
+    if (!sheetOpen || item === null) {
+      return;
     }
-  }, [sheetOpen, item]);
+    // Seeded once per opened row, keyed on its *id* rather than on `item`
+    // itself: task 2.2's background poll and focus refetch give every
+    // `cart.list` snapshot a fresh object identity regardless of whether the
+    // row actually changed, and resetting on every one of those would
+    // silently overwrite a note or a qty the shopper has typed but not saved
+    // yet. `item` is deliberately left out of the dependency list — the
+    // effect must fire only when the *edited row* changes, not merely when
+    // its object reference does.
+    setQty(item.qty);
+    setUnit(item.unit);
+    setNote(item.note ?? "");
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetOpen, itemId]);
 
   const updateItem = useMutation(trpc.cart.updateItem.mutationOptions());
   const setStatus = useMutation(trpc.cart.setStatus.mutationOptions());
   const remove = useMutation(trpc.cart.remove.mutationOptions());
+
+  /**
+   * Whether the sheet is waiting on a live round trip — every control
+   * disables on this alone. A **paused** mutation is deliberately excluded:
+   * `cart.updateItem`/`setStatus`/`remove` all use the default
+   * `networkMode: "online"`, so a write made offline pauses before its
+   * request ever leaves (task 2.4) and its `mutateAsync` promise does not
+   * settle until the connection returns — sometimes minutes later. Counting
+   * that as "busy" would lock every control in the sheet for as long as the
+   * connection is gone, which breaks the one promise the offline banner
+   * elsewhere on S3 already makes: «изменения сохранятся», not «действия
+   * заблокированы».
+   */
+  const busy =
+    (updateItem.isPending && !updateItem.isPaused) ||
+    (setStatus.isPending && !setStatus.isPaused) ||
+    (remove.isPending && !remove.isPaused);
+
+  /** Something is sitting in the offline queue right now — reuses S3's own «ждёт синхронизации» wording (mockup 1c) rather than inventing a second one. */
+  const queued = updateItem.isPaused || setStatus.isPaused || remove.isPaused;
+
+  useEffect(() => {
+    // Released the moment a write pauses, not held for however long it then
+    // sits in the queue. Safe here in a way it would not be for `cart.add`:
+    // `updateItem`/`setStatus`/`remove` are all last-write-wins, never
+    // merging, so a second tap queuing a newer edit behind an already-paused
+    // one is an ordinary conflict the queue already resolves, not a way to
+    // corrupt anything. `busyRef`'s only real job is surviving the same
+    // synchronous tick between a tap and React's next render — it was never
+    // meant to survive an entire offline round trip.
+    if (updateItem.isPaused || setStatus.isPaused || remove.isPaused) {
+      busyRef.current = false;
+    }
+  }, [updateItem.isPaused, setStatus.isPaused, remove.isPaused]);
 
   /**
    * Runs one action behind the shared ref lock, invalidates `cart.list` on
@@ -105,7 +149,6 @@ export function CartItemSheet({
       return;
     }
     busyRef.current = true;
-    setBusy(true);
     setError(null);
 
     try {
@@ -116,7 +159,6 @@ export function CartItemSheet({
       setError(errorMessage);
     } finally {
       busyRef.current = false;
-      setBusy(false);
     }
   }
 
@@ -152,6 +194,12 @@ export function CartItemSheet({
               {error}
             </p>
           )}
+
+          {queued ? (
+            <p className={styles.queued} role="status">
+              {t("queued")}
+            </p>
+          ) : null}
 
           <div className={styles.section}>
             <span className={styles.sectionLabel}>{t("editQtyLabel")}</span>
@@ -208,6 +256,7 @@ export function CartItemSheet({
                   styles.chip,
                   item.buyerId === null && styles.chipActive,
                 )}
+                aria-pressed={item.buyerId === null}
                 disabled={busy}
                 onClick={() =>
                   void run(
@@ -227,6 +276,7 @@ export function CartItemSheet({
                     styles.chip,
                     item.buyerId === member.userId && styles.chipActive,
                   )}
+                  aria-pressed={item.buyerId === member.userId}
                   disabled={busy}
                   onClick={() =>
                     void run(
@@ -259,6 +309,9 @@ export function CartItemSheet({
                         item.orderedVia === service &&
                         styles.chipActive,
                     )}
+                    aria-pressed={
+                      item.status === "ordered" && item.orderedVia === service
+                    }
                     disabled={busy}
                     onClick={() =>
                       void run(

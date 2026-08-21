@@ -173,3 +173,35 @@ export function groupOrderedByService<TRow extends OrderedCartRow>(
     (service) => ({ orderedVia: service, count: counts.get(service) ?? 0 }),
   );
 }
+
+/** An {@link OrderedServiceGroup} narrowed to a real, receivable service. */
+export interface ReceivableServiceGroup extends OrderedServiceGroup {
+  orderedVia: OrderedVia;
+}
+
+/**
+ * `groupOrderedByService`'s groups, minus the `null` one — the receive bar's
+ * own filter, so a bulk «Заказ получен» button is never offered for it.
+ *
+ * `cart.receiveOrder({ orderedVia: null })` and an omitted `orderedVia` are
+ * the *same* call server-side — both mean "every service" (the router's own
+ * contract, `receiveOrderInput`). A row `ordered` with no service recorded is
+ * therefore not a service `receiveOrder` can be scoped to on its own: tapping
+ * a button for it would silently receive every other service's rows too,
+ * which is not what tapping a button labelled for "no service" promises.
+ *
+ * Such a row cannot arise from anything this app's own UI writes today —
+ * `CartItemSheet`'s service picker always supplies a concrete service
+ * together with the `ordered` transition — but nothing in the type system
+ * stops a future write path from leaving one, so the bar simply does not
+ * offer a bulk action for it rather than risk over-scoping the request. The
+ * row is not stranded: its own checkbox still buys it individually,
+ * regardless of `orderedVia`.
+ */
+export function receivableServiceGroups(
+  groups: readonly OrderedServiceGroup[],
+): ReceivableServiceGroup[] {
+  return groups.filter(
+    (group): group is ReceivableServiceGroup => group.orderedVia !== null,
+  );
+}

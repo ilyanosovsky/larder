@@ -144,3 +144,14 @@
   font-size: var(--t-meta);
   line-height: var(--lead-body);
 }
+
+/* «Ждёт синхронизации» (task 2.4's own `--null` family): a write paused
+   offline, not an error — the sheet stays usable while it waits. */
+.queued {
+  border-left: var(--bd-ink) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}

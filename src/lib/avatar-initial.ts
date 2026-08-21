@@ -12,6 +12,13 @@
  * row's «кто берёт» avatar (task 2.5), so the two never quietly disagree
  * about which letter represents the same person.
  */
+
+// Module-scoped: a grapheme segmenter holds no per-call state, and this
+// function runs once per row with a buyer (and once per header avatar) on
+// every render, so building a fresh ICU segmenter each time would be pure
+// waste.
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 export function avatarInitial(name: string): string {
   const trimmed = name.trim();
   if (trimmed === "") {
@@ -20,7 +27,6 @@ export function avatarInitial(name: string): string {
     return "?";
   }
 
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  const first = segmenter.segment(trimmed)[Symbol.iterator]().next().value;
+  const first = GRAPHEMES.segment(trimmed)[Symbol.iterator]().next().value;
   return (first?.segment ?? trimmed).toUpperCase();
 }

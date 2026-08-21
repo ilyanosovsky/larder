@@ -59,7 +59,6 @@
     "restoreConfirm": "Вернуть",
     "restoreConfirmPending": "Возвращаем…",
     "rowCheckboxAria": "{name}, {qty} {unit}",
-    "editAria": "Изменить «{name}»",
     "editQtyLabel": "Количество",
     "editQtyDecreaseAria": "Уменьшить количество",
     "editQtyIncreaseAria": "Увеличить количество",

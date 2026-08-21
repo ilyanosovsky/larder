@@ -4,6 +4,7 @@ import {
   applyReceiveOrder,
   groupOrderedByService,
   receivableRowIds,
+  receivableServiceGroups,
   rollbackReceiveOrder,
   type OrderedCartRow,
 } from "./receive-order";
@@ -175,5 +176,38 @@ describe("groupOrderedByService", () => {
       { orderedVia: "carrefour", count: 1 },
       { orderedVia: "other", count: 1 },
     ]);
+  });
+});
+
+describe("receivableServiceGroups", () => {
+  it("passes real services through unchanged", () => {
+    const groups = groupOrderedByService([MILK, FLOUR, CANDLES]);
+
+    expect(receivableServiceGroups(groups)).toEqual(groups);
+  });
+
+  it("drops the null group — receiveOrder cannot be scoped to it alone", () => {
+    // A mix of real services *and* a service-less row: the null bucket must
+    // never get a button of its own, or tapping it would receive the wolt
+    // and carrefour rows too (`orderedVia: null` means "every service" to
+    // `cart.receiveOrder`, not "only the service-less ones").
+    const stray = row({ id: "stray", status: "ordered", orderedVia: null });
+    const groups = groupOrderedByService([MILK, FLOUR, stray]);
+
+    expect(groups.some((group) => group.orderedVia === null)).toBe(true);
+    expect(receivableServiceGroups(groups)).toEqual([
+      { orderedVia: "wolt", count: 1 },
+      { orderedVia: "carrefour", count: 1 },
+    ]);
+  });
+
+  it("returns an empty array when only the null group exists", () => {
+    const stray = row({ id: "stray", status: "ordered", orderedVia: null });
+
+    expect(receivableServiceGroups(groupOrderedByService([stray]))).toEqual([]);
+  });
+
+  it("returns an empty array for an empty input", () => {
+    expect(receivableServiceGroups([])).toEqual([]);
   });
 });

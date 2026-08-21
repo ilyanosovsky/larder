@@ -27,6 +27,7 @@ import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
 import {
   applyReceiveOrder,
   groupOrderedByService,
+  receivableServiceGroups,
   rollbackReceiveOrder,
   type ReceiveOrderSnapshot,
 } from "@/lib/cart/receive-order";
@@ -441,7 +442,15 @@ export function CartScreen() {
     }),
   );
 
-  function handleReceiveOrder(orderedVia: OrderedVia | null) {
+  /**
+   * `orderedVia` is a concrete service, never `null` — the receive bar only
+   * ever renders a button for a group `receivableServiceGroups` kept, and
+   * that function's whole job is dropping the one group (`null`, "ordered
+   * with no service recorded") a bulk receive cannot be safely scoped to on
+   * its own. Typed narrowly here so a future call site cannot reintroduce
+   * that bug by accident.
+   */
+  function handleReceiveOrder(orderedVia: OrderedVia) {
     const key = receiveGroupKey(orderedVia);
     if (receivePendingRef.current.has(key)) {
       return;
@@ -539,8 +548,17 @@ export function CartScreen() {
   /** Rows whose change is sitting in the offline queue — mockup 1c's 🕐. */
   const queuedIds = useQueuedCartRows(trpc.cart.pathKey(), items);
 
-  /** Distinct services among the currently-ordered rows — the receive bar. */
-  const orderedGroups = groupOrderedByService(items);
+  /**
+   * Distinct services among the currently-ordered rows — the receive bar.
+   * `receivableServiceGroups` drops a row group with no service recorded:
+   * `cart.receiveOrder({ orderedVia: null })` means "every service" to the
+   * router, not "only the service-less ones", so a button for that group
+   * would risk marking Wolt/Carrefour rows bought too. Such a row cannot
+   * arise from this app's own writes today (`CartItemSheet` always supplies
+   * a service together with the `ordered` transition) — the checkbox still
+   * buys it individually regardless.
+   */
+  const orderedGroups = receivableServiceGroups(groupOrderedByService(items));
 
   // The household's members, for the row sheet's «кто берёт» chips. Prefetched
   // server-side alongside `cart.list`/`category.list` (`page.tsx`), so this is
@@ -754,10 +772,19 @@ export function CartScreen() {
                       </span>
                     </label>
 
+                    {/* No explicit `aria-label`, deliberately: an
+                        `aria-label` on a button replaces its whole
+                        accessible name, descendants included — a screen
+                        reader would then hear only «Изменить «Помидоры»» and
+                        never the note, badge, queued mark, quantity or
+                        buyer that follow. Left to compute from content, the
+                        name picks up all of it — the icon span stays
+                        `aria-hidden`, and the buyer avatar's own `aria-label`
+                        (a `role="img"` descendant) still contributes its
+                        text to that computation. */}
                     <button
                       type="button"
                       className={styles.rowBody}
-                      aria-label={t("editAria", { name: item.productName })}
                       onClick={(event) =>
                         openItemSheet(item.id, event.currentTarget)
                       }
