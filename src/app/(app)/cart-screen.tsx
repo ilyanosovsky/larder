@@ -290,6 +290,9 @@ export function CartScreen() {
           onClick={() => void refresh()}
           disabled={isRefreshing}
           aria-label={t("refreshAria")}
+          // A bare ⟳ names itself to a screen reader through `aria-label`,
+          // but not to a mouse — no browser surfaces that as a tooltip.
+          title={t("refresh")}
         >
           <span
             className={cx(
