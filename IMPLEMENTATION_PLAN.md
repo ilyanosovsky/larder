@@ -58,7 +58,7 @@
 | 2.2 ⚑ | Синхронизация (refetch-модель, VISION §6.3): refetchOnWindowFocus, фоновый интервал ~30–60 с, pull-to-refresh / кнопка «Обновить», мягкая подсветка изменившихся строк после refetch | sonnet | 🟢 | [#14](https://github.com/ilyanosovsky/larder/pull/14) | Realtime-push — пост-MVP (фаза 2 VISION); задел `splitLink` в коде сохранён |
 | 2.3 ⚑ | UI корзины S3: секции-отделы, optimistic-чекбоксы, индикатор синка | opus | 🟢 | [#17](https://github.com/ilyanosovsky/larder/pull/17) | Каталожная заглушка на `/` заменена экраном S3; степпер количества в S4; шапка: аватары + индикатор синка |
 | 2.4 | Офлайн-очередь мутаций: персист в IndexedDB, флаш по online/открытию | opus | 🟢 | [#19](https://github.com/ilyanosovsky/larder/pull/19) | Background Sync на iOS нет; очередь — paused-мутации TanStack Query, персист через `PersistQueryClientProvider` + idb-keyval; доставка at-least-once; cold-open офлайн без SW — пост-MVP |
-| 2.5 | Статус «заказано» (Wolt/Carrefour/другое), «кто берёт», заметки на позиции, «Заказ получен» | sonnet | 🔵 | — | |
+| 2.5 | Статус «заказано» (Wolt/Carrefour/другое), «кто берёт», заметки на позиции, «Заказ получен» | sonnet | 🟢 | [#20](https://github.com/ilyanosovsky/larder/pull/20) | Шторка действий по строке; bulk `cart.receiveOrder` (buyer сохраняется, orderedVia очищается); интеграция с офлайн-очередью 2.4. Фаза 2 завершена |
 
 ## Фаза 3 — Кладовая и завершение закупки
 
