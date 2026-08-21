@@ -177,7 +177,8 @@ export function installOfflineQueue(
   };
 
   // Never unsubscribed: both the client and these listeners live for the
-  // lifetime of the tab (see `getBrowserRuntime` in `client.tsx`).
+  // lifetime of the tab (see `getRuntime` in `client.tsx`, which installs
+  // this exactly once, in the browser only).
   onlineManager.subscribe((online) => {
     if (online) {
       void flush();
