@@ -328,14 +328,27 @@ All of the actual branching lives in the two pure functions in `highlight-state.
 
 The four decisions the screen makes are pure modules under `src/lib/cart/`, for the same reason `src/lib/sync/` splits its hooks: vitest here runs in a **node** environment and collects `src/**/*.test.ts` only, so nothing that must be rendered can be covered.
 
-| File               | Exports                                     | What it decides                                            |
-| ------------------ | ------------------------------------------- | ---------------------------------------------------------- |
-| `sort-rows.ts`     | `sortBoughtLast`                            | Stable partition, bought last, `ordered` staying live      |
-| `status-toggle.ts` | `toggledCartStatus`, `applyStatusToggle`    | What the checkbox means, and the optimistic cache patch    |
-| `add-outcome.ts`   | `describeCartAddOutcome`, `CartAddToastKey` | `cart.add`'s five outcomes → toast / highlight / confirm   |
-| `qty-step.ts`      | `clampQty`, `stepQty`, `canStepQty`, bounds | The S4 stepper's arithmetic, pinned to the router's bounds |
+| File               | Exports                                     | What it decides                                              |
+| ------------------ | ------------------------------------------- | ------------------------------------------------------------ |
+| `sort-rows.ts`     | `sortBoughtLast`                            | Stable partition, bought last, `ordered` staying live        |
+| `status-toggle.ts` | `toggledCartStatus`, `applyStatusToggle`    | What the checkbox means, and the optimistic cache patch      |
+| `add-outcome.ts`   | `describeCartAddOutcome`, `CartAddToastKey` | `cart.add`'s five outcomes → toast / highlight / confirm     |
+| `qty-step.ts`      | `clampQty`, `stepQty`, `canStepQty`, bounds | The S4 stepper's arithmetic, pinned to the router's bounds   |
+| `own-changes.ts`   | `markOwnChange`, `withoutOwnChanges`        | Which rows _this_ client changed, so the highlight is honest |
 
-**The optimistic checkbox** is the first optimistic mutation in the repo and the pattern the rest should copy. `onMutate` awaits `queryClient.cancelQueries(cartFilter)` — without it a refetch already in flight resolves _after_ the patch and the checkbox visibly un-ticks itself — then snapshots, applies `applyStatusToggle`, and returns the snapshot as rollback context; `onError` restores it and toasts; `onSettled` invalidates. Two fields are deliberately **not** patched: `updatedAt` (the highlight diff keys off it, so writing it would flash a "your partner changed this" cue at you for your own tap) and `buyerId` (the server stamps the caller on `bought` and clears it on `needed`; guessing would render a «кто берёт» a failed request has to take back).
+**The optimistic checkbox** is the first optimistic mutation in the repo and the pattern the rest should copy. `onMutate` awaits `queryClient.cancelQueries(cartFilter)`, applies `applyStatusToggle`, and remembers the row's **previous status**; `onError` re-applies that one status; `onSettled` invalidates. Two fields are deliberately **not** patched: `updatedAt` (see the highlight note below) and `buyerId` (the server stamps the caller on `bought` and clears it on `needed`; guessing would render a «кто берёт» a failed request has to take back).
+
+**Rollback is per row, not a whole-list snapshot.** Overlapping toggles are ordinary — ticking down a shelf is exactly that — and a snapshot taken before row A's request knows nothing about row B's. Restoring it would wipe B's optimistic tick when A fails, and re-apply A's when B fails. Re-applying the inverse to the failed row alone touches only what actually failed, cannot resurrect a row a refetch removed in the meantime, and leaves `onSettled`'s invalidate as the healer for everything else.
+
+**Three separate things stop a refetch from un-ticking a row mid-flight**, and they cover different windows:
+
+- `cancelQueries` in `onMutate` stops what is **already** in flight.
+- The query options mute `refetchInterval` / `refetchOnWindowFocus` / `refetchOnReconnect` while `useIsMutating({ mutationKey: trpc.cart.pathKey() })` is non-zero, because a trigger firing _after_ `onMutate` starts a fresh request that was dispatched before the write landed and answers with the pre-write list. `pathKey()` is already the shared key across every `cart.*` mutation — tRPC sets `mutationKey` itself, after spreading the caller's options, so it cannot be overridden per call site. «Обновить» is disabled for the same window.
+- Nothing is lost by waiting: `onSettled`'s invalidate refetches the moment the write settles. What remains is a genuine last-write-wins tolerance (partner writing the same row in the same instant), which VISION §3.1 accepts.
+
+**The highlight only ever means "someone else".** `useChangedRows` diffs `updatedAt` and cannot tell whose change it is looking at — and every toggle ends with the server stamping `now()` and the screen invalidating, so without help the refetch reports your own tick and lights your own row up. Not patching `updatedAt` optimistically is necessary but **not sufficient**: the snapshot the diff compares against still holds the old timestamp, so the flash happens on the refetch regardless. `own-changes.ts` closes it — `markOwnChange` records the id in `onMutate` with an expiry of `now + HIGHLIGHT_MS`, and `withoutOwnChanges` filters those ids out of `changedIds` at render. It is time-bounded rather than consume-on-first-sight because `changedIds` stays populated for the whole window, so a mark that cleared on first observation would just let the highlight reappear on the next render. The cost is that a partner's change to the same row inside that window is muted too — a few seconds of silence on one row, against a false "someone else touched this" on every single tap. Scoped to `setStatus`: the add flow's own highlight is wanted.
+
+**Two highlight treatments, not one.** `.rowChanged` is mockup 1b's plain `--accent-soft` wash — «партнёр что-то поменял», arriving unprompted, so it stays quiet. `.rowActed` adds mockup #1h's `inset 2px 0 0 var(--accent)` edge — it answers a tap, and on a merge it is the only thing pointing at the row the quantity went into. Own action wins when both would apply.
 
 **Double-tap guards are refs, never render state.** Worth stating plainly, because the wrong version _looks_ correct: `mutation.isPending`, a `useState` flag and a `disabled` attribute are all applied by React **after** the handler returns, so two taps landing in the same event-loop turn read the same pre-tap value and both get through. Only a ref is written and read synchronously.
 
@@ -346,6 +359,10 @@ What losing that race costs differs per call site, which is why each one is lock
 - **«Создать „…“»** — the sheet's `busyRef` again. Two AI calls and two `ai_jobs` rows; this one costs money.
 
 `isPending` and `disabled` stay, but for **rendering only** — the pending label and the greyed-out button. They are feedback, not the guard. A `useState` mirror of `pendingRef` exists for exactly that reason.
+
+**The row checkbox is never given the `disabled` attribute**, though. A control that becomes disabled loses focus (verified in-browser: focus survives `aria-disabled`, and is dropped by the real attribute), so every keyboard toggle would throw the user back to the top of the page mid-shop. The ref lock is what prevents the second fire; `aria-disabled` and `aria-busy` expose the state, and a `data-pending` attribute carries the visual affordance.
+
+**The toast is a permanently-mounted live region plus a separate visual card.** A `role="status"` node that is mounted together with its content is not reliably announced — assistive technology has to have been watching the region before the text arrived — so the region is an always-present visually-hidden `<p>` whose text swaps, and the ink card is `aria-hidden`. Toast state is `{ message, seq }` rather than a bare string: raising the same message twice (adding «Помидоры» twice in a row) must restart the 2.5s dismiss timer, and an unchanged string leaves the effect's dependency unchanged.
 
 **Add flow.** «+ Добавить» opens S4; S4 reports `{ product, qty, unit }` and the screen calls `cart.add`. `describeCartAddOutcome` maps the answer:
 

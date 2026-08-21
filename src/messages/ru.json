@@ -52,7 +52,7 @@
     "toastUnitMismatch": "{name} уже в корзине в других единицах — измени вручную",
     "toastRestored": "{name} — снова в корзине",
     "restoreTitle": "Уже куплено",
-    "restoreQuestion": "{name} уже куплен в этой закупке. Вернуть в «нужно»?",
+    "restoreQuestion": "{name}: уже куплено в этой закупке. Вернуть в «нужно»?",
     "restoreConfirm": "Вернуть",
     "restoreConfirmPending": "Возвращаем…"
   },

@@ -1,6 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
@@ -14,6 +19,7 @@ import {
   describeCartAddOutcome,
   type CartAddToastKey,
 } from "@/lib/cart/add-outcome";
+import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
 import { sortBoughtLast } from "@/lib/cart/sort-rows";
 import { applyStatusToggle, toggledCartStatus } from "@/lib/cart/status-toggle";
 import { groupProductsByCategory } from "@/lib/group-products";
@@ -21,6 +27,7 @@ import { cartSyncQueryOptions } from "@/lib/sync/cart-sync-presets";
 import { HIGHLIGHT_MS, useChangedRows } from "@/lib/sync/use-changed-rows";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
 import type { CartListItemOutput } from "@/server/api/routers/cart";
+import type { CartItemStatus } from "@/server/cart/merge";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./cart-screen.module.css";
@@ -84,8 +91,23 @@ export function CartScreen() {
   const addOpener = useSheetOpener();
 
   const [flow, setFlow] = useState<AddFlow>({ kind: "closed" });
-  const [toast, setToast] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  /**
+   * `seq` is what makes the dismiss timer restart when the *same* message is
+   * raised twice — adding «Помидоры» twice in a row is ordinary, and a plain
+   * string in state would leave the effect's `[toast]` dependency unchanged,
+   * so the second toast would inherit the remains of the first one's 2.5s.
+   */
+  const [toast, setToast] = useState<{ message: string; seq: number } | null>(
+    null,
+  );
+  const toastSeq = useRef(0);
+
+  function showToast(message: string) {
+    toastSeq.current += 1;
+    setToast({ message, seq: toastSeq.current });
+  }
 
   /**
    * Rows whose `setStatus` is still in flight.
@@ -115,8 +137,42 @@ export function CartScreen() {
   const cartFilter = trpc.cart.list.queryFilter();
   const cartKey = trpc.cart.list.queryKey();
 
+  /**
+   * Any `cart.*` mutation of ours in flight. `pathKey()` is tRPC's
+   * router-level key and TanStack matches mutation keys by prefix, so this is
+   * already the shared key across `setStatus`, `add` and whatever 2.4/2.5 add
+   * — tRPC sets `mutationKey` itself, after spreading the caller's options,
+   * so it cannot be overridden per call site anyway.
+   */
+  const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
+
   const cart = useQuery(
-    trpc.cart.list.queryOptions(undefined, { ...cartSyncQueryOptions }),
+    trpc.cart.list.queryOptions(undefined, {
+      ...cartSyncQueryOptions,
+      /**
+       * The passive refetch triggers are muted while one of our own writes is
+       * out.
+       *
+       * `onMutate`'s `cancelQueries` only stops what is already in flight; a
+       * trigger that fires *after* it — the 45s tick, a focus event under
+       * `refetchOnWindowFocus: "always"` — starts a fresh request that was
+       * dispatched before the write landed, so it answers with the pre-write
+       * list and visibly un-ticks the row until `onSettled`'s invalidate
+       * repairs it. Nothing is lost by waiting: that invalidate refetches the
+       * moment the write settles.
+       *
+       * The residual is a genuine last-write-wins tolerance rather than a
+       * gap: if the partner writes the same row in the same instant, one of
+       * the two wins and the next refetch shows it. VISION §3.1 accepts that.
+       */
+      ...(cartMutating
+        ? {
+            refetchInterval: false as const,
+            refetchOnWindowFocus: false as const,
+            refetchOnReconnect: false as const,
+          }
+        : {}),
+    }),
   );
   const { refresh, isRefreshing } = useManualRefresh(cartFilter);
 
@@ -124,6 +180,17 @@ export function CartScreen() {
   // hook's effect keys off it, and a fresh array every render would make it
   // re-diff on every render instead of on an actual refetch.
   const { changedIds } = useChangedRows(cart.data);
+
+  /**
+   * Rows this client changed itself, muting the partner-change highlight for
+   * them — see `src/lib/cart/own-changes.ts` for why the refetch cannot tell
+   * whose change it is looking at, and why the mark is time-bounded.
+   *
+   * Scoped to `setStatus` on purpose. The add flow's own highlight is wanted
+   * (mockup #1h: «количество обновлено» has to point at the row it merged
+   * into), and it is drawn from `highlight` below rather than from the diff.
+   */
+  const ownChangesRef = useRef<Map<string, number>>(new Map());
 
   /**
    * A highlight this screen asked for, on top of the ones a refetch produced.
@@ -160,34 +227,62 @@ export function CartScreen() {
     setHighlight({ id, seq: highlightSeq.current });
   }
 
+  /** Patches one row's status in the cached list, if the row is still there. */
+  function patchCachedStatus(id: string, status: CartItemStatus) {
+    queryClient.setQueryData(cartKey, (current) =>
+      current === undefined ? current : applyStatusToggle(current, id, status),
+    );
+  }
+
   /**
    * The first optimistic mutation in the app, and the pattern the rest should
    * copy: cancel in-flight refetches so none of them lands on top of the
-   * patch, snapshot, patch, hand the snapshot back as rollback context, and
-   * invalidate once the server has spoken either way.
+   * patch, patch, remember what the row held, undo exactly that row if the
+   * request fails, and invalidate once the server has spoken either way.
    */
   const setStatus = useMutation(
     trpc.cart.setStatus.mutationOptions({
       onMutate: async (variables) => {
         // Without this, a refetch already in flight would resolve *after* the
         // patch and overwrite it with the pre-tap list — the checkbox would
-        // visibly un-tick itself a moment later.
+        // visibly un-tick itself a moment later. (Triggers that fire *later*
+        // are handled by the mute in `queryOptions` above.)
         await queryClient.cancelQueries(cartFilter);
 
-        const previous = queryClient.getQueryData(cartKey);
-        queryClient.setQueryData(cartKey, (current) =>
-          current === undefined
-            ? current
-            : applyStatusToggle(current, variables.id, variables.status),
+        // The server is about to stamp `updatedAt`, and the invalidate below
+        // will diff that against the pre-tap snapshot. Marked here, before
+        // the write, so the partner-change highlight never fires at you for
+        // your own tick.
+        markOwnChange(
+          ownChangesRef.current,
+          variables.id,
+          Date.now(),
+          HIGHLIGHT_MS,
         );
 
-        return { previous };
+        const previousStatus = queryClient
+          .getQueryData(cartKey)
+          ?.find((row) => row.id === variables.id)?.status;
+
+        patchCachedStatus(variables.id, variables.status);
+
+        return { previousStatus };
       },
-      onError: (_error, _variables, context) => {
-        if (context?.previous !== undefined) {
-          queryClient.setQueryData(cartKey, context.previous);
+      /**
+       * Undoes **this row**, rather than restoring a whole-list snapshot.
+       *
+       * Overlapping toggles are ordinary — ticking down a shelf is exactly
+       * that — and a snapshot taken before row A's request knows nothing
+       * about row B's. Restoring it would wipe B's optimistic tick when A
+       * fails, and re-apply A's when B fails. A per-row inverse touches only
+       * what actually failed; `onSettled`'s invalidate is the healer for
+       * everything else.
+       */
+      onError: (_error, variables, context) => {
+        if (context?.previousStatus !== undefined) {
+          patchCachedStatus(variables.id, context.previousStatus);
         }
-        setToast(t("statusError"));
+        showToast(t("statusError"));
       },
       onSettled: (_data, _error, variables) => {
         markPending(variables.id, false);
@@ -260,7 +355,7 @@ export function CartScreen() {
 
       setFlow({ kind: "closed" });
       if (action.toastKey !== null) {
-        setToast(toastFor(action.toastKey, selection));
+        showToast(toastFor(action.toastKey, selection));
       }
     } finally {
       addBusyRef.current = false;
@@ -284,6 +379,14 @@ export function CartScreen() {
   const hasList = cart.data !== undefined;
   const isEmpty = hasList && items.length === 0;
 
+  // Read-only, so it is safe during render: `withoutOwnChanges` never touches
+  // the ref's map, and marks are written and pruned in event handlers.
+  const partnerChangedIds = withoutOwnChanges(
+    changedIds,
+    ownChangesRef.current,
+    Date.now(),
+  );
+
   function openSearch(element: HTMLElement | null) {
     addOpener.captureOpener(element);
     setFlow({ kind: "search" });
@@ -302,7 +405,10 @@ export function CartScreen() {
           type="button"
           className={styles.refreshButton}
           onClick={() => void refresh()}
-          disabled={isRefreshing}
+          // Also while a write of ours is out: a manual refetch dispatched
+          // then would answer with the pre-write list, for the same reason
+          // the passive triggers are muted above.
+          disabled={isRefreshing || cartMutating}
           aria-label={t("refreshAria")}
           // A bare ⟳ names itself to a screen reader through `aria-label`,
           // but not to a mouse — no browser surfaces that as a tooltip.
@@ -362,6 +468,12 @@ export function CartScreen() {
           <ul className={styles.rows}>
             {sortBoughtLast(section.items).map((item) => {
               const bought = item.status === "bought";
+              const pending = pendingIds.has(item.id);
+              // Two different cues, deliberately not one class: «ты только что
+              // это сделал» carries mockup #1h's inset accent edge, «партнёр
+              // что-то поменял» is 1b's plain wash. Own action wins when both
+              // would apply.
+              const acted = highlight?.id === item.id;
 
               return (
                 <li key={item.id}>
@@ -372,15 +484,24 @@ export function CartScreen() {
                     className={cx(
                       styles.row,
                       bought && styles.rowBought,
-                      (changedIds.has(item.id) || highlight?.id === item.id) &&
-                        styles.rowChanged,
+                      acted
+                        ? styles.rowActed
+                        : partnerChangedIds.has(item.id) && styles.rowChanged,
                     )}
                   >
                     <input
                       type="checkbox"
                       className={styles.checkbox}
                       checked={bought}
-                      disabled={pendingIds.has(item.id)}
+                      // Never `disabled`: the browser drops focus off a
+                      // control that becomes disabled, so every keyboard
+                      // toggle would throw the user back to the top of the
+                      // page. The synchronous ref lock in `toggleStatus` is
+                      // what actually prevents the second fire; these two only
+                      // expose that state.
+                      aria-disabled={pending || undefined}
+                      aria-busy={pending || undefined}
+                      data-pending={pending || undefined}
                       onChange={() => toggleStatus(item)}
                     />
                     <span className={styles.checkboxMark} aria-hidden="true">
@@ -421,9 +542,18 @@ export function CartScreen() {
         </div>
       )}
 
+      {/* The live region is mounted for the life of the screen and only its
+          text changes. A `role="status"` node that appears together with its
+          content is not reliably announced — assistive technology has to have
+          been watching the region *before* the text arrived. The visible card
+          below is therefore presentation only. */}
+      <p className={styles.srOnly} role="status">
+        {toast?.message ?? ""}
+      </p>
+
       {toast === null ? null : (
-        <p className={styles.toast} role="status">
-          {toast}
+        <p className={styles.toast} aria-hidden="true">
+          {toast.message}
         </p>
       )}
 

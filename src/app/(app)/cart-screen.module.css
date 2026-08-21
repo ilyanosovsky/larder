@@ -155,10 +155,21 @@
   cursor: pointer;
 }
 
-/* Mockup 1b: what a refetch changed, or what an add outcome is about.
-   Covers the zebra underneath because the row paints over its own item. */
+/* Two highlights, not one, because they say different things. Both cover the
+   zebra underneath, since the row paints over its own list item.
+
+   Mockup 1b — «партнёр что-то поменял»: a plain wash, arriving unprompted, so
+   it stays quiet. */
 .rowChanged {
   background: var(--accent-soft);
+}
+
+/* Mockup #1h — «ты только что это сделал»: the same wash plus an inset accent
+   edge. Louder on purpose; it answers a tap, and on a merge it is the only
+   thing pointing at the row the quantity went into. */
+.rowActed {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* The real checkbox stays in the accessible tree and keeps the keyboard
@@ -196,7 +207,10 @@
   color: var(--paper);
 }
 
-.checkbox:disabled + .checkboxMark {
+/* Keyed off `data-pending`, not `:disabled` — the control is deliberately
+   never disabled (that would drop keyboard focus on every toggle), so this is
+   the only thing left to hang the in-flight look on. */
+.checkbox[data-pending] + .checkboxMark {
   opacity: 0.6;
 }
 
@@ -316,6 +330,18 @@
 
 .empty .addButton {
   flex: none;
+}
+
+/* The permanently-mounted live region behind the toast. Not `display: none`
+   or `visibility: hidden` — either would take it out of the accessibility
+   tree, which is the one thing it exists to stay in. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ── Toast (mockups 1b, 1h): ink card, never a colour ── */

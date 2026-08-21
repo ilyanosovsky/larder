@@ -68,3 +68,57 @@ describe("applyStatusToggle", () => {
     expect(applyStatusToggle(list, "missing", "bought")).toBe(list);
   });
 });
+
+describe("rolling a failed toggle back per row", () => {
+  // The screen rolls a failed `setStatus` back by re-applying the row's
+  // previous status through `applyStatusToggle`, rather than restoring a
+  // whole-list snapshot taken in `onMutate`. These cover why: two toggles
+  // overlap all the time — ticking down a shelf is exactly that — and a
+  // snapshot taken before A knows nothing about B.
+
+  it("undoes only the row that failed, leaving a concurrent tick alone", () => {
+    const initial = [row("a", "needed"), row("b", "needed")];
+
+    // Both taps land optimistically…
+    const withA = applyStatusToggle(initial, "a", "bought");
+    const withBoth = applyStatusToggle(withA, "b", "bought");
+    // …then A's request fails.
+    const rolledBack = applyStatusToggle(withBoth, "a", "needed");
+
+    expect(rolledBack.map((item) => [item.id, item.status])).toEqual([
+      ["a", "needed"],
+      ["b", "bought"],
+    ]);
+  });
+
+  it("survives both requests failing, in either order", () => {
+    const initial = [row("a", "needed"), row("b", "needed")];
+    const withBoth = applyStatusToggle(
+      applyStatusToggle(initial, "a", "bought"),
+      "b",
+      "bought",
+    );
+
+    const aThenB = applyStatusToggle(
+      applyStatusToggle(withBoth, "a", "needed"),
+      "b",
+      "needed",
+    );
+    const bThenA = applyStatusToggle(
+      applyStatusToggle(withBoth, "b", "needed"),
+      "a",
+      "needed",
+    );
+
+    for (const result of [aThenB, bThenA]) {
+      expect(result.map((item) => item.status)).toEqual(["needed", "needed"]);
+    }
+  });
+
+  it("does not resurrect a row a refetch removed mid-flight", () => {
+    // A whole-list snapshot would put it back; a per-row inverse cannot.
+    const afterRefetch = [row("b", "needed")];
+
+    expect(applyStatusToggle(afterRefetch, "a", "needed")).toBe(afterRefetch);
+  });
+});
