@@ -37,6 +37,18 @@
   opacity: 0.6;
 }
 
+/* Offline takes the same slot as a dot in the `--null` family — the colour
+   the system already uses for «значение отсутствует», matched to S3's own
+   offline banner. Round, which tokens.css allows for exactly this: avatars
+   and dots. */
+.offlineDot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-round);
+  background: var(--null-txt);
+}
+
 /* ── Participants ──
    Overlapped like mockup 1a; the caller's own avatar is last so nothing
    covers the tap target that opens Settings. */

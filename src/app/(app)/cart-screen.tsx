@@ -25,7 +25,9 @@ import { applyStatusToggle, toggledCartStatus } from "@/lib/cart/status-toggle";
 import { groupProductsByCategory } from "@/lib/group-products";
 import { cartSyncQueryOptions } from "@/lib/sync/cart-sync-presets";
 import { HIGHLIGHT_MS, useChangedRows } from "@/lib/sync/use-changed-rows";
+import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
+import { useQueuedCartRows } from "@/lib/sync/use-queued-rows";
 import type { CartListItemOutput } from "@/server/api/routers/cart";
 import type { CartItemStatus } from "@/server/cart/merge";
 import { useTRPC } from "@/trpc/client";
@@ -76,11 +78,15 @@ type AddFlow =
  * refetch-on-focus and «Обновить» all come from `src/lib/sync/`, and whatever
  * a refetch changed gets the soft highlight of mockup 1b.
  *
+ * **Offline is a state of the screen, not an error** (task 2.4, mockup 1c):
+ * the banner and the per-row 🕐 marks both read TanStack's own queue —
+ * `onlineManager` and the mutation cache — so what they say cannot drift from
+ * what is actually waiting to be delivered.
+ *
  * Deferred by design: the «Корзина | Кладовая» segment control (3.1),
- * «Завершить закупку» (3.2), the offline banner and 🕐 marks (2.4), and the
- * «Заказано» badge, «кто берёт» avatar and note editing (2.5). An existing
- * note is rendered — the data is already on the wire — but nothing here can
- * set one.
+ * «Завершить закупку» (3.2), and the «Заказано» badge, «кто берёт» avatar and
+ * note editing (2.5). An existing note is rendered — the data is already on
+ * the wire — but nothing here can set one.
  */
 export function CartScreen() {
   const t = useTranslations("cart");
@@ -145,6 +151,10 @@ export function CartScreen() {
    * so it cannot be overridden per call site anyway.
    */
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
+
+  const isOnline = useIsOnline();
+  /** Rows whose change is sitting in the offline queue — mockup 1c's 🕐. */
+  const queuedIds = useQueuedCartRows(trpc.cart.pathKey());
 
   const cart = useQuery(
     trpc.cart.list.queryOptions(undefined, {
@@ -394,6 +404,16 @@ export function CartScreen() {
 
   return (
     <section className={styles.screen}>
+      {/* Mockup 1c: a `--null` strip flush under the household header. Its
+          promise («изменения сохранятся») is the queue's, not a hope — every
+          tap made from here is persisted to IndexedDB before the tab can be
+          killed (see `src/trpc/offline-queue.ts`). */}
+      {isOnline ? null : (
+        <p className={styles.offlineBanner} role="status">
+          {t("offlineBanner")}
+        </p>
+      )}
+
       <div className={styles.toolbar}>
         <h1 className={styles.toolbarTitle}>{t("title")}</h1>
         {hasList ? (
@@ -407,8 +427,11 @@ export function CartScreen() {
           onClick={() => void refresh()}
           // Also while a write of ours is out: a manual refetch dispatched
           // then would answer with the pre-write list, for the same reason
-          // the passive triggers are muted above.
-          disabled={isRefreshing || cartMutating}
+          // the passive triggers are muted above. And while offline, where
+          // the refetch would not fail but *pause* — leaving the control
+          // spinning until the connection came back, promising a check it
+          // cannot make. The banner above already says why.
+          disabled={isRefreshing || cartMutating || !isOnline}
           aria-label={t("refreshAria")}
           // A bare ⟳ names itself to a screen reader through `aria-label`,
           // but not to a mouse — no browser surfaces that as a tooltip.
@@ -518,6 +541,20 @@ export function CartScreen() {
                         </span>
                       )}
                     </span>
+                    {/* Mockup 1c puts the mark between the name and the
+                        quantity, and gives it a `title` — so it names itself
+                        to a mouse as well as to a screen reader, where it
+                        joins the row label the checkbox is named by. */}
+                    {queuedIds.has(item.id) ? (
+                      <span
+                        className={styles.rowQueued}
+                        role="img"
+                        aria-label={t("queued")}
+                        title={t("queued")}
+                      >
+                        🕐
+                      </span>
+                    ) : null}
                     <span className={styles.rowQty}>
                       {t("qtyValue", { qty: item.qty, unit: item.unit })}
                     </span>

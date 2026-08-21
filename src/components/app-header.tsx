@@ -2,6 +2,7 @@ import { useIsFetching, useIsMutating } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 
+import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./app-header.module.css";
@@ -49,8 +50,11 @@ function Avatar({ name, image }: { name: string; image: string | null }) {
  * it has been since task 1.4, at the right edge under the thumb.
  *
  * **The sync mark is DESIGN_BRIEF's «тихая иконка-часики», not a spinner.**
- * Idle shows nothing at all. The third state the brief describes — offline —
- * is a banner rather than an icon and arrives with the offline queue (2.4).
+ * Idle shows nothing at all. Offline — the brief's third state, drawn as a
+ * banner on S3 itself (mockup 1c) — takes the same slot as a quiet dot, and
+ * takes it *first*: a paused mutation still counts as mutating, so without
+ * that precedence the header would claim to be synchronising for as long as
+ * the connection is gone.
  */
 export function AppHeader({
   householdName,
@@ -75,17 +79,26 @@ export function AppHeader({
   // the ones tasks 2.4/2.5 will add.
   const cartFetching = useIsFetching(trpc.cart.pathFilter());
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() });
-  const syncing = cartFetching > 0 || cartMutating > 0;
+  const offline = !useIsOnline();
+  const syncing = !offline && (cartFetching > 0 || cartMutating > 0);
 
   return (
     <header className={styles.header}>
       <span className={styles.householdName}>{householdName}</span>
 
-      {syncing ? (
-        <span className={styles.sync} role="status" aria-label={t("syncing")}>
-          <span className={styles.syncIcon} aria-hidden="true">
-            🕐
-          </span>
+      {offline || syncing ? (
+        <span
+          className={styles.sync}
+          role="status"
+          aria-label={offline ? t("offline") : t("syncing")}
+        >
+          {offline ? (
+            <span className={styles.offlineDot} aria-hidden="true" />
+          ) : (
+            <span className={styles.syncIcon} aria-hidden="true">
+              🕐
+            </span>
+          )}
         </span>
       ) : null}
 
