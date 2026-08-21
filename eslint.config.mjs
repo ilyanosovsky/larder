@@ -24,6 +24,7 @@ export default tseslint.config(
       "design/**",
       "coverage/**",
       "next-env.d.ts",
+      ".claude/worktrees/**",
     ],
   },
   js.configs.recommended,
