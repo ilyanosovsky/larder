@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { AppHeader } from "./app-header";
+import { AppHeader, type HeaderMember } from "./app-header";
 import styles from "./app-shell.module.css";
 import { NAV_ICONS } from "./nav-icons";
 import {
@@ -51,12 +51,15 @@ export function AppShell({
   householdName,
   userName,
   userImage,
+  partners,
 }: {
   children: ReactNode;
   /** Passed down from the `(app)` layout, which already loads it for the gate. */
   householdName: string;
   userName: string;
   userImage: string | null;
+  /** Household members other than the caller — the header's other avatars. */
+  partners: readonly HeaderMember[];
 }) {
   const pathname = usePathname();
   const tNav = useTranslations("nav");
@@ -92,6 +95,7 @@ export function AppShell({
           householdName={householdName}
           userName={userName}
           userImage={userImage}
+          partners={partners}
         />
         <div className={styles.content}>{children}</div>
       </div>

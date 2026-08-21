@@ -21,6 +21,52 @@
   white-space: nowrap;
 }
 
+/* ── Sync mark: shown only while the cart is talking to the server ── */
+
+.sync {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: auto;
+}
+
+.syncIcon {
+  display: block;
+  font-size: var(--t-meta);
+  line-height: 1;
+  opacity: 0.6;
+}
+
+/* ── Participants ──
+   Overlapped like mockup 1a; the caller's own avatar is last so nothing
+   covers the tap target that opens Settings. */
+
+.avatars {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Two `margin-left: auto` in a row would split the free space between them,
+   pushing the sync mark to the middle of the header instead of leaving it
+   beside the avatars. */
+.sync + .avatars {
+  margin-left: var(--s-2);
+}
+
+.avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar + .avatar,
+.avatar + .avatarLink {
+  margin-left: -8px;
+}
+
 .avatarLink {
   display: flex;
   width: 44px;
@@ -28,6 +74,10 @@
   flex: none;
   align-items: center;
   justify-content: center;
+  /* The initial-letter avatar is text inside an `<a>`, and nothing in
+     globals.css resets link decoration — without this the letter is
+     underlined. */
+  text-decoration: none;
 }
 
 .avatarLink:focus-visible {
@@ -35,23 +85,37 @@
   outline-offset: 2px;
 }
 
-.avatarImage {
+.avatarImage,
+.avatarInitial {
   width: 36px;
   height: 36px;
+  /* Circles are the one exception to the square rule (tokens.css). The paper
+     ring is what makes overlapping avatars read as two people rather than as
+     one smudged shape (mockup 1a). */
+  border: var(--bd-ink) solid var(--paper);
   border-radius: var(--radius-round);
+}
+
+.avatarImage {
   object-fit: cover;
 }
 
+/* Mockup 1a colours the two participants apart — the caller's own avatar is
+   the filled one. That is not decoration: the same initials come back on the
+   rows themselves as «кто берёт» in task 2.5, and telling «я» from «партнёр»
+   at a glance is the whole point of putting them there. */
 .avatarInitial {
   display: flex;
-  width: 36px;
-  height: 36px;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-round);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--blue-soft);
+  color: var(--blue-txt);
   font-family: var(--font-sans);
   font-size: var(--t-val);
   font-weight: var(--w-semibold);
+}
+
+.avatarLink .avatarInitial {
+  background: var(--accent);
+  color: var(--paper);
 }

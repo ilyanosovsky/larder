@@ -1,0 +1,439 @@
+/* S3 «Корзина» — Paper Ledger: hairline-ruled rows, square everything, one
+   ledger green. Mockups 1a (base), 1b (highlight), 1d (empty), 1e (skeleton).
+   Every colour, space and border here is a token; nothing is a literal. */
+
+.screen {
+  /* Clear of the fixed action bar (44px control + 12px padding twice) as well
+     as the tab bar the shell already accounts for. */
+  padding-bottom: calc(44px + 2 * var(--s-3));
+}
+
+/* ── Toolbar: what this list is, and «Обновить» ──
+   Task 3.1 replaces the title/count pair with the «Корзина | Кладовая»
+   segment control; the refresh control stays. */
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+}
+
+.toolbarTitle {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.toolbarCount {
+  flex: 1;
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.refreshButton {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Pulls the 44px target back onto the baseline row it belongs to without
+     making the toolbar 44px tall. */
+  margin-bottom: calc(-1 * var(--s-3));
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.refreshButton:disabled {
+  cursor: progress;
+}
+
+.refreshButton:focus-visible,
+.row:focus-within,
+.addButton:focus-visible,
+.confirmCancel:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.refreshIcon {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.refreshIconBusy {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshIconBusy {
+    opacity: 0.5;
+    animation: none;
+  }
+}
+
+.error {
+  margin-top: var(--s-4);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* ── CategorySection ── */
+
+.section {
+  margin-top: var(--s-5);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  /* 2px ink, not a hairline: the department rule is the strongest line on the
+     screen, which is what makes the list scan as a ledger. */
+  border-bottom: var(--bd-ink) solid var(--ink);
+  padding-bottom: var(--s-2);
+}
+
+.sectionName {
+  flex: 1;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.sectionCount {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+}
+
+.rows {
+  list-style: none;
+}
+
+/* ── ProductRow ── */
+
+/* Zebra sits on the list item and the row itself stays transparent, so the
+   highlight below only has to out-declare one other rule on one element
+   instead of out-specifying a `:nth-child` selector. */
+.rows > li:nth-child(even) {
+  background: var(--zebra);
+}
+
+.row {
+  position: relative;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  background: transparent;
+  padding: var(--s-2) var(--s-1);
+  cursor: pointer;
+}
+
+/* Mockup 1b: what a refetch changed, or what an add outcome is about.
+   Covers the zebra underneath because the row paints over its own item. */
+.rowChanged {
+  background: var(--accent-soft);
+}
+
+/* The real checkbox stays in the accessible tree and keeps the keyboard
+   behaviour — it is just moved out of the way, with `.checkboxMark` drawn in
+   its place. Pseudo-elements on an `<input>` are not defined by the spec (it
+   is a replaced element), so the tick lives on a sibling span instead of on
+   `.checkbox::after`. */
+.checkbox {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.checkboxMark {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-ink) solid var(--rule-2);
+  border-radius: var(--radius);
+  /* The glyph is always in the box, so ticking cannot shift the row by a
+     hair — it simply becomes visible. */
+  color: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  line-height: 1;
+}
+
+.checkbox:checked + .checkboxMark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.checkbox:disabled + .checkboxMark {
+  opacity: 0.6;
+}
+
+.rowIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.rowName {
+  overflow: hidden;
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowNote {
+  margin-left: var(--s-1);
+  color: var(--mute-2);
+  font-size: var(--t-meta);
+}
+
+.rowQty {
+  flex: none;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+/* A bought line: struck through, dimmed, and sunk to the bottom of its
+   section by `sortBoughtLast` — never hidden. It is still part of the trip
+   until «Завершить закупку» (task 3.2) carries it off. */
+
+.rowBought .rowIcon {
+  opacity: 0.55;
+}
+
+.rowBought .rowName {
+  color: var(--mute);
+  text-decoration: line-through;
+}
+
+.rowBought .rowQty {
+  color: var(--mute-2);
+}
+
+/* ── EmptyState (mockup 1d) ── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-8) var(--s-6);
+  text-align: center;
+}
+
+.emptyMark {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) dashed var(--rule-2);
+  font-size: 40px;
+}
+
+.emptyText {
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+/* ── Bottom action bar ──
+   A fixed bar above the tab bar rather than the catalog's FAB: task 3.2 adds
+   «Завершить закупку» beside this button, and two floating pills would not
+   read as one decision. */
+
+.actionBar {
+  position: fixed;
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  left: 0;
+  z-index: 15;
+  display: flex;
+  gap: var(--s-3);
+  border-top: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  padding: var(--s-3) var(--s-4);
+}
+
+.addButton {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-6);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.addButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.empty .addButton {
+  flex: none;
+}
+
+/* ── Toast (mockups 1b, 1h): ink card, never a colour ── */
+
+.toast {
+  position: fixed;
+  /* Above the tab bar (56px), the action bar (44px control + 12px padding
+     twice) and one more gap. */
+  bottom: calc(56px + 44px + 3 * var(--s-3) + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 20;
+  /* A long product name must not push the toast past the viewport. */
+  overflow: hidden;
+  max-width: calc(100% - 2 * var(--s-4));
+  background: var(--ink);
+  box-shadow: var(--shadow-dialog);
+  padding: var(--s-3) var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+/* ── «Вернуть в нужно?» confirmation ── */
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.confirmQuestion {
+  color: var(--ink);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.confirmCancel {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  cursor: pointer;
+}
+
+/* ── First-load skeleton (mockup 1e) ── */
+
+.skeletonHeader {
+  border-bottom: var(--bd-ink) solid var(--rule-2);
+  padding: var(--s-5) 0 var(--s-2);
+}
+
+.skeletonHeaderBar {
+  display: block;
+  width: 120px;
+  height: 10px;
+  background: var(--rule);
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-4) var(--s-1);
+}
+
+.skeletonBox {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  background: var(--rule);
+}
+
+.skeletonName {
+  /* Width is per-row and set inline, so the placeholder list has the ragged
+     right edge a list of real product names has. */
+  max-width: 60%;
+  height: 12px;
+  background: var(--rule);
+}
+
+.skeletonQty {
+  width: 36px;
+  height: 10px;
+  margin-left: auto;
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--zebra);
+}
+
+@media (min-width: 1024px) {
+  .screen {
+    padding-bottom: 0;
+  }
+
+  /* No tab bar to clear, and the content column is centred inside a shell
+     that also holds a sidebar — so the bar simply ends the page instead of
+     being pinned to a viewport it is not centred in. The two-panel desktop
+     layout is task 7.2. */
+  .actionBar {
+    position: static;
+    border-top: 0;
+    padding: var(--s-6) 0 0;
+  }
+
+  .toast {
+    bottom: var(--s-6);
+  }
+}

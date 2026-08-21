@@ -42,10 +42,10 @@ export interface TogglableCartRow {
  * cache.
  */
 export function applyStatusToggle<TRow extends TogglableCartRow>(
-  list: readonly TRow[],
+  list: TRow[],
   id: string,
   status: CartItemStatus,
-): readonly TRow[] {
+): TRow[] {
   if (!list.some((row) => row.id === id)) {
     return list;
   }

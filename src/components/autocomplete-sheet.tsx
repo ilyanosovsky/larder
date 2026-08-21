@@ -1,20 +1,24 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useState, type RefObject } from "react";
 
+import { canStepQty, QTY_STEP, stepQty } from "@/lib/cart/qty-step";
 import { isRateLimitedError } from "@/lib/trpc-errors";
-import type {
-  ProductOutput,
-  ProductSearchHitOutput,
-} from "@/server/api/routers/product";
+import { UNITS, type Unit } from "@/lib/units";
+import type { ProductSearchHitOutput } from "@/server/api/routers/product";
 import { normalizeProductName } from "@/server/catalog/normalize";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./autocomplete-sheet.module.css";
 import { BottomSheet } from "./bottom-sheet";
-import { ProductEditForm } from "./product-edit-form";
+import { ProductEditForm, type EditableProduct } from "./product-edit-form";
 
 /**
  * Long enough that a fast typist makes one request instead of six, short
@@ -22,12 +26,37 @@ import { ProductEditForm } from "./product-edit-form";
  */
 const DEBOUNCE_MS = 200;
 
+/**
+ * What the sheet hands back once the shopper has settled on a product **and**
+ * how much of it — everything `cart.add` needs, and nothing about the cart
+ * itself. Filing it is the caller's business (S3 does it in `cart-screen.tsx`);
+ * this sheet never touches the `cart` router, so the same flow can later feed
+ * a recipe's ingredient list or the pantry.
+ */
+export interface ProductSelection {
+  product: EditableProduct;
+  qty: number;
+  unit: Unit;
+}
+
 type Phase =
   | { kind: "search" }
   /** The AI is picking an icon and a department — DESIGN_BRIEF's AiProgress. */
   | { kind: "creating" }
-  | { kind: "created"; product: ProductOutput; aiFailed: boolean }
-  | { kind: "editing"; product: ProductOutput; aiFailed: boolean };
+  /** DESIGN_BRIEF S4's «степпер количества + единица», mockup #1g. */
+  | {
+      kind: "quantity";
+      product: EditableProduct;
+      /** Came from a `product.create` just now, rather than from the catalog. */
+      created: boolean;
+      aiFailed: boolean;
+    }
+  | {
+      kind: "editing";
+      product: EditableProduct;
+      created: boolean;
+      aiFailed: boolean;
+    };
 
 /**
  * S4 «Добавление продукта» (DESIGN_BRIEF §4).
@@ -43,8 +72,11 @@ type Phase =
  * «Изменить» affordance, because the picked icon is a suggestion and the
  * shopper is the authority.
  *
- * The quantity stepper DESIGN_BRIEF S4 describes belongs to the cart and
- * lands with it in task 2.3; this sheet stops at the catalog.
+ * Every path then lands on the same quantity step, and **the sheet does not
+ * close itself**: `onAdded` reports the selection and the caller decides what
+ * happens next, because only the caller knows what `cart.add` answered. A
+ * merge and a unit conflict are different screens (mockup #1h), and a line
+ * already bought in the open trip is a question rather than an outcome.
  */
 export function AutocompleteSheet({
   open,
@@ -54,24 +86,34 @@ export function AutocompleteSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  /** Fired for every product that ended up in the catalog, once each. */
-  onAdded: (product: { name: string; icon: string }) => void;
+  /**
+   * Fired once per «В корзину» tap. May return a promise — the sheet awaits it
+   * and keeps the button disabled meanwhile, so a slow request cannot be
+   * submitted twice. Rejections are caught and shown as the generic sheet
+   * error, but a caller is expected to handle its own failures.
+   */
+  onAdded: (selection: ProductSelection) => void | Promise<void>;
   /** The control that opened the sheet — see `useSheetOpener()`. */
   restoreFocusTo?: RefObject<HTMLElement | null>;
 }) {
   const t = useTranslations("autocomplete");
   const tCommon = useTranslations("common");
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const inputId = useId();
+  const unitFieldId = useId();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "search" });
   const [error, setError] = useState<string | null>(null);
+  const [qty, setQty] = useState(1);
+  const [unit, setUnit] = useState<Unit>("шт");
+  const [submitting, setSubmitting] = useState(false);
 
   const create = useMutation(trpc.product.create.mutationOptions());
 
-  // Every open starts from a blank sheet: a stale query and a stale "created"
+  // Every open starts from a blank sheet: a stale query and a stale quantity
   // panel from the previous product would both be wrong. The input itself
   // takes focus through `autoFocus` — the sheet unmounts when it closes, so
   // that fires on every open, including one that reopens onto a fresh search
@@ -82,6 +124,7 @@ export function AutocompleteSheet({
       setDebouncedQuery("");
       setPhase({ kind: "search" });
       setError(null);
+      setSubmitting(false);
     }
   }, [open]);
 
@@ -150,6 +193,27 @@ export function AutocompleteSheet({
     (suggestions.isError || suggestions.isPaused) && normalizedQuery.length > 0;
 
   /**
+   * A freshly created product is not in `product.search`'s cached answers yet,
+   * and those answers stay fresh for `staleTime`. Without this, searching the
+   * same word again inside that window would offer «Создать „…“» a second
+   * time for a product that now exists — the duplicate this sheet is built to
+   * prevent, arrived at from the other direction.
+   */
+  function refreshCatalogQueries() {
+    void queryClient.invalidateQueries(trpc.product.pathFilter());
+  }
+
+  function enterQuantity(
+    product: EditableProduct,
+    { created, aiFailed }: { created: boolean; aiFailed: boolean },
+  ) {
+    setError(null);
+    setQty(1);
+    setUnit(product.defaultUnit);
+    setPhase({ kind: "quantity", product, created, aiFailed });
+  }
+
+  /**
    * Both handlers below bail while a create is already in flight.
    *
    * `disabled={create.isPending}` on the buttons is not enough on its own:
@@ -164,11 +228,19 @@ export function AutocompleteSheet({
     }
     setError(null);
 
-    // A product the household already has needs no write at all — the cart
-    // (task 2.3) will attach to this row.
-    if (hit.source === "catalog") {
-      onAdded({ name: hit.name, icon: hit.icon });
-      onClose();
+    // A product the household already has needs no write at all — the
+    // quantity step attaches to the row it already owns.
+    if (hit.source === "catalog" && hit.productId !== null) {
+      enterQuantity(
+        {
+          id: hit.productId,
+          name: hit.name,
+          icon: hit.icon,
+          categoryId: hit.categoryId,
+          defaultUnit: hit.unit,
+        },
+        { created: false, aiFailed: false },
+      );
       return;
     }
 
@@ -179,8 +251,11 @@ export function AutocompleteSheet({
         source: "reference",
         name: hit.name,
       });
-      onAdded({ name: result.product.name, icon: result.product.icon });
-      onClose();
+      refreshCatalogQueries();
+      enterQuantity(result.product, {
+        created: true,
+        aiFailed: result.aiFailed,
+      });
     } catch {
       setError(t("error"));
     }
@@ -197,15 +272,31 @@ export function AutocompleteSheet({
 
     try {
       const result = await create.mutateAsync({ source: "new", name });
-      onAdded({ name: result.product.name, icon: result.product.icon });
-      setPhase({
-        kind: "created",
-        product: result.product,
+      refreshCatalogQueries();
+      enterQuantity(result.product, {
+        created: true,
         aiFailed: result.aiFailed,
       });
     } catch (caught) {
       setError(isRateLimitedError(caught) ? t("rateLimited") : t("error"));
       setPhase({ kind: "search" });
+    }
+  }
+
+  async function submit(product: EditableProduct) {
+    // Same one-tick window the create handlers guard, for the same reason:
+    // `disabled` only lands on the next render, and a double tap here would
+    // add the quantity twice.
+    if (submitting) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onAdded({ product, qty, unit });
+    } catch {
+      setError(t("error"));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -300,9 +391,11 @@ export function AutocompleteSheet({
         </div>
       ) : null}
 
-      {phase.kind === "created" ? (
+      {phase.kind === "quantity" ? (
         <div className={styles.created}>
-          <p className={styles.createdTitle}>{t("createdTitle")}</p>
+          <p className={styles.createdTitle}>
+            {phase.created ? t("createdTitle") : t("quantityTitle")}
+          </p>
 
           <div className={styles.createdRow}>
             <span className={styles.resultIcon} aria-hidden="true">
@@ -316,6 +409,7 @@ export function AutocompleteSheet({
                 setPhase({
                   kind: "editing",
                   product: phase.product,
+                  created: phase.created,
                   aiFailed: phase.aiFailed,
                 })
               }
@@ -332,12 +426,64 @@ export function AutocompleteSheet({
             </p>
           ) : null}
 
+          {error === null ? null : (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className={styles.quantityRow}>
+            <div className={styles.stepper}>
+              <button
+                type="button"
+                className={styles.stepperButton}
+                onClick={() => setQty(stepQty(qty, -QTY_STEP))}
+                disabled={!canStepQty(qty, -QTY_STEP)}
+                aria-label={t("qtyDecreaseAria")}
+              >
+                −
+              </button>
+              {/* The live region is the value itself: a stepper's whole output
+                  is this number, and announcing the two buttons instead would
+                  say «Больше» without ever saying what it became. */}
+              <span className={styles.stepperValue} aria-live="polite">
+                {qty}
+              </span>
+              <button
+                type="button"
+                className={styles.stepperButton}
+                onClick={() => setQty(stepQty(qty, QTY_STEP))}
+                disabled={!canStepQty(qty, QTY_STEP)}
+                aria-label={t("qtyIncreaseAria")}
+              >
+                +
+              </button>
+            </div>
+
+            <label className={styles.unitLabel} htmlFor={unitFieldId}>
+              {t("unitLabel")}
+            </label>
+            <select
+              id={unitFieldId}
+              className={styles.unitSelect}
+              value={unit}
+              onChange={(event) => setUnit(event.target.value as Unit)}
+            >
+              {UNITS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             type="button"
             className={styles.primaryButton}
-            onClick={onClose}
+            onClick={() => void submit(phase.product)}
+            disabled={submitting}
           >
-            {t("done")}
+            {submitting ? t("toCartPending") : t("toCart")}
           </button>
         </div>
       ) : null}
@@ -345,13 +491,25 @@ export function AutocompleteSheet({
       {phase.kind === "editing" ? (
         <ProductEditForm
           product={phase.product}
-          onSaved={(saved) =>
-            setPhase({ kind: "created", product: saved, aiFailed: false })
-          }
+          onSaved={(saved) => {
+            refreshCatalogQueries();
+            // The quantity already dialled in survives — only the product
+            // changed. The unit follows the product's new default, which is
+            // usually the very thing the shopper came here to correct.
+            setUnit(saved.defaultUnit);
+            setPhase({
+              kind: "quantity",
+              product: saved,
+              created: phase.created,
+              // Whatever the AI got wrong has just been looked at by a human.
+              aiFailed: false,
+            });
+          }}
           onCancel={() =>
             setPhase({
-              kind: "created",
+              kind: "quantity",
               product: phase.product,
+              created: phase.created,
               aiFailed: phase.aiFailed,
             })
           }

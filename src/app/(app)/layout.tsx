@@ -32,11 +32,23 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect(ONBOARDING_PATH);
   }
 
+  // The header's other avatars. `household.current` already returns the whole
+  // membership for the gate above, so the partners come from that same load
+  // rather than from a second, client-side query.
+  const partners = household.members
+    .filter((member) => member.userId !== session.user.id)
+    .map((member) => ({
+      userId: member.userId,
+      name: member.name,
+      image: member.image,
+    }));
+
   return (
     <AppShell
       householdName={household.household.name}
       userName={session.user.name}
       userImage={session.user.image ?? null}
+      partners={partners}
     >
       {children}
     </AppShell>

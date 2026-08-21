@@ -1,24 +1,23 @@
 import { HydrateClient, prefetch, trpc } from "@/trpc/server";
 
-import { CatalogScreen } from "./catalog-screen";
+import { CartScreen } from "./cart-screen";
 
 /**
- * The «Покупки» tab. Task 1.3 puts the household product catalog here; task
- * 2.3 replaces it with S3 «Корзина» proper, which reads from the same router.
+ * The «Покупки» tab: S3 «Корзина», the product's main screen (VISION §3.1).
  *
- * Both queries the screen needs are started during the RSC render, so the
- * catalog and the department list are already in the client cache when it
- * hydrates instead of arriving one waterfall later. `product.list` is what
- * the screen renders; `category.list` is what the «изменить продукт» form
- * needs the moment a row is tapped.
+ * Both queries the screen needs start during the RSC render, so they are
+ * already in the client cache when it hydrates instead of arriving one
+ * waterfall later. `cart.list` is what the screen renders; `category.list` is
+ * what the «изменить продукт» form inside S4 needs the moment someone taps
+ * «Изменить» on a freshly created product.
  */
 export default function PurchasesPage() {
-  prefetch(trpc.product.list.queryOptions());
+  prefetch(trpc.cart.list.queryOptions());
   prefetch(trpc.category.list.queryOptions());
 
   return (
     <HydrateClient>
-      <CatalogScreen />
+      <CartScreen />
     </HydrateClient>
   );
 }

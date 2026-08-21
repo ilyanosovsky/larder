@@ -5,10 +5,7 @@ import type { AddCartItemOutput } from "@/server/api/routers/cart";
  * question instead of reporting something that already happened.
  */
 export type CartAddToastKey =
-  | "toastAdded"
-  | "toastMerged"
-  | "toastUnitMismatch"
-  | "toastRestored";
+  "toastAdded" | "toastMerged" | "toastUnitMismatch" | "toastRestored";
 
 export interface CartAddAction {
   toastKey: CartAddToastKey | null;
@@ -52,7 +49,11 @@ export function describeCartAddOutcome(
 
   switch (result.outcome) {
     case "added":
-      return { toastKey: "toastAdded", highlightId, needsRestoreConfirm: false };
+      return {
+        toastKey: "toastAdded",
+        highlightId,
+        needsRestoreConfirm: false,
+      };
     case "merged":
       return {
         toastKey: "toastMerged",
