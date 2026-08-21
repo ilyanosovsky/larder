@@ -114,37 +114,54 @@ export function CartItemSheet({
 
   /**
    * Whether the sheet is waiting on a live round trip — every control
-   * disables on this alone. A **paused** mutation is deliberately excluded:
-   * `cart.updateItem`/`setStatus`/`remove` all use the default
-   * `networkMode: "online"`, so a write made offline pauses before its
-   * request ever leaves (task 2.4) and its `mutateAsync` promise does not
-   * settle until the connection returns — sometimes minutes later. Counting
-   * that as "busy" would lock every control in the sheet for as long as the
-   * connection is gone, which breaks the one promise the offline banner
-   * elsewhere on S3 already makes: «изменения сохранятся», not «действия
-   * заблокированы».
+   * disables on this alone. A **paused** `updateItem`/`setStatus` is
+   * deliberately excluded: both use the default `networkMode: "online"`, so
+   * a write made offline pauses before its request ever leaves (task 2.4)
+   * and its `mutateAsync` promise does not settle until the connection
+   * returns — sometimes minutes later. Counting that as "busy" would lock
+   * every control in the sheet for as long as the connection is gone, which
+   * breaks the one promise the offline banner elsewhere on S3 already makes:
+   * «изменения сохранятся», not «действия заблокированы».
+   *
+   * `remove` is **not** given the same exception. Once queued, the row is on
+   * its way out entirely — the offline queue delivers concurrently, not in
+   * dispatch order, so a same-row `updateItem`/`setStatus` allowed to queue
+   * behind it can just as easily land *after* the delete, and `activeItemScope`
+   * finds no row to act on: a NOT_FOUND for an edit the shopper has no reason
+   * to think failed. Staying locked for `remove`'s whole lifetime, paused or
+   * not, is what rules that race out — the same trade the S4 add flow's own
+   * accepted "stays up until the connection returns" limitation already
+   * makes, narrowed here to the one action that cannot share a row with
+   * anything queued after it.
    */
   const busy =
     (updateItem.isPending && !updateItem.isPaused) ||
     (setStatus.isPending && !setStatus.isPaused) ||
-    (remove.isPending && !remove.isPaused);
+    remove.isPending;
 
   /** Something is sitting in the offline queue right now — reuses S3's own «ждёт синхронизации» wording (mockup 1c) rather than inventing a second one. */
   const queued = updateItem.isPaused || setStatus.isPaused || remove.isPaused;
 
   useEffect(() => {
-    // Released the moment a write pauses, not held for however long it then
-    // sits in the queue. Safe here in a way it would not be for `cart.add`:
-    // `updateItem`/`setStatus`/`remove` are all last-write-wins, never
-    // merging, so a second tap queuing a newer edit behind an already-paused
-    // one is an ordinary conflict the queue already resolves, not a way to
-    // corrupt anything. `busyRef`'s only real job is surviving the same
-    // synchronous tick between a tap and React's next render — it was never
-    // meant to survive an entire offline round trip.
-    if (updateItem.isPaused || setStatus.isPaused || remove.isPaused) {
+    // `remove` pausing does not release the lock — see `busy`'s own doc
+    // comment for why a queued removal has to keep the whole sheet locked
+    // rather than just itself.
+    if (remove.isPending) {
+      return;
+    }
+    // Released the moment `updateItem`/`setStatus` pauses, not held for
+    // however long it then sits in the queue. Safe for these two in a way it
+    // is not for `remove`: both are last-write-wins on a row that still
+    // exists, never merging like `cart.add`, so a second tap queuing a newer
+    // edit behind an already-paused one is an ordinary conflict the queue
+    // already resolves, not a way to corrupt anything. `busyRef`'s only real
+    // job here is surviving the same synchronous tick between a tap and
+    // React's next render — it was never meant to survive an entire offline
+    // round trip.
+    if (updateItem.isPaused || setStatus.isPaused) {
       busyRef.current = false;
     }
-  }, [updateItem.isPaused, setStatus.isPaused, remove.isPaused]);
+  }, [updateItem.isPaused, setStatus.isPaused, remove.isPending]);
 
   /**
    * Runs one action behind the shared ref lock, invalidates `cart.list` on
