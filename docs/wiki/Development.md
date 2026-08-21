@@ -290,7 +290,31 @@ A product with **no** active row locks nothing, so the insert can still lose the
 
 `remove` is deliberately idempotent — no NOT_FOUND when nothing matched. The cart is shared, so both partners removing the same line is ordinary rather than an error, and the offline queue task 2.4 adds will replay mutations after a reconnect.
 
-There is no UI yet: task 2.3 builds S3 on this router, and 2.2 adds the refetch sync around it.
+There is no UI yet: task 2.3 builds S3 on this router.
+
+### Cart sync (task 2.2)
+
+VISION §6.3's MVP sync model is refetch, not push: every mutation persists immediately, and a partner's view catches up the next time it refetches — on focus, on a background interval, or by hand. `src/lib/sync/` is the reusable toolkit that model needs; task 2.3 wires it into the S3 screen rather than reimplementing any of it there.
+
+| File | Exports | What it's for |
+| --- | --- | --- |
+| `cart-sync-presets.ts` | `CART_REFETCH_INTERVAL_MS`, `cartSyncQueryOptions` | The refetch preset for cart-family `queryOptions()` call sites |
+| `diff-list-snapshot.ts` | `SyncRow`, `diffListSnapshot` | Pure: compares two refetches of the same list, reports added/updated ids |
+| `highlight-state.ts` | `ChangedRowsState`, `INITIAL_HIGHLIGHT_STATE`, `nextHighlightState`, `clearHighlight` | Pure: the state machine behind the highlight, one snapshot fold at a time |
+| `use-changed-rows.ts` | `HIGHLIGHT_MS`, `useChangedRows` | Thin hook shell around the state machine above — `{ changedIds }` |
+| `use-manual-refresh.ts` | `useManualRefresh` | Thin hook shell around `queryClient.refetchQueries(filter)` — `{ refresh, isRefreshing }` |
+
+**The preset.** `cartSyncQueryOptions` spreads `refetchInterval: CART_REFETCH_INTERVAL_MS` (45s, the middle of VISION §6.3's "~30–60 с" band) plus `refetchOnWindowFocus: "always"` and `refetchOnReconnect: "always"` into a `useQuery(trpc.cart.list.queryOptions(undefined, { ...cartSyncQueryOptions }))` call, the same spread-at-the-call-site pattern `catalog-screen.tsx` already uses for its own overrides. `"always"` matters specifically because `query-client.ts` sets `staleTime: 30_000` for SSR-hydration reasons unrelated to the cart — under the *default* focus/reconnect behavior, TanStack Query skips refetching a query that isn't stale yet, so a focus landing inside that 30s window would silently do nothing. That is exactly the "opened the phone by the shelf" moment the model exists for, so the cart opts out of the staleness check rather than inheriting it.
+
+This is deliberately **not** a `QueryClient` default. The catalog, settings and kitchen-profile screens have no partner racing to see their own edits, and polling every one of them every 45s would burn requests for nothing; only the cart (the one shared, actively-edited list, VISION §3.1) opts in.
+
+**The highlight.** `diffListSnapshot(prev, next)` compares two `{ id, updatedAt }` arrays — `cart.list` rows satisfy this structurally — and returns `{ addedIds, updatedIds }` by comparing `updatedAt.getTime()`; a row missing from `next` is not reported, it just disappears. `useChangedRows(items)` keeps a `ChangedRowsState` (the last snapshot plus the currently-highlighted ids) in a ref, folds each new snapshot through `nextHighlightState`, and clears `changedIds` again after `HIGHLIGHT_MS` (4s) via `clearHighlight`. The first-ever snapshot never highlights anything — there is nothing to diff it against yet, and a first load is not a "change" a person made while looking.
+
+All of the actual branching lives in the two pure functions in `highlight-state.ts`, not in the hook. That split is not just taste: this repo's vitest config (`vitest.config.ts`) runs in a **node** environment and only collects `src/**/*.test.ts` — no `.tsx`, no DOM — so a hook cannot be rendered or tested here at all. The pure state machine is what carries the test coverage; the hook itself is a ref, a `setState` and a `setTimeout`.
+
+**Manual refresh.** `useManualRefresh(filter)` wraps `queryClient.refetchQueries(filter)` with an `isRefreshing` boolean, for the pull-to-refresh / «Обновить» control task 2.3 adds. `filter` is meant to be `trpc.cart.list.queryFilter()` — the same idiom `catalog-screen.tsx` already uses for invalidation, just handed to `refetchQueries` instead of `invalidateQueries`.
+
+**Push is still post-MVP.** None of this touches `src/trpc/client.tsx`'s `splitLink` groundwork (see [splitLink groundwork](#splitlink-groundwork-post-mvp-realtime)) — refetch is the whole sync story until a realtime channel exists.
 
 ## Kitchen profile
 
