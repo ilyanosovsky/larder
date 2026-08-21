@@ -54,7 +54,7 @@
 
 | ID | Задача | Модель | Статус | PR | Примечания |
 |---|---|---|---|---|---|
-| 2.1 ⚑ | Модель корзины: статусы `needed/ordered/bought`, инвариант «одна активная строка на продукт» (partial unique index), правила слияния при повторном добавлении; tRPC-роуты; unit-тесты правил | opus | 🔵 | — | Ядро всей логики |
+| 2.1 ⚑ | Модель корзины: статусы `needed/ordered/bought`, инвариант «одна активная строка на продукт» (partial unique index), правила слияния при повторном добавлении; tRPC-роуты; unit-тесты правил | opus | 🟢 | [#13](https://github.com/ilyanosovsky/larder/pull/13) | Ядро всей логики; полная модель CartItem (note/buyer/orderedVia/tripId) заложена сразу, UI этих полей — 2.5 |
 | 2.2 ⚑ | Синхронизация (refetch-модель, VISION §6.3): refetchOnWindowFocus, фоновый интервал ~30–60 с, pull-to-refresh / кнопка «Обновить», мягкая подсветка изменившихся строк после refetch | sonnet | ⬜ | — | Realtime-push — пост-MVP (фаза 2 VISION); задел `splitLink` в коде сохранён |
 | 2.3 ⚑ | UI корзины S3: секции-отделы, optimistic-чекбоксы, индикатор синка | opus | ⬜ | — | |
 | 2.4 | Офлайн-очередь мутаций: персист в IndexedDB, флаш по online/открытию | opus | ⬜ | — | Background Sync на iOS нет |
