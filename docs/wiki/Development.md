@@ -369,6 +369,27 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 
 `FORBIDDEN` rather than `UNAUTHORIZED` for a household-less caller is deliberate: they are authenticated, they simply have not finished onboarding. The UI gate normally redirects them long before a procedure runs; this is the backstop for direct API calls.
 
+### Tenant isolation (settled decision, 2026-08-21)
+
+**The model:** tenant isolation is enforced at the application boundary, not in the database schema. Every household-scoped table carries a plain `household_id` foreign key (single column, `ON DELETE CASCADE` from `households`) — there is no composite tenancy key, and none is planned.
+
+**The enforcement pattern**, applied uniformly across `cart`, `category`, `kitchenProfile` and `product`:
+
+- Every statement that touches a household-scoped table carries `eq(<table>.householdId, ctx.household.id)` — on selects, updates and deletes alike, even when the statement already filters by primary key. `ctx.household.id` comes from `householdProcedure`'s own membership lookup (`src/server/api/trpc.ts`), never from client input, so it cannot be forged.
+- A foreign id arriving from the client (a `productId` on `cart.add`, a `buyerId` on `cart.updateItem`, a `categoryId` on `product.update`) is verified to belong to the caller's household with its own scoped lookup before it reaches a write. The FK to the referenced table proves the id exists somewhere; it does not prove it exists in this household, so the app checks that itself.
+- Router tests compile the recorded `WHERE` clause with `PgDialect` and assert it mentions `household_id` — the `expectScopedByHousehold` helper, duplicated per test file (see `src/server/api/routers/category.test.ts`, `product.test.ts`, `cart.test.ts`, `kitchen-profile.test.ts`). A refactor that drops the household half of a query's `WHERE` fails this assertion even though the stub's queued rows would otherwise still make the test pass on values alone.
+
+**Why composite tenancy FKs were considered and declined.** CodeRabbit proposed, during PR #13 (task 2.1), adding `unique (household_id, id)` on every referenced table plus composite foreign keys such as `(household_id, product_id)` on the referencing side, so the database itself would refuse a cross-household link. The orchestrator declined it schema-wide rather than case by case:
+
+1. An FK constraint only guards row _linking_ on a write. It cannot guard _reads_, which is where an actual tenant-isolation bug shows up — a forgotten `eq(table.householdId, ...)` on a `SELECT` leaks rows to the wrong household without tripping any constraint at all, composite or not. Per-request household scoping has to exist everywhere regardless of what the FKs look like, so it is the one enforced model; a composite key would duplicate a narrow slice of it (cross-household writes) rather than replace it.
+2. That scoping is already systematic — see the enforcement pattern above — and is the layer that actually catches the bug class composite FKs target.
+3. Composite keys would tax every future household-scoped table (phases 3–5 add `pantry_items`, `dishes`, `recipes`, `recipe_ingredients`, `week_menus`, `menu_items`): a redundant `unique (household_id, id)` index, migration ceremony, and subtle `ON DELETE` interactions with the household cascade (`RESTRICT` fires mid-cascade; `NO ACTION` defers to statement end) — a permanent cost for a bug class the app-level pattern and its tests already cover.
+4. DB-level invariants remain the right tool where _concurrency_, not scoping, is the risk: one household per user, one active cart row per product, `normalizedName` uniqueness. The distinction that guides future tables: **business invariants that must survive a race live in the database; tenant isolation lives in the app boundary.**
+
+**Rule for new tables:** a new household-scoped table gets a plain `household_id` FK and the same pattern above — scope every statement, verify any client-sent foreign id before a write, add `expectScopedByHousehold` coverage in its router test. Reach for a DB constraint only when two concurrent requests could otherwise both succeed into an inconsistent state; do not reach for one to guard tenancy.
+
+This decision is specifically about composite tenancy FKs, the mechanism CodeRabbit proposed. Postgres row-level security (RLS) is a different DB-level mechanism that _can_ guard reads, unlike a FK — it was not part of what was proposed or declined here, and adopting it would be a separate, heavier call (session-scoped `SET LOCAL` wiring through the postgres.js pool, a policy per table, its own test strategy). Revisit only if the threat model changes (e.g. untrusted third-party tenants); for two people who already trust each other in one household, app-level scoping plus its test coverage is proportionate.
+
 ### Testing routers
 
 `src/server/api/test-support.ts` holds the fixtures — it is imported by tests only, never by application code:
