@@ -72,7 +72,7 @@ export function AppHeader({
   // form is not that. `pathFilter()`/`pathKey()` are tRPC's router-level
   // key helpers, and TanStack matches keys by prefix — so one filter each
   // covers `cart.list`'s refetches and every `cart.*` mutation, including
-  // the ones task 2.5 will add.
+  // `receiveOrder` (task 2.5).
   const cartFetching = useIsFetching(trpc.cart.pathFilter());
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() });
   const offline = !useIsOnline();

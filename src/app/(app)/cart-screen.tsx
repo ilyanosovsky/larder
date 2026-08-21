@@ -161,9 +161,10 @@ export function CartScreen() {
   /**
    * Any `cart.*` mutation of ours in flight. `pathKey()` is tRPC's
    * router-level key and TanStack matches mutation keys by prefix, so this is
-   * already the shared key across `setStatus`, `add` and whatever 2.4/2.5 add
-   * — tRPC sets `mutationKey` itself, after spreading the caller's options,
-   * so it cannot be overridden per call site anyway.
+   * already the shared key across `setStatus`, `add`, `updateItem`, `remove`
+   * and `receiveOrder` (task 2.5) — tRPC sets `mutationKey` itself, after
+   * spreading the caller's options, so it cannot be overridden per call site
+   * anyway.
    */
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
 
