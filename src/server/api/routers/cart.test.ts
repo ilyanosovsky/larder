@@ -88,6 +88,20 @@ function compile(clause: unknown): string {
 }
 
 /**
+ * Same idea as `compile`, but keeps the bound parameters too — what
+ * `receiveOrder`'s `COALESCE(buyer_id, …)` needs: the caller's id is bound as
+ * a parameter, not spliced into the SQL text, so only this can prove it is
+ * actually there.
+ */
+function compileWithParams(clause: unknown): {
+  sql: string;
+  params: unknown[];
+} {
+  expect(isSQLWrapper(clause)).toBe(true);
+  return new PgDialect().sqlToQuery((clause as SQLWrapper).getSQL());
+}
+
+/**
  * The tenancy guard (VISION §6.7): a per-row id is never enough on its own.
  * Without compiling the WHERE, a refactor that dropped
  * `eq(cartItems.householdId, …)` would still pass every other test here — the
@@ -861,5 +875,125 @@ describe("cart.remove", () => {
     await expect(caller.cart.remove({ id: ITEM_ID })).rejects.toSatisfy(
       hasCode("FORBIDDEN"),
     );
+  });
+});
+
+describe("cart.receiveOrder", () => {
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(caller.cart.receiveOrder({})).rejects.toSatisfy(
+      hasCode("UNAUTHORIZED"),
+    );
+  });
+
+  it("is refused to a caller without a household", async () => {
+    const { caller } = callerWith([[]]);
+
+    await expect(caller.cart.receiveOrder({})).rejects.toSatisfy(
+      hasCode("FORBIDDEN"),
+    );
+  });
+
+  it("rejects a service that is not one of the three", async () => {
+    const { caller } = callerWith([[membershipRow]]);
+
+    await expect(
+      // @ts-expect-error — the input schema is the guard being tested.
+      caller.cart.receiveOrder({ orderedVia: "самовывоз" }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+  });
+
+  it("moves every ordered line to bought, clearing the delivery service", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ id: ITEM_ID }, { id: OTHER_ITEM_ID }],
+    ]);
+
+    await expect(caller.cart.receiveOrder({})).resolves.toEqual({
+      count: 2,
+      ids: [ITEM_ID, OTHER_ITEM_ID],
+    });
+
+    expect(stub.statements[1]).toMatchObject({
+      kind: "update",
+      table: "cart_items",
+    });
+    expect(stub.statements[1]?.values).toMatchObject({
+      status: "bought",
+      orderedVia: null,
+    });
+  });
+
+  it("is a no-op when nothing is ordered — count 0, no error", async () => {
+    const { caller } = callerWith([[membershipRow], []]);
+
+    await expect(caller.cart.receiveOrder({})).resolves.toEqual({
+      count: 0,
+      ids: [],
+    });
+  });
+
+  it("does not filter by service when none is given", async () => {
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await caller.cart.receiveOrder({});
+
+    expect(compile(stub.statements[1]?.wheres[0])).not.toContain(
+      '"ordered_via"',
+    );
+  });
+
+  it("reads an explicit null the same as omitted — every service", async () => {
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await caller.cart.receiveOrder({ orderedVia: null });
+
+    expect(compile(stub.statements[1]?.wheres[0])).not.toContain(
+      '"ordered_via"',
+    );
+  });
+
+  it("narrows to the one service given", async () => {
+    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+
+    await caller.cart.receiveOrder({ orderedVia: "wolt" });
+
+    expect(compile(stub.statements[1]?.wheres[0])).toContain('"ordered_via"');
+  });
+
+  it("scopes the write to this household's active, ordered lines", async () => {
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await caller.cart.receiveOrder({});
+
+    expectScopedByHousehold(stub.statements[1]);
+    expectActiveOnly(stub.statements[1]);
+    expect(compile(stub.statements[1]?.wheres[0])).toContain('"status"');
+  });
+
+  it("bumps updatedAt on every receipted line", async () => {
+    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+
+    await caller.cart.receiveOrder({});
+
+    const values = stub.statements[1]?.values as Record<string, unknown>;
+    expect(compile(values.updatedAt)).toContain("now()");
+  });
+
+  it("keeps an existing buyer, and credits the caller when none is set — one COALESCE per row", async () => {
+    // The stub cannot evaluate the expression per row (it has no database),
+    // so this proves the *shape* of the write instead: a single `COALESCE`
+    // over the column and the caller's id, exactly like `setStatus`'s
+    // single-row buyer rule but expressed for a whole batch at once.
+    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+
+    await caller.cart.receiveOrder({});
+
+    const values = stub.statements[1]?.values as Record<string, unknown>;
+    const compiled = compileWithParams(values.buyerId);
+
+    expect(compiled.sql.toLowerCase()).toContain("coalesce");
+    expect(compiled.params).toContain("user_1");
   });
 });

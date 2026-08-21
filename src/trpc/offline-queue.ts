@@ -266,6 +266,10 @@ export function installOfflineQueue(
   registerMutationDefault(queryClient, trpc.cart.setStatus.mutationOptions());
   registerMutationDefault(queryClient, trpc.cart.updateItem.mutationOptions());
   registerMutationDefault(queryClient, trpc.cart.remove.mutationOptions());
+  registerMutationDefault(
+    queryClient,
+    trpc.cart.receiveOrder.mutationOptions(),
+  );
 
   const cartFilter = trpc.cart.pathFilter();
   const filters = createOfflineCacheFilters(

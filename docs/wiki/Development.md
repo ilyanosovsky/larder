@@ -276,13 +276,14 @@ A product with **no** active row locks nothing, so the insert can still lose the
 
 ### `cart` router
 
-| Procedure         | Boundary             | Notes                                                                          |
-| ----------------- | -------------------- | ------------------------------------------------------------------------------ |
-| `cart.list`       | `householdProcedure` | Active lines only, joined with product, department and both member names       |
-| `cart.add`        | `householdProcedure` | `{ productId, qty, unit, note?, restore? }` → the five-way outcome union above |
-| `cart.updateItem` | `householdProcedure` | Partial patch of qty/unit/note/buyerId/orderedVia; LWW                         |
-| `cart.setStatus`  | `householdProcedure` | `{ id, status, orderedVia? }`; LWW                                             |
-| `cart.remove`     | `householdProcedure` | Hard delete of the active line — **idempotent**                                |
+| Procedure           | Boundary             | Notes                                                                          |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------ |
+| `cart.list`         | `householdProcedure` | Active lines only, joined with product, department and both member names       |
+| `cart.add`          | `householdProcedure` | `{ productId, qty, unit, note?, restore? }` → the five-way outcome union above |
+| `cart.updateItem`   | `householdProcedure` | Partial patch of qty/unit/note/buyerId/orderedVia; LWW                         |
+| `cart.setStatus`    | `householdProcedure` | `{ id, status, orderedVia? }`; LWW                                             |
+| `cart.remove`       | `householdProcedure` | Hard delete of the active line — **idempotent**                                |
+| `cart.receiveOrder` | `householdProcedure` | `{ orderedVia? }` — bulk `ordered → bought` (task 2.5), see below              |
 
 `list` returns rows ordered by department `sortOrder` then product name, which is exactly the contract `groupProductsByCategory` (`src/lib/group-products.ts`) assumes — it cuts an already-ordered list into sections by walking it, so a different order would silently produce two sections for one department. `addedBy` and `buyerId` join `users` twice under aliases: «кто добавил» and «кто купил» are both on the row and are usually different people. `updatedAt` is on the wire for task 2.2, which highlights lines that changed between refetches.
 
@@ -292,7 +293,15 @@ A product with **no** active row locks nothing, so the insert can still lose the
 
 `remove` is deliberately idempotent — no NOT_FOUND when nothing matched. The cart is shared, so both partners removing the same line is ordinary rather than an error, and the offline queue task 2.4 adds will replay mutations after a reconnect.
 
-The UI on top of it is [Cart screen](#cart-screen-s3-task-23) below.
+### `cart.receiveOrder` (task 2.5)
+
+«Заказ получен»: every active `ordered` line becomes `bought` in **one** `UPDATE`, instead of ticking each one by hand. `orderedVia` is `.nullable().optional()` — both an absent key and an explicit `null` mean "every ordered line, regardless of service"; a concrete `wolt`/`carrefour`/`other` narrows the statement to just that service's lines. There is no third reading worth telling apart, and the UI never has a reason to ask for "no service" specifically.
+
+The buyer rule mirrors `setStatus`'s single-row one, expressed for a whole batch in the same statement — `` buyerId: sql`coalesce(${cartItems.buyerId}, ${ctx.user.id})` `` — so a line already assigned (`updateItem`'s «кто берёт») keeps its buyer and only an unclaimed line is credited to whoever tapped the control — decided per row by Postgres, not by a loop in the procedure. `orderedVia` is cleared on every receipted line: the badge exists to answer "is this on its way", and once it has arrived that question is moot the same way the checkbox's `ordered → bought` needs no separate "received" state.
+
+A household with nothing ordered (or nothing ordered through the given service) is a no-op — `{ count: 0, ids: [] }`, no error — the same idempotence `remove` already has. The output is Zod'd (`receiveOrderOutput`) so the caller gets typed ids back rather than a bare count.
+
+The UI on top of both routers is [Cart screen](#cart-screen-s3-task-23) below.
 
 ### Cart sync (task 2.2)
 
@@ -378,7 +387,31 @@ Every outcome highlights its row rather than leaving it to the refetch. For the 
 
 **The header** (`app-header.tsx`) shows the participants' avatars — partners first, the caller's own last so the one that is also a 44px link into Settings is never partly covered — and DESIGN_BRIEF's «тихая иконка-часики» while `useIsFetching(trpc.cart.pathFilter())` or `useIsMutating({ mutationKey: trpc.cart.pathKey() })` is non-zero. Both are router-level key helpers and TanStack matches keys by prefix, so one filter each covers `cart.list`'s refetches and every `cart.*` mutation, including the ones 2.5 adds. Idle shows nothing at all; offline (the brief's third state) replaces the mark with a `--null-txt` dot — see the offline queue below for why that state has to win over «синхронизируем». Members come from the `household.current` the `(app)` layout already loads for its gate, passed down as props — no second query.
 
-**Deferred, and why the screen looks incomplete without it:** the «Корзина | Кладовая» segment control (3.1, replaces the toolbar's title/count pair), «Завершить закупку» (3.2, joins «+ Добавить» in the action bar), and the «Заказано» badge, «кто берёт» avatar, note editing and «Заказ получен» (2.5). An existing note **is** rendered inline («· на выходных») because `cart.list` already carries it; nothing on this screen can set one. An `ordered` row renders with an unticked box, and ticking it sets `bought` — which is the safe direction under last-write-wins whichever way the line got there.
+**Deferred, and why the screen looks incomplete without it:** the «Корзина | Кладовая» segment control (3.1, replaces the toolbar's title/count pair) and «Завершить закупку» (3.2, joins «+ Добавить» in the action bar). An `ordered` row renders with an unticked box, and ticking it sets `bought` — which is the safe direction under last-write-wins whichever way the line got there.
+
+### Row action sheet, badge, buyer avatar, «Заказ получен» (task 2.5)
+
+**A tap on a row's body — not the checkbox — opens `CartItemSheet`.** The checkbox needed its own dedicated hit area to make that split possible: `.checkboxTarget` is a `<label>` padded out to the 44pt minimum and pulled back with an equal negative margin (the standard "bigger tap target, same footprint" trick), and `.rowBody` is a plain reset `<button>` holding everything else in the row. Splitting a `<label>` that used to wrap the whole row into these two siblings is what lets the checkbox keep doing exactly one thing while the rest of the row does another.
+
+`CartItemSheet` is **plain mutate + invalidate**, deliberately unlike the checkbox: none of qty/unit/note, «кто берёт» or «заказано» is perf-critical the way ticking down a shelf is, so there is no optimistic cache patch to keep in sync with a rollback for any of it. One `busyRef` locks the whole sheet rather than one per control — a person edits one field at a time here. `item` is looked up fresh from `cart.list`'s cache on every render of the parent screen (`cart-screen.tsx`'s `editingItem = items.find(...)`) rather than captured once at open, so a save is visible in the sheet itself the moment the invalidate it triggers lands, without closing and reopening it. Sections:
+
+- **Qty/unit** reuse `QtyStepper` (`src/components/qty-stepper.tsx`), extracted out of `AutocompleteSheet` in this task so S4's stepper and the row sheet's editor can never quietly drift apart on step size or bounds. It takes its aria-label strings as props rather than calling `useTranslations` itself — S4 and the row sheet read different namespaces (`autocomplete`, `cart`), and a shared presentational component has no business picking one for the other.
+- **Note** is a plain text input; saving trims it and maps an empty string to `null` (`updateItem`'s "clear it" reading), bundled into the same `updateItem` call as qty/unit.
+- **«Кто берёт»** is a chip row: «Никто» plus one chip per household member (`household.current`'s `members`, prefetched in `page.tsx` alongside `cart.list`/`category.list` — a plain client `useQuery` in the screen, not props threaded through the `(app)` layout, since a layout cannot hand a page anything but an opaque `children`). Tapping a chip calls `updateItem({ buyerId })` immediately.
+- **«Заказано»** shows the three services; tapping one calls `setStatus({ status: "ordered", orderedVia })` on a still-`needed` line or `updateItem({ orderedVia })` on one already `ordered` (re-picking the same service on an ordered line needs the latter — `setStatus`'s `ordered` branch only touches `orderedVia` when the _status_ is changing). Hidden entirely once a line is `bought` — nothing here un-buys a line; the checkbox does. «Вернуть в «нужно»» (`setStatus({ status: "needed" })`) only shows once the line actually is `ordered`.
+- **«Удалить»** calls `cart.remove` and closes the sheet on success.
+
+**The badge, the avatar, and the note are the same `ProductRow`, rendered differently.** `avatarInitial` (`src/lib/avatar-initial.ts`) — the first _grapheme_ of a name, upper-cased, via `Intl.Segmenter` rather than `.charAt(0)` (which would cut a leading surrogate-pair emoji in half) — is shared between this avatar and the header's own, so the two can never disagree about which letter represents the same person. An `ordered` row switches `.rowName` to `flex: none` and gives `.rowQty` `margin-left: auto` (mockup 1a): the badge sits right after the name instead of being stretched away from it, and the quantity — and the buyer avatar after it — claim the freed-up space instead. The badge itself (`.rowBadge`) is `«Заказано · Wolt»` / `«· Carrefour»` for those two services and plain `«Заказано»` for `other`; `orderedVia` is cleared by `receiveOrder`, so a received line shows no badge at all, plain `bought` like any other.
+
+**«Заказ получен»** (`groupOrderedByService`, `applyReceiveOrder`, `rollbackReceiveOrder`, `receivableRowIds` — all pure, in `src/lib/cart/receive-order.ts`) is the bulk counterpart of the checkbox's optimistic toggle, adapted to a batch:
+
+- `groupOrderedByService(items)` walks the current list and returns one entry per distinct `orderedVia` among `ordered` rows (fixed order `wolt` → `carrefour` → `other` → `null`, so the bar does not reshuffle as rows move between services), each with a count — the receive bar renders one button per entry, directly above the first section.
+- `applyReceiveOrder(list, orderedVia)` is the optimistic patch: every row `receivableRowIds` names (every `ordered` row, or — narrowed — every row ordered through the given service; `null`/undefined both mean "no filter", the same reading `cart.receiveOrder`'s own input gives it) moves to `bought` with `orderedVia` cleared. `buyerId` and `updatedAt` are deliberately left alone — same reasoning as `applyStatusToggle`'s single-row patch: the server decides the buyer (`COALESCE`) and stamps the real timestamp, and guessing either here would just have to be taken back the moment the invalidate lands.
+- `rollbackReceiveOrder(list, snapshots)` undoes exactly the rows `applyReceiveOrder` touched — the bulk analogue of the checkbox's per-row inverse, for the same reason: an unrelated tick landing mid-flight on a different row must survive a failed batch's rollback.
+- The own-change mark (`markOwnChange`) is written for **every** affected row, both at the tap (`onMutate`) and again at settle (`onSettled`) — same double-mark reasoning `setStatus` already has for the queue: a receive queued offline can be delivered minutes later, well past the first mark's window, and the refetch it triggers must not light those rows up as «партнёр что-то поменял».
+- Per-group pending state (`receivePendingRef`/`receivePendingKeys`, keyed by `orderedVia ?? "__none__"`) is the same ref-then-state pairing the checkbox's `pendingRef`/`pendingIds` uses, sized for the handful of buttons the bar ever shows.
+
+**The offline queue (task 2.4) now also covers `cart.receiveOrder`.** `installOfflineQueue` registers it exactly like the other three mutations; the persist filter needed no change at all — `matchesTrpcPath` is a path-**prefix** match against `trpc.cart.pathKey()`, so anything under `cart.*` is already covered, new procedures included (a dedicated test proves this rather than assumes it). The 🕐 "queued" mark is the one place `receiveOrder`'s _bulk_ shape needed real work: `queuedCartRowIds` (`src/lib/sync/queued-mutations.ts`) now also takes the cart's current rows and, for a mutation whose variables have neither `id` nor `productId` (the one shape left once those two are ruled out — `receiveOrder`'s input is `{ orderedVia? }` and nothing else), resolves `receivableRowIds(items, orderedVia)` against them — the same pure rule the optimistic patch and the router itself use, so the queue mark, the cache patch and the server statement can never disagree about which rows a bulk receive is about.
 
 ### Offline queue (task 2.4)
 
@@ -414,7 +447,7 @@ VISION §6.3: a tap made in a basement supermarket must survive the phone being 
 
 **Buster and max age.** `OFFLINE_CACHE_BUSTER` is derived from `OFFLINE_CACHE_VERSION` (`larder-cart-v1`) — bump the **version**, never the string. Bump it when `cart.list`'s output shape, any `cart.*` mutation **input** shape, or the serializer changes: a stored payload whose buster does not match is dropped whole rather than migrated, which is the right trade against replaying writes at a contract that has moved. `maxAge` is 48h; a queued tap older than that is no longer a fact about the cart (someone has since bought, removed or re-added the thing), and the cached list goes with it because the queue and the snapshot it was made against are one payload.
 
-**Restoring a mutation needs its function back.** A dehydrated mutation carries its key, variables and state — never its `mutationFn`, which is a closure. `installOfflineQueue` therefore calls `queryClient.setMutationDefaults(key, { mutationFn })` for each of `cart.add`/`setStatus`/`updateItem`/`remove`, using the standalone tRPC options proxy (`createTRPCOptionsProxy({ client, queryClient })`). Without it, resuming fails with «No mutationFn found».
+**Restoring a mutation needs its function back.** A dehydrated mutation carries its key, variables and state — never its `mutationFn`, which is a closure. `installOfflineQueue` therefore calls `queryClient.setMutationDefaults(key, { mutationFn })` for each of `cart.add`/`setStatus`/`updateItem`/`remove`/`receiveOrder`, using the standalone tRPC options proxy (`createTRPCOptionsProxy({ client, queryClient })`). Without it, resuming fails with «No mutationFn found».
 
 The defaults are **only** the function; the rich optimistic wiring stays at the S3 call sites and deliberately does not run on resume. TanStack skips `onMutate` entirely for a mutation whose state is already `pending` (`Mutation#execute`), which is exactly right — the patch it would apply was applied in the previous session — and there is nothing left to roll back to, because the snapshot lived in the cache of a tab that no longer exists. So the resume path is simply: deliver, then re-read the cart.
 

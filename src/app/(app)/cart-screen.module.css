@@ -118,6 +118,46 @@
   line-height: var(--lead-body);
 }
 
+/* ── «Заказ получен» (task 2.5) ──
+   A slim bar directly above the first section, one control per delivery
+   service with an ordered line — Paper Ledger: hairline rules, mono label. */
+
+.receiveBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+  border-top: var(--bd-hair) solid var(--rule-2);
+  border-bottom: var(--bd-hair) solid var(--rule-2);
+  padding: var(--s-3) 0;
+}
+
+.receiveButton {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--blue-rule);
+  border-radius: var(--radius);
+  background: var(--blue-soft);
+  padding: 0 var(--s-3);
+  color: var(--blue-txt);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.receiveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.receiveButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── CategorySection ── */
 
 .section {
@@ -171,7 +211,6 @@
   border-bottom: var(--bd-hair) solid var(--rule);
   background: transparent;
   padding: var(--s-2) var(--s-1);
-  cursor: pointer;
 }
 
 /* Two highlights, not one, because they say different things. Both cover the
@@ -189,6 +228,40 @@
 .rowActed {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The checkbox's own hit area (task 2.5): a `<label>` sized to the 44pt
+   touch-target minimum via padding, pulled back with an equal negative
+   margin so it does not widen the row — the standard "bigger tap target,
+   same visual footprint" trick. Separate from `.rowBody` on purpose: this is
+   the only thing left that toggles the checkbox, everything else in the row
+   opens the action sheet. */
+.checkboxTarget {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-3);
+  margin: calc(-1 * var(--s-3));
+  cursor: pointer;
+}
+
+/* The row's tap target for the action sheet — everything but the checkbox.
+   Reset to read as plain row content rather than a button. */
+.rowBody {
+  display: flex;
+  overflow: hidden;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: var(--s-3);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* The real checkbox stays in the accessible tree and keeps the keyboard
@@ -249,10 +322,31 @@
   white-space: nowrap;
 }
 
+/* An ordered row (mockup 1a): the name stops stretching so the badge sits
+   right after it instead of being pushed to the far edge — `.rowQtyPushed`
+   is what claims the freed-up space instead. */
+.rowNameOrdered {
+  flex: none;
+}
+
 .rowNote {
   margin-left: var(--s-1);
   color: var(--mute-2);
   font-size: var(--t-meta);
+}
+
+/* «Заказано · Wolt» / «· Carrefour» / plain «Заказано» (task 2.5, mockup 1a). */
+.rowBadge {
+  flex: none;
+  border: var(--bd-hair) solid var(--blue-rule);
+  background: var(--blue-soft);
+  padding: 2px 6px;
+  color: var(--blue-txt);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /* «Ждёт синхронизации» (mockup 1c): the same `--null-txt` as the banner, so
@@ -270,6 +364,28 @@
   color: var(--mute);
   font-family: var(--font-mono);
   font-size: var(--t-meta);
+}
+
+/* Claims the space `.rowNameOrdered` stopped stretching into, so the badge
+   hugs the name while the quantity (and the buyer avatar after it) stay
+   pinned to the row's right edge — mockup 1a. */
+.rowQtyPushed {
+  margin-left: auto;
+}
+
+/* «Кто берёт» (task 2.5, mockup 1a): a small initial, after the quantity. */
+.rowAvatar {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-round);
+  background: var(--blue-soft);
+  color: var(--blue-txt);
+  font-family: var(--font-mono);
+  font-size: 9px;
 }
 
 /* A bought line: struck through, dimmed, and sunk to the bottom of its

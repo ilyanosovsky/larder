@@ -2,6 +2,7 @@ import { useIsFetching, useIsMutating } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 
+import { avatarInitial } from "@/lib/avatar-initial";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useTRPC } from "@/trpc/client";
 
@@ -12,11 +13,6 @@ export interface HeaderMember {
   userId: string;
   name: string;
   image: string | null;
-}
-
-/** The letter an avatar falls back to when a member has no picture. */
-function avatarInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "?";
 }
 
 function Avatar({ name, image }: { name: string; image: string | null }) {

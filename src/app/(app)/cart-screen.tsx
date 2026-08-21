@@ -14,15 +14,28 @@ import {
   type ProductSelection,
 } from "@/components/autocomplete-sheet";
 import { BottomSheet } from "@/components/bottom-sheet";
+import {
+  CartItemSheet,
+  type CartItemSheetMember,
+} from "@/components/cart-item-sheet";
 import { useSheetOpener } from "@/components/use-sheet-opener";
 import {
   describeCartAddOutcome,
   type CartAddToastKey,
 } from "@/lib/cart/add-outcome";
 import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
+import {
+  applyReceiveOrder,
+  groupOrderedByService,
+  rollbackReceiveOrder,
+  type ReceiveOrderSnapshot,
+} from "@/lib/cart/receive-order";
 import { sortBoughtLast } from "@/lib/cart/sort-rows";
 import { applyStatusToggle, toggledCartStatus } from "@/lib/cart/status-toggle";
+import { avatarInitial } from "@/lib/avatar-initial";
+import { cx } from "@/lib/cx";
 import { groupProductsByCategory } from "@/lib/group-products";
+import type { OrderedVia } from "@/lib/ordered-via";
 import { cartSyncQueryOptions } from "@/lib/sync/cart-sync-presets";
 import { HIGHLIGHT_MS, useChangedRows } from "@/lib/sync/use-changed-rows";
 import { useIsOnline } from "@/lib/sync/use-is-online";
@@ -42,11 +55,6 @@ const SKELETON_SECTIONS = [
   [170, 120, 200],
   [140, 180],
 ];
-
-/** Joins the class names that apply and skips the ones that do not. */
-function cx(...classes: (string | false | null | undefined)[]): string {
-  return classes.filter(Boolean).join(" ");
-}
 
 /**
  * Where the «+ Добавить» flow currently is. One sheet is open at a time on
@@ -83,10 +91,14 @@ type AddFlow =
  * `onlineManager` and the mutation cache — so what they say cannot drift from
  * what is actually waiting to be delivered.
  *
- * Deferred by design: the «Корзина | Кладовая» segment control (3.1),
- * «Завершить закупку» (3.2), and the «Заказано» badge, «кто берёт» avatar and
- * note editing (2.5). An existing note is rendered — the data is already on
- * the wire — but nothing here can set one.
+ * **The row action sheet** (task 2.5, `CartItemSheet`) opens on a tap
+ * anywhere in a row's *body* — never the checkbox, which must keep doing
+ * exactly one thing. It edits qty/unit/note, «кто берёт» and «заказано»
+ * through plain mutate-and-invalidate: none of that is perf-critical the way
+ * the checkbox is, so there is no optimistic patch to keep in sync there.
+ *
+ * Deferred by design: the «Корзина | Кладовая» segment control (3.1) and
+ * «Завершить закупку» (3.2).
  */
 export function CartScreen() {
   const t = useTranslations("cart");
@@ -95,8 +107,11 @@ export function CartScreen() {
   const queryClient = useQueryClient();
 
   const addOpener = useSheetOpener();
+  const editOpener = useSheetOpener();
 
   const [flow, setFlow] = useState<AddFlow>({ kind: "closed" });
+  /** Which row's action sheet is open, or `null`. */
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
   /**
@@ -153,8 +168,6 @@ export function CartScreen() {
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
 
   const isOnline = useIsOnline();
-  /** Rows whose change is sitting in the offline queue — mockup 1c's 🕐. */
-  const queuedIds = useQueuedCartRows(trpc.cart.pathKey());
 
   const cart = useQuery(
     trpc.cart.list.queryOptions(undefined, {
@@ -329,6 +342,113 @@ export function CartScreen() {
 
   const add = useMutation(trpc.cart.add.mutationOptions());
 
+  /**
+   * Rows whose bulk «Заказ получен» is still in flight, keyed by service
+   * (`group.orderedVia ?? "__none__"`) — the receive bar shows at most a
+   * handful of buttons, so one ref-then-state pair covers all of them, the
+   * same pairing `pendingRef`/`pendingIds` uses for the checkbox.
+   */
+  const receivePendingRef = useRef<Set<string>>(new Set());
+  const [receivePendingKeys, setReceivePendingKeys] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+
+  function receiveGroupKey(orderedVia: OrderedVia | null): string {
+    return orderedVia ?? "__none__";
+  }
+
+  function markReceivePending(key: string, pending: boolean) {
+    if (pending) {
+      receivePendingRef.current.add(key);
+    } else {
+      receivePendingRef.current.delete(key);
+    }
+    setReceivePendingKeys(new Set(receivePendingRef.current));
+  }
+
+  /** Applies `applyReceiveOrder` to the cached list, if it is loaded at all. */
+  function patchCachedReceive(
+    orderedVia: OrderedVia | null | undefined,
+  ): ReceiveOrderSnapshot[] {
+    let snapshots: ReceiveOrderSnapshot[] = [];
+    queryClient.setQueryData(cartKey, (current) => {
+      if (current === undefined) {
+        return current;
+      }
+      const result = applyReceiveOrder(current, orderedVia);
+      snapshots = result.snapshots;
+      return result.list;
+    });
+    return snapshots;
+  }
+
+  /**
+   * «Заказ получен» — the bulk counterpart of the checkbox's optimistic
+   * toggle, adapted to a batch: the per-row inverse becomes a rollback over
+   * only the rows `applyReceiveOrder` actually touched (never a whole-list
+   * snapshot, for the same reason the checkbox's rollback is per row — an
+   * unrelated tick landing mid-flight must survive it), and the own-change
+   * mark is written for every one of those rows rather than one id.
+   */
+  const receiveOrder = useMutation(
+    trpc.cart.receiveOrder.mutationOptions({
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries(cartFilter);
+
+        const snapshots = patchCachedReceive(variables.orderedVia);
+        const now = Date.now();
+        for (const snapshot of snapshots) {
+          markOwnChange(ownChangesRef.current, snapshot.id, now, HIGHLIGHT_MS);
+        }
+
+        return { snapshots };
+      },
+      onError: (_error, _variables, context) => {
+        if (context && context.snapshots.length > 0) {
+          queryClient.setQueryData(cartKey, (current) =>
+            current === undefined
+              ? current
+              : rollbackReceiveOrder(current, context.snapshots),
+          );
+        }
+        showToast(t("receiveOrderError"));
+      },
+      onSettled: (_data, error, variables, context) => {
+        markReceivePending(
+          receiveGroupKey(variables.orderedVia ?? null),
+          false,
+        );
+
+        // Re-marked at settle for the same reason `setStatus` does: a queued
+        // receive can be delivered minutes later, well past the mark
+        // `onMutate` stamped, and the refetch it triggers must not light these
+        // rows up as «партнёр что-то поменял» for something done here.
+        if (error === null && context) {
+          const now = Date.now();
+          for (const snapshot of context.snapshots) {
+            markOwnChange(
+              ownChangesRef.current,
+              snapshot.id,
+              now,
+              HIGHLIGHT_MS,
+            );
+          }
+        }
+
+        void queryClient.invalidateQueries(cartFilter);
+      },
+    }),
+  );
+
+  function handleReceiveOrder(orderedVia: OrderedVia | null) {
+    const key = receiveGroupKey(orderedVia);
+    if (receivePendingRef.current.has(key)) {
+      return;
+    }
+    markReceivePending(key, true);
+    receiveOrder.mutate({ orderedVia });
+  }
+
   function toggleStatus(item: CartListItemOutput) {
     // Per row rather than per screen: ticking three things one after another
     // is ordinary shopping and must never be blocked, but a second tap on the
@@ -415,6 +535,20 @@ export function CartScreen() {
   const hasList = cart.data !== undefined;
   const isEmpty = hasList && items.length === 0;
 
+  /** Rows whose change is sitting in the offline queue — mockup 1c's 🕐. */
+  const queuedIds = useQueuedCartRows(trpc.cart.pathKey(), items);
+
+  /** Distinct services among the currently-ordered rows — the receive bar. */
+  const orderedGroups = groupOrderedByService(items);
+
+  // The household's members, for the row sheet's «кто берёт» chips. Prefetched
+  // server-side alongside `cart.list`/`category.list` (`page.tsx`), so this is
+  // warm on first paint rather than a second client round trip.
+  const household = useQuery(trpc.household.current.queryOptions());
+  const members: readonly CartItemSheetMember[] = (
+    household.data?.members ?? []
+  ).map((member) => ({ userId: member.userId, name: member.name }));
+
   // Read-only, so it is safe during render: `withoutOwnChanges` never touches
   // the ref's map, and marks are written and pruned in event handlers.
   const partnerChangedIds = withoutOwnChanges(
@@ -427,6 +561,19 @@ export function CartScreen() {
     addOpener.captureOpener(element);
     setFlow({ kind: "search" });
   }
+
+  function openItemSheet(id: string, element: HTMLElement | null) {
+    editOpener.captureOpener(element);
+    setEditingItemId(id);
+  }
+
+  // Looked up fresh from the live list rather than captured once at open, so
+  // a save inside the sheet is visible there the moment the invalidate it
+  // triggers lands — see `CartItemSheet`'s own doc comment.
+  const editingItem =
+    editingItemId === null
+      ? null
+      : (items.find((item) => item.id === editingItemId) ?? null);
 
   return (
     <section className={styles.screen}>
@@ -503,6 +650,36 @@ export function CartScreen() {
         </div>
       ) : null}
 
+      {/* «Заказ получен» (task 2.5) — one control per delivery service that
+          currently has an ordered line, directly above the first section. */}
+      {orderedGroups.length === 0 ? null : (
+        <div className={styles.receiveBar}>
+          {orderedGroups.map((group) => {
+            const key = receiveGroupKey(group.orderedVia);
+            const label =
+              group.orderedVia === "wolt" || group.orderedVia === "carrefour"
+                ? t("receiveOrderService", {
+                    service: t(`orderedService.${group.orderedVia}`),
+                    count: group.count,
+                  })
+                : t("receiveOrder", { count: group.count });
+            const pending = receivePendingKeys.has(key);
+
+            return (
+              <button
+                key={key}
+                type="button"
+                className={styles.receiveButton}
+                disabled={pending}
+                onClick={() => handleReceiveOrder(group.orderedVia)}
+              >
+                {pending ? t("receiveOrderPending") : label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Keyed by position as well as department: `groupProductsByCategory`
           starts a new section every time the run changes, so a list that
           arrives with a department split across two runs would otherwise
@@ -520,19 +697,24 @@ export function CartScreen() {
           <ul className={styles.rows}>
             {sortBoughtLast(section.items).map((item) => {
               const bought = item.status === "bought";
+              const ordered = item.status === "ordered";
               const pending = pendingIds.has(item.id);
               // Two different cues, deliberately not one class: «ты только что
               // это сделал» carries mockup #1h's inset accent edge, «партнёр
               // что-то поменял» is 1b's plain wash. Own action wins when both
               // would apply.
               const acted = highlight?.id === item.id;
+              const badgeLabel = !ordered
+                ? null
+                : item.orderedVia === "wolt" || item.orderedVia === "carrefour"
+                  ? t("orderedBadgeService", {
+                      service: t(`orderedService.${item.orderedVia}`),
+                    })
+                  : t("orderedBadge");
 
               return (
                 <li key={item.id}>
-                  {/* The whole row is the label, so the checkbox's accessible
-                      name is «Помидоры 6 шт» and the tap target is the line
-                      rather than a 20px square. */}
-                  <label
+                  <div
                     className={cx(
                       styles.row,
                       bought && styles.rowBought,
@@ -541,53 +723,98 @@ export function CartScreen() {
                         : partnerChangedIds.has(item.id) && styles.rowChanged,
                     )}
                   >
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={bought}
-                      // Never `disabled`: the browser drops focus off a
-                      // control that becomes disabled, so every keyboard
-                      // toggle would throw the user back to the top of the
-                      // page. The synchronous ref lock in `toggleStatus` is
-                      // what actually prevents the second fire; these two only
-                      // expose that state.
-                      aria-disabled={pending || undefined}
-                      aria-busy={pending || undefined}
-                      data-pending={pending || undefined}
-                      onChange={() => toggleStatus(item)}
-                    />
-                    <span className={styles.checkboxMark} aria-hidden="true">
-                      ✓
-                    </span>
-                    <span className={styles.rowIcon} aria-hidden="true">
-                      {item.productIcon}
-                    </span>
-                    <span className={styles.rowName}>
-                      {item.productName}
-                      {item.note === null ? null : (
-                        <span className={styles.rowNote}>
-                          {t("noteInline", { note: item.note })}
+                    {/* A dedicated hit area, deliberately separate from the
+                        row body below: this is the only thing left that
+                        toggles the checkbox — everything else opens the
+                        action sheet (task 2.5). */}
+                    <label className={styles.checkboxTarget}>
+                      <input
+                        type="checkbox"
+                        className={styles.checkbox}
+                        checked={bought}
+                        // Never `disabled`: the browser drops focus off a
+                        // control that becomes disabled, so every keyboard
+                        // toggle would throw the user back to the top of the
+                        // page. The synchronous ref lock in `toggleStatus` is
+                        // what actually prevents the second fire; these two
+                        // only expose that state.
+                        aria-disabled={pending || undefined}
+                        aria-busy={pending || undefined}
+                        data-pending={pending || undefined}
+                        aria-label={t("rowCheckboxAria", {
+                          name: item.productName,
+                          qty: item.qty,
+                          unit: item.unit,
+                        })}
+                        onChange={() => toggleStatus(item)}
+                      />
+                      <span className={styles.checkboxMark} aria-hidden="true">
+                        ✓
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      className={styles.rowBody}
+                      aria-label={t("editAria", { name: item.productName })}
+                      onClick={(event) =>
+                        openItemSheet(item.id, event.currentTarget)
+                      }
+                    >
+                      <span className={styles.rowIcon} aria-hidden="true">
+                        {item.productIcon}
+                      </span>
+                      <span
+                        className={cx(
+                          styles.rowName,
+                          ordered && styles.rowNameOrdered,
+                        )}
+                      >
+                        {item.productName}
+                        {item.note === null ? null : (
+                          <span className={styles.rowNote}>
+                            {t("noteInline", { note: item.note })}
+                          </span>
+                        )}
+                      </span>
+                      {badgeLabel === null ? null : (
+                        <span className={styles.rowBadge}>{badgeLabel}</span>
+                      )}
+                      {/* Mockup 1c puts the mark between the name and the
+                          quantity, and gives it a `title` — so it names itself
+                          to a mouse as well as to a screen reader. */}
+                      {queuedIds.has(item.id) ? (
+                        <span
+                          className={styles.rowQueued}
+                          role="img"
+                          aria-label={t("queued")}
+                          title={t("queued")}
+                        >
+                          🕐
+                        </span>
+                      ) : null}
+                      <span
+                        className={cx(
+                          styles.rowQty,
+                          ordered && styles.rowQtyPushed,
+                        )}
+                      >
+                        {t("qtyValue", { qty: item.qty, unit: item.unit })}
+                      </span>
+                      {item.buyerId === null ||
+                      item.buyerName === null ? null : (
+                        <span
+                          className={styles.rowAvatar}
+                          role="img"
+                          aria-label={t("buyerAvatarAria", {
+                            name: item.buyerName,
+                          })}
+                        >
+                          {avatarInitial(item.buyerName)}
                         </span>
                       )}
-                    </span>
-                    {/* Mockup 1c puts the mark between the name and the
-                        quantity, and gives it a `title` — so it names itself
-                        to a mouse as well as to a screen reader, where it
-                        joins the row label the checkbox is named by. */}
-                    {queuedIds.has(item.id) ? (
-                      <span
-                        className={styles.rowQueued}
-                        role="img"
-                        aria-label={t("queued")}
-                        title={t("queued")}
-                      >
-                        🕐
-                      </span>
-                    ) : null}
-                    <span className={styles.rowQty}>
-                      {t("qtyValue", { qty: item.qty, unit: item.unit })}
-                    </span>
-                  </label>
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -671,6 +898,14 @@ export function CartScreen() {
           </div>
         ) : null}
       </BottomSheet>
+
+      <CartItemSheet
+        open={editingItemId !== null}
+        onClose={() => setEditingItemId(null)}
+        restoreFocusTo={editOpener.restoreFocusTo}
+        item={editingItem}
+        members={members}
+      />
     </section>
   );
 }

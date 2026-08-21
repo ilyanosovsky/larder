@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { OrderedCartRow } from "@/lib/cart/receive-order";
+
 import { queuedCartRowIds, type QueuedCartMutation } from "./queued-mutations";
 
 const ROW_A = "0f1a9b0c-1111-4222-8333-444455556666";
@@ -31,6 +33,23 @@ function add(isPaused = true): QueuedCartMutation {
     isPaused,
   };
 }
+
+/** `cart.receiveOrder`'s input — a service, or nothing at all; never a row. */
+function receiveOrder(
+  orderedVia?: string | null,
+  isPaused = true,
+): QueuedCartMutation {
+  return {
+    variables: orderedVia === undefined ? {} : { orderedVia },
+    isPaused,
+  };
+}
+
+/** The cart's currently-ordered rows a bulk receive would resolve against. */
+const ORDERED_ROWS: OrderedCartRow[] = [
+  { id: ROW_A, status: "ordered", orderedVia: "wolt" },
+  { id: ROW_B, status: "ordered", orderedVia: "carrefour" },
+];
 
 describe("queuedCartRowIds", () => {
   it("marks the row a queued setStatus is about", () => {
@@ -81,5 +100,52 @@ describe("queuedCartRowIds", () => {
     ];
 
     expect(queuedCartRowIds(odd)).toEqual(new Set());
+  });
+});
+
+describe("queuedCartRowIds — cart.receiveOrder", () => {
+  it("marks every currently-ordered row when no service narrows it", () => {
+    expect(queuedCartRowIds([receiveOrder()], ORDERED_ROWS)).toEqual(
+      new Set([ROW_A, ROW_B]),
+    );
+  });
+
+  it("marks only the rows ordered through the named service", () => {
+    expect(queuedCartRowIds([receiveOrder("wolt")], ORDERED_ROWS)).toEqual(
+      new Set([ROW_A]),
+    );
+  });
+
+  it("treats an explicit null the same as no service — the router's own reading", () => {
+    expect(queuedCartRowIds([receiveOrder(null)], ORDERED_ROWS)).toEqual(
+      new Set([ROW_A, ROW_B]),
+    );
+  });
+
+  it("marks nothing when the cart's current rows are not supplied", () => {
+    expect(queuedCartRowIds([receiveOrder()])).toEqual(new Set());
+  });
+
+  it("ignores a receiveOrder that is in flight rather than paused", () => {
+    expect(
+      queuedCartRowIds([receiveOrder("wolt", false)], ORDERED_ROWS),
+    ).toEqual(new Set());
+  });
+
+  it("does not mark a row for an unrecognized service value", () => {
+    // A garbage value from an older build — treated as "not this mutation's
+    // shape" rather than guessed at.
+    expect(queuedCartRowIds([receiveOrder("самовывоз")], ORDERED_ROWS)).toEqual(
+      new Set(),
+    );
+  });
+
+  it("combines with a row-scoped mutation queued alongside it", () => {
+    expect(
+      queuedCartRowIds(
+        [receiveOrder("carrefour"), setStatus(ROW_A)],
+        ORDERED_ROWS,
+      ),
+    ).toEqual(new Set([ROW_A, ROW_B]));
   });
 });
