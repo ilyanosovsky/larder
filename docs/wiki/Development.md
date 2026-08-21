@@ -337,7 +337,15 @@ The four decisions the screen makes are pure modules under `src/lib/cart/`, for 
 
 **The optimistic checkbox** is the first optimistic mutation in the repo and the pattern the rest should copy. `onMutate` awaits `queryClient.cancelQueries(cartFilter)` — without it a refetch already in flight resolves _after_ the patch and the checkbox visibly un-ticks itself — then snapshots, applies `applyStatusToggle`, and returns the snapshot as rollback context; `onError` restores it and toasts; `onSettled` invalidates. Two fields are deliberately **not** patched: `updatedAt` (the highlight diff keys off it, so writing it would flash a "your partner changed this" cue at you for your own tap) and `buyerId` (the server stamps the caller on `bought` and clears it on `needed`; guessing would render a «кто берёт» a failed request has to take back).
 
-The double-tap guard is a `Set` in a **ref**, not `mutation.isPending`. It has to be per row — ticking three things one after another is ordinary shopping — and it has to be synchronous with the tap, because `disabled` lands a render late and `onMutate` does not run until `mutate()` has handed off. Two `setStatus` calls for one row genuinely race, and last-write-wins would settle on whichever arrived second rather than on what the shopper last tapped. A `useState` mirror of the same set is what renders `disabled`.
+**Double-tap guards are refs, never render state.** Worth stating plainly, because the wrong version _looks_ correct: `mutation.isPending`, a `useState` flag and a `disabled` attribute are all applied by React **after** the handler returns, so two taps landing in the same event-loop turn read the same pre-tap value and both get through. Only a ref is written and read synchronously.
+
+What losing that race costs differs per call site, which is why each one is locked:
+
+- **The checkbox** — `pendingRef`, a `Set` keyed by row id. Per row, because ticking three things one after another is ordinary shopping and must never block. Two `setStatus` calls for one row race, and last-write-wins settles on whichever arrived second rather than on what the shopper last tapped.
+- **«В корзину»** — `addBusyRef` in the screen, plus the sheet's own `busyRef`. `cart.add` **merges**, so two adds of «2 шт» leave 4 in the cart: stateful damage, with nothing on screen admitting the second tap did anything. Both entry points (S4 and the restore confirmation) route through `submitAdd`, so one lock covers both.
+- **«Создать „…“»** — the sheet's `busyRef` again. Two AI calls and two `ai_jobs` rows; this one costs money.
+
+`isPending` and `disabled` stay, but for **rendering only** — the pending label and the greyed-out button. They are feedback, not the guard. A `useState` mirror of `pendingRef` exists for exactly that reason.
 
 **Add flow.** «+ Добавить» opens S4; S4 reports `{ product, qty, unit }` and the screen calls `cart.add`. `describeCartAddOutcome` maps the answer:
 

@@ -223,37 +223,51 @@ export function CartScreen() {
    * lets a failure reject: S4 is still on screen at that point and shows the
    * error where the shopper is looking. The restore confirmation, which has
    * no such place, catches it itself.
+   *
+   * The lock is a **ref**, for the same reason the checkbox's is, and it
+   * matters more here: `add.isPending` and a `disabled` attribute both only
+   * take effect on the next render, so two taps in one event-loop turn would
+   * both get through — and `cart.add` **merges**, so two adds of «2 шт» leave
+   * 4 in the cart with nothing on screen admitting the second tap did
+   * anything. Both entry points (S4 and the restore confirmation) go through
+   * here, so one lock covers both.
    */
+  const addBusyRef = useRef(false);
+
   async function submitAdd(selection: ProductSelection, restore: boolean) {
-    const result = await add.mutateAsync({
-      productId: selection.product.id,
-      qty: selection.qty,
-      unit: selection.unit,
-      restore,
-    });
-
-    const action = describeCartAddOutcome(result);
-    highlightRow(action.highlightId);
-    void queryClient.invalidateQueries(cartFilter);
-
-    if (action.needsRestoreConfirm) {
-      setConfirmError(null);
-      setFlow({ kind: "confirmRestore", selection });
+    if (addBusyRef.current) {
       return;
     }
+    addBusyRef.current = true;
 
-    setFlow({ kind: "closed" });
-    if (action.toastKey !== null) {
-      setToast(toastFor(action.toastKey, selection));
+    try {
+      const result = await add.mutateAsync({
+        productId: selection.product.id,
+        qty: selection.qty,
+        unit: selection.unit,
+        restore,
+      });
+
+      const action = describeCartAddOutcome(result);
+      highlightRow(action.highlightId);
+      void queryClient.invalidateQueries(cartFilter);
+
+      if (action.needsRestoreConfirm) {
+        setConfirmError(null);
+        setFlow({ kind: "confirmRestore", selection });
+        return;
+      }
+
+      setFlow({ kind: "closed" });
+      if (action.toastKey !== null) {
+        setToast(toastFor(action.toastKey, selection));
+      }
+    } finally {
+      addBusyRef.current = false;
     }
   }
 
   async function confirmRestore(selection: ProductSelection) {
-    // Same one-tick window every other mutation in this app guards: `disabled`
-    // only lands on the next render.
-    if (add.isPending) {
-      return;
-    }
     setConfirmError(null);
     try {
       await submitAdd(selection, true);

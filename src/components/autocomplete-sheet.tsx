@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
 import { canStepQty, QTY_STEP, stepQty } from "@/lib/cart/qty-step";
 import { isRateLimitedError } from "@/lib/trpc-errors";
@@ -87,10 +87,11 @@ export function AutocompleteSheet({
   open: boolean;
   onClose: () => void;
   /**
-   * Fired once per «В корзину» tap. May return a promise — the sheet awaits it
-   * and keeps the button disabled meanwhile, so a slow request cannot be
-   * submitted twice. Rejections are caught and shown as the generic sheet
-   * error, but a caller is expected to handle its own failures.
+   * Fired once per «В корзину» tap, and **exactly** once: the sheet awaits
+   * the promise behind a synchronous ref lock, so neither a slow request nor
+   * two taps in one tick can submit twice (see `busyRef`). Rejections are
+   * caught and shown as the generic sheet error, but a caller is expected to
+   * handle its own failures.
    */
   onAdded: (selection: ProductSelection) => void | Promise<void>;
   /** The control that opened the sheet — see `useSheetOpener()`. */
@@ -222,39 +223,52 @@ export function AutocompleteSheet({
   }
 
   /**
-   * Both handlers below bail while a create is already in flight.
+   * The sheet does one thing at a time, and this is what enforces it.
    *
-   * `disabled={create.isPending}` on the buttons is not enough on its own:
-   * `isPending` only becomes true on the *next* render, so two taps landing
-   * in the same tick both get through — two requests, and on the paid path
-   * two AI calls and two `ai_jobs` rows. Reading the mutation's own state at
-   * call time closes that window.
+   * A **ref**, deliberately — not `create.isPending`, not `submitting`, not
+   * `disabled` on the buttons. All three are render state: React applies a
+   * `setState` (and a mutation's own status transition) *after* the handler
+   * returns, so two taps landing in the same event-loop turn read the same
+   * pre-tap value and both get through. `disabled` has the same problem from
+   * the other side — it only reaches the DOM on the next render.
+   *
+   * The cost of losing that race is not a wasted request. On «Создать „…“»
+   * it is two AI calls and two `ai_jobs` rows; on «В корзину» it is worse,
+   * because `cart.add` **merges** into an existing line — two adds of «2 шт»
+   * leave 4 in the cart, and nothing on screen says the second tap did
+   * anything. A ref is written and read synchronously, so the second tap sees
+   * the first one's lock.
+   *
+   * The state below stays for rendering only.
    */
+  const busyRef = useRef(false);
+
   async function pick(hit: ProductSearchHitOutput) {
-    if (create.isPending) {
+    if (busyRef.current) {
       return;
     }
-    setError(null);
-
-    // A product the household already has needs no write at all — the
-    // quantity step attaches to the row it already owns. The id is what says
-    // so, rather than `source`: `productId === null` is the search contract's
-    // own definition of "a reference entry, not created yet".
-    if (hit.productId !== null) {
-      enterQuantity(
-        {
-          id: hit.productId,
-          name: hit.name,
-          icon: hit.icon,
-          categoryId: hit.categoryId,
-          defaultUnit: hit.unit,
-        },
-        { created: false, aiFailed: false },
-      );
-      return;
-    }
-
+    busyRef.current = true;
     try {
+      setError(null);
+
+      // A product the household already has needs no write at all — the
+      // quantity step attaches to the row it already owns. The id is what
+      // says so, rather than `source`: `productId === null` is the search
+      // contract's own definition of "a reference entry, not created yet".
+      if (hit.productId !== null) {
+        enterQuantity(
+          {
+            id: hit.productId,
+            name: hit.name,
+            icon: hit.icon,
+            categoryId: hit.categoryId,
+            defaultUnit: hit.unit,
+          },
+          { created: false, aiFailed: false },
+        );
+        return;
+      }
+
       // Only the name goes over the wire: the server re-resolves the icon and
       // the department from the reference catalog itself.
       const result = await create.mutateAsync({
@@ -268,14 +282,17 @@ export function AutocompleteSheet({
       });
     } catch {
       setError(t("error"));
+    } finally {
+      busyRef.current = false;
     }
   }
 
   async function createNew() {
     const name = query.trim();
-    if (name.length === 0 || create.isPending) {
+    if (name.length === 0 || busyRef.current) {
       return;
     }
+    busyRef.current = true;
 
     setError(null);
     setPhase({ kind: "creating" });
@@ -290,22 +307,23 @@ export function AutocompleteSheet({
     } catch (caught) {
       setError(isRateLimitedError(caught) ? t("rateLimited") : t("error"));
       setPhase({ kind: "search" });
+    } finally {
+      busyRef.current = false;
     }
   }
 
   async function submit(product: EditableProduct) {
-    // Same one-tick window the create handlers guard, for the same reason:
-    // `disabled` only lands on the next render, and a double tap here would
-    // add the quantity twice.
-    if (submitting) {
+    if (busyRef.current) {
       return;
     }
+    busyRef.current = true;
     setSubmitting(true);
     try {
       await onAdded({ product, qty, unit });
     } catch {
       setError(t("error"));
     } finally {
+      busyRef.current = false;
       setSubmitting(false);
     }
   }
