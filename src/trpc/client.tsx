@@ -1,7 +1,7 @@
 "use client";
 
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import type { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import {
   createTRPCClient,
   httpBatchStreamLink,
