@@ -198,9 +198,17 @@ export function AutocompleteSheet({
    * same word again inside that window would offer «Создать „…“» a second
    * time for a product that now exists — the duplicate this sheet is built to
    * prevent, arrived at from the other direction.
+   *
+   * `refetchType: "none"` because the sheet is on its way to the quantity
+   * step, where the search is disabled: marking the answers stale is the
+   * whole point, and refetching a list nobody is looking at would just spend
+   * a request.
    */
-  function refreshCatalogQueries() {
-    void queryClient.invalidateQueries(trpc.product.pathFilter());
+  function staleCatalogQueries() {
+    void queryClient.invalidateQueries({
+      ...trpc.product.pathFilter(),
+      refetchType: "none",
+    });
   }
 
   function enterQuantity(
@@ -251,7 +259,7 @@ export function AutocompleteSheet({
         source: "reference",
         name: hit.name,
       });
-      refreshCatalogQueries();
+      staleCatalogQueries();
       enterQuantity(result.product, {
         created: true,
         aiFailed: result.aiFailed,
@@ -272,7 +280,7 @@ export function AutocompleteSheet({
 
     try {
       const result = await create.mutateAsync({ source: "new", name });
-      refreshCatalogQueries();
+      staleCatalogQueries();
       enterQuantity(result.product, {
         created: true,
         aiFailed: result.aiFailed,
@@ -492,7 +500,7 @@ export function AutocompleteSheet({
         <ProductEditForm
           product={phase.product}
           onSaved={(saved) => {
-            refreshCatalogQueries();
+            staleCatalogQueries();
             // The quantity already dialled in survives — only the product
             // changed. The unit follows the product's new default, which is
             // usually the very thing the shopper came here to correct.

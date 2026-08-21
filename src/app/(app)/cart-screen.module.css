@@ -29,7 +29,6 @@
 }
 
 .toolbarCount {
-  flex: 1;
   color: var(--mute-2);
   font-family: var(--font-mono);
   font-size: var(--t-small);
@@ -42,6 +41,9 @@
   flex: none;
   align-items: center;
   justify-content: center;
+  /* On the button rather than as `flex: 1` on the count, which is not
+     rendered before the first list arrives. */
+  margin-left: auto;
   /* Pulls the 44px target back onto the baseline row it belongs to without
      making the toolbar 44px tall. */
   margin-bottom: calc(-1 * var(--s-3));

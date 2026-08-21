@@ -264,7 +264,11 @@ export function CartScreen() {
 
   const items = cart.data ?? [];
   const sections = groupProductsByCategory(items);
-  const isEmpty = cart.isSuccess && items.length === 0;
+  // Keyed off the data rather than off `isSuccess`: a failed refetch on top of
+  // a list already on screen leaves `status: "error"`, and the count has no
+  // business disappearing from above rows that are still there.
+  const hasList = cart.data !== undefined;
+  const isEmpty = hasList && items.length === 0;
 
   function openSearch(element: HTMLElement | null) {
     addOpener.captureOpener(element);
@@ -275,7 +279,7 @@ export function CartScreen() {
     <section className={styles.screen}>
       <div className={styles.toolbar}>
         <h1 className={styles.toolbarTitle}>{t("title")}</h1>
-        {cart.isSuccess ? (
+        {hasList ? (
           <span className={styles.toolbarCount}>
             {t("count", { count: items.length })}
           </span>
