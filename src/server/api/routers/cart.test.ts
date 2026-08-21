@@ -461,6 +461,39 @@ describe("cart.add — losing the one-active-row index", () => {
     expectActiveOnly(recovery);
   });
 
+  it("issues the insert inside a savepoint, one level below the procedure's transaction", async () => {
+    // The property the recovery depends on, and the one the stub cannot
+    // otherwise show: in Postgres a unique violation aborts the *entire*
+    // enclosing transaction, so an insert that is not wrapped in its own
+    // savepoint would leave the recovery read failing with 25P02 rather than
+    // finding the winner. Drop the nested `transaction()` in
+    // `insertActiveItem` and every other assertion here still passes — only
+    // this one, and a real database, notice.
+    const { caller, stub } = callerWith([
+      ...addPreamble(),
+      uniqueViolation(),
+      [cartRow({ qty: 5 })],
+      [cartRow({ qty: 7 })],
+    ]);
+
+    await caller.cart.add({ productId: PRODUCT_ID, qty: 2, unit: "шт" });
+
+    // The locking read is in the procedure's own transaction …
+    expect(stub.statements[2]).toMatchObject({
+      kind: "select",
+      txDepth: 1,
+    });
+    // … the insert that may collide is one level deeper.
+    expect(stub.statements[3]).toMatchObject({
+      kind: "insert",
+      table: "cart_items",
+      txDepth: 2,
+    });
+    // The recovery read is back at the outer level — the savepoint was
+    // released, not left open.
+    expect(stub.statements[4]).toMatchObject({ kind: "select", txDepth: 1 });
+  });
+
   it("applies the ordinary rules to the winner — a bought winner still asks", async () => {
     const { caller } = callerWith([
       ...addPreamble(),
@@ -554,6 +587,21 @@ describe("cart.setStatus", () => {
       status: "ordered",
       orderedVia: "wolt",
     });
+  });
+
+  it("keeps the buyer when a line moves to ordered — the column is also «кто берёт»", async () => {
+    // `buyerId` is set by hand through `updateItem` to assign a line long
+    // before anyone buys anything (VISION §3.1: закупки разделены). Clearing
+    // it here would silently discard that assignment every time a line was
+    // ordered; only `needed` clears it.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [cartRow({ status: "ordered", buyerId: PARTNER_ID })],
+    ]);
+
+    await caller.cart.setStatus({ id: ITEM_ID, status: "ordered" });
+
+    expect(stub.statements[1]?.values).not.toHaveProperty("buyerId");
   });
 
   it("leaves the delivery service alone when none is given", async () => {

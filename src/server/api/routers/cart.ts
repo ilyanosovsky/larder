@@ -612,17 +612,28 @@ export const cartRouter = createTRPCRouter({
   /**
    * Moves a line along `нужно → заказано → куплено` (VISION §3.1).
    *
-   * Each status owns the fields that only make sense in it, so the row can
-   * never describe two states at once:
+   * What each status writes besides itself:
    *
    * - `bought` stamps the caller as the buyer — that is what «кто купил» reads,
    *   and the checkbox is the only place it is ever set.
    * - `needed` clears both the buyer and the delivery service: the line is
    *   back to nobody having done anything about it.
-   * - `ordered` records `orderedVia` when the screen offers one.
+   * - `ordered` records `orderedVia` when the screen offers one, and touches
+   *   nothing else.
    *
-   * `ordered → bought` deliberately keeps `orderedVia`: a delivered Wolt order
-   * was still bought at Wolt, and the history should say so.
+   * The two carried-over fields are deliberate, not oversights:
+   *
+   * `ordered → bought` keeps `orderedVia` — a delivered Wolt order was still
+   * bought at Wolt, and the history should say so.
+   *
+   * `bought → ordered` keeps `buyerId`, because that column answers «кто
+   * берёт» as much as «кто купил» (VISION §3.1: закупки разделены). It is set
+   * by hand through `updateItem` to assign a line long before anyone buys
+   * anything, and clearing it here would silently discard that assignment
+   * every time a line moved to `ordered`. Only `needed` clears it, which is
+   * the path that actually means "nobody has done anything about this".
+   * A buyer left over from an undone purchase is the lesser cost, and the one
+   * the shopper can see and fix.
    *
    * Last write wins, as VISION §3.1 asks — a checkbox has to work instantly on
    * a bad connection at the till, so the write must never depend on having

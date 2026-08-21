@@ -232,7 +232,9 @@ CREATE UNIQUE INDEX "cart_items_productId_active_uidx"
   ON "cart_items" ("product_id") WHERE trip_id is null;
 ```
 
-**Active** means "not yet carried off by a closed trip", so a product appears at most once in the live cart and any number of times across history. Product ids are already household-scoped, so scoping the index by household again would add nothing the foreign key does not already guarantee.
+**Active** means "not yet carried off by a closed trip", so a product appears at most once in the live cart and any number of times across history. The index needs no `household_id`: a product row belongs to exactly one household, so uniqueness per product is already at least as strict as uniqueness per (household, product) — never weaker.
+
+That is a property of `products`, not of `cart_items`' own foreign keys. Those are independent, so the database alone does **not** force `cart_items.household_id` to equal `products.household_id` — keeping the two in step is the router's job (`cart.add` checks the client's `productId` against the caller's own catalog before inserting). This is the same app-level guard `product.update` already applies to a `categoryId`, and it is a deliberate consistency choice rather than an oversight: closing it in the database would mean composite `(household_id, id)` keys on `products`, `categories` and `shopping_trips` alike, which is a repo-wide tenancy decision rather than something one feature PR should introduce for one table.
 
 The index is the **authority, not a pre-check**. Adding a product that is already in the cart raises the existing line instead of minting a second one, and two partners doing it at the same instant race in Postgres rather than on a read. «Помидоры и вверху, и внизу» — the note-app pain this whole product started from — is impossible by construction. Application code must never work around it (AGENTS.md).
 
@@ -371,7 +373,7 @@ Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the cli
 
 - `unusableDb` — a Proxy that throws on any property access, so a test can prove a procedure rejected _before_ it queried.
 - `unusableOpenai` — the same idea for `ctx.openai()`. It is the default in both contexts below, so a test that unexpectedly reaches an AI call fails loudly instead of dialing a paid API.
-- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters.
+- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters, plus `txDepth`, the transaction nesting a statement was issued at (`0` bare, `1` in a transaction, `2` in a savepoint). `txDepth` exists because some nesting is load-bearing rather than stylistic — see the cart's insert-inside-a-savepoint — and the stub has no database to reveal it any other way.
 - `anonymousContext(db, openai?)` / `signedInContext(db, openai?)` — the two contexts to hand `createCaller`.
 
 Business rules that do not need a query at all (invite validity, accept decisions) live as pure functions and are tested directly. No test opens a database connection.

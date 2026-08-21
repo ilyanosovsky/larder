@@ -265,10 +265,18 @@ export const cartItemStatusEnum = pgEnum("cart_item_status", [
  * **The invariant this table exists for: one active row per product.** It is
  * the partial unique index `(product_id) WHERE trip_id IS NULL` — active means
  * "not yet carried off by a closed trip", so a product may appear once in the
- * live cart and any number of times across purchase history. Product ids are
- * already household-scoped (`products.household_id`), so scoping the index by
- * household again would add nothing the foreign key does not already
- * guarantee.
+ * live cart and any number of times across purchase history. The index needs
+ * no `household_id`: a product row belongs to exactly one household, so
+ * uniqueness per product is already at least as strict as uniqueness per
+ * (household, product) — never weaker.
+ *
+ * That is a statement about `products`, not about this table's own foreign
+ * keys, which are independent and therefore do **not** by themselves force
+ * `cart_items.household_id` to equal `products.household_id`. Keeping the two
+ * in step is the router's job: `cart.add` checks the client's `productId`
+ * against the caller's own catalog before it inserts, exactly as
+ * `product.update` checks a `categoryId` against the caller's own departments
+ * (the same shape of guard, for the same reason).
  *
  * The index is the authority, not a pre-check: adding a product that is
  * already in the cart raises the existing row's quantity instead of minting a
