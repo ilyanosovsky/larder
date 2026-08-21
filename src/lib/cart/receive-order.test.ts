@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyReceiveOrder,
   groupOrderedByService,
-  receivableRowIds,
   receivableServiceGroups,
   rollbackReceiveOrder,
   type OrderedCartRow,
@@ -20,32 +19,6 @@ const FLOUR = row({ id: "flour", status: "ordered", orderedVia: "carrefour" });
 const CANDLES = row({ id: "candles", status: "ordered", orderedVia: "other" });
 const LEMONS = row({ id: "lemons", status: "needed" });
 const EGGS = row({ id: "eggs", status: "bought" });
-
-describe("receivableRowIds", () => {
-  it("names every ordered row when no service narrows it", () => {
-    expect(receivableRowIds([MILK, FLOUR, CANDLES, LEMONS, EGGS])).toEqual([
-      "milk",
-      "flour",
-      "candles",
-    ]);
-  });
-
-  it("narrows to one service", () => {
-    expect(receivableRowIds([MILK, FLOUR, CANDLES], "wolt")).toEqual(["milk"]);
-  });
-
-  it("treats an explicit null the same as no filter — the router's own reading", () => {
-    expect(receivableRowIds([MILK, FLOUR], null)).toEqual(["milk", "flour"]);
-  });
-
-  it("names nothing when no row is ordered", () => {
-    expect(receivableRowIds([LEMONS, EGGS])).toEqual([]);
-  });
-
-  it("names nothing for a service nobody ordered through", () => {
-    expect(receivableRowIds([MILK, FLOUR], "other")).toEqual([]);
-  });
-});
 
 describe("applyReceiveOrder", () => {
   it("moves every ordered row to bought and clears its service", () => {

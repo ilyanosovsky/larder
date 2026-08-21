@@ -546,7 +546,7 @@ export function CartScreen() {
   const isEmpty = hasList && items.length === 0;
 
   /** Rows whose change is sitting in the offline queue — mockup 1c's 🕐. */
-  const queuedIds = useQueuedCartRows(trpc.cart.pathKey(), items);
+  const queuedIds = useQueuedCartRows(trpc.cart.pathKey());
 
   /**
    * Distinct services among the currently-ordered rows — the receive bar.
@@ -593,6 +593,16 @@ export function CartScreen() {
     editingItemId === null
       ? null
       : (items.find((item) => item.id === editingItemId) ?? null);
+
+  /**
+   * Handed to `CartItemSheet` as `onMutated`, so its own edits get the same
+   * own-change suppression `setStatus` gives the checkbox — without it, a
+   * note or a buyer set from the sheet would flash as «партнёр что-то
+   * поменял» the moment the sheet's own invalidate refetches the list.
+   */
+  function markSheetChange(rowId: string) {
+    markOwnChange(ownChangesRef.current, rowId, Date.now(), HIGHLIGHT_MS);
+  }
 
   return (
     <section className={styles.screen}>
@@ -933,6 +943,7 @@ export function CartScreen() {
         restoreFocusTo={editOpener.restoreFocusTo}
         item={editingItem}
         members={members}
+        onMutated={markSheetChange}
       />
     </section>
   );

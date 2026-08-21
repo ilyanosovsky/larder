@@ -954,12 +954,28 @@ describe("cart.receiveOrder", () => {
     );
   });
 
-  it("narrows to the one service given", async () => {
+  it("narrows to the one service given, binding it as a parameter", async () => {
     const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
 
     await caller.cart.receiveOrder({ orderedVia: "wolt" });
 
-    expect(compile(stub.statements[1]?.wheres[0])).toContain('"ordered_via"');
+    const compiled = compileWithParams(stub.statements[1]?.wheres[0]);
+    expect(compiled.sql).toContain('"ordered_via"');
+    expect(compiled.params).toContain("wolt");
+  });
+
+  it("binds whichever service is given, not a value fixed at wolt", async () => {
+    // Companion to the test above: a *different* service, expecting *that*
+    // value bound — this is what actually proves the filter reads the
+    // input, since a hardcoded `eq(cartItems.orderedVia, "wolt")` would pass
+    // the "wolt" test above by coincidence and only fail here.
+    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+
+    await caller.cart.receiveOrder({ orderedVia: "carrefour" });
+
+    const compiled = compileWithParams(stub.statements[1]?.wheres[0]);
+    expect(compiled.params).toContain("carrefour");
+    expect(compiled.params).not.toContain("wolt");
   });
 
   it("scopes the write to this household's active, ordered lines", async () => {
@@ -986,6 +1002,14 @@ describe("cart.receiveOrder", () => {
     // so this proves the *shape* of the write instead: a single `COALESCE`
     // over the column and the caller's id, exactly like `setStatus`'s
     // single-row buyer rule but expressed for a whole batch at once.
+    //
+    // The exact compiled text is asserted, not just a substring check for
+    // "coalesce" plus the caller's id somewhere in `params` — either of those
+    // alone would also pass for the swapped, wrong-semantics
+    // `coalesce($1, "cart_items"."buyer_id")` (always the caller, falling
+    // back to the existing buyer only when the caller's id is itself null,
+    // which it never is). Pinning both the column-then-parameter order in
+    // `sql` and the single-element `params` array rules that out.
     const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
 
     await caller.cart.receiveOrder({});
@@ -993,7 +1017,7 @@ describe("cart.receiveOrder", () => {
     const values = stub.statements[1]?.values as Record<string, unknown>;
     const compiled = compileWithParams(values.buyerId);
 
-    expect(compiled.sql.toLowerCase()).toContain("coalesce");
-    expect(compiled.params).toContain("user_1");
+    expect(compiled.sql).toBe('coalesce("cart_items"."buyer_id", $1)');
+    expect(compiled.params).toEqual(["user_1"]);
   });
 });

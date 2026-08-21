@@ -3,8 +3,6 @@
 import { useMutationState, type MutationKey } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import type { OrderedCartRow } from "@/lib/cart/receive-order";
-
 import { queuedCartRowIds } from "./queued-mutations";
 
 /**
@@ -19,12 +17,9 @@ import { queuedCartRowIds } from "./queued-mutations";
  * `cartPathKey` is `trpc.cart.pathKey()` — the same router-level key the
  * screen and the header already use for `useIsMutating`. TanStack matches
  * mutation keys by prefix, so it covers every `cart.*` mutation, including
- * `receiveOrder` (task 2.5).
- *
- * `items` is the cart's current rows — only `cart.receiveOrder` needs them
- * (it names a service, not a row; `queuedCartRowIds` resolves that against
- * what is currently `ordered`), so a caller with no cart data yet may simply
- * omit it.
+ * `receiveOrder` (task 2.5); its own row ids come from `mutation.state.
+ * context` (`queued-mutations.ts`'s own doc comment explains why that, and
+ * not the current cart list, is what `queuedCartRowIds` reads for it).
  *
  * Every decision about *which* rows is in `queued-mutations.ts` (pure, and
  * therefore tested — vitest here runs in a node environment and cannot render
@@ -32,18 +27,18 @@ import { queuedCartRowIds } from "./queued-mutations";
  */
 export function useQueuedCartRows(
   cartPathKey: MutationKey,
-  items: readonly OrderedCartRow[] = [],
 ): ReadonlySet<string> {
   const queued = useMutationState({
     filters: { mutationKey: cartPathKey, status: "pending" },
     select: (mutation) => ({
       variables: mutation.state.variables,
       isPaused: mutation.state.isPaused,
+      context: mutation.state.context,
     }),
   });
 
   // `useMutationState` runs its result through `replaceEqualDeep`, so this
   // array keeps its identity until a mutation actually changes — which is
   // what makes memoizing on it worthwhile rather than pointless.
-  return useMemo(() => queuedCartRowIds(queued, items), [queued, items]);
+  return useMemo(() => queuedCartRowIds(queued), [queued]);
 }

@@ -6,11 +6,13 @@ import type { CartItemStatus } from "@/server/cart/merge";
  * `ordered` row (or, narrowed by service, every row ordered through one of
  * them) moves to `bought` in one tap, instead of ticking each one by hand.
  *
- * Kept pure and shared between the optimistic patch, the rollback and the
- * offline queue's «waiting to sync» mark, for the same reason
- * `src/lib/cart/status-toggle.ts` is: the decision belongs in one place
- * `cart-item-sheet.tsx`, `cart-screen.tsx` and `queued-mutations.ts` can all
- * point at, rather than three copies quietly drifting apart.
+ * Kept pure and shared between the optimistic patch and its rollback, for the
+ * same reason `src/lib/cart/status-toggle.ts` is: the decision belongs in one
+ * place `cart-screen.tsx` can point at, rather than a copy that quietly
+ * drifts apart from the router's own rules. The offline queue's «waiting to
+ * sync» mark does **not** read from here — see `queued-mutations.ts`'s own
+ * doc comment for why a bulk receive's affected rows have to come from its
+ * `onMutate` context instead of from the current cart list.
  */
 
 /** The fields a bulk receive needs from a row; a `cart.list` row satisfies it. */
@@ -36,20 +38,6 @@ function isReceivable(
     return true;
   }
   return row.orderedVia === orderedVia;
-}
-
-/**
- * The ids a receive-order tap of this scope is about. Shared by the
- * optimistic patch below and `queued-mutations.ts`'s 🕐 mark, so the two can
- * never disagree about which rows a bulk receive touches.
- */
-export function receivableRowIds<TRow extends OrderedCartRow>(
-  items: readonly TRow[],
-  orderedVia?: OrderedVia | null,
-): string[] {
-  return items
-    .filter((row) => isReceivable(row, orderedVia))
-    .map((row) => row.id);
 }
 
 /** One row's fields before `applyReceiveOrder` touched it — what a rollback restores. */

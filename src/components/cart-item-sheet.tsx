@@ -43,6 +43,7 @@ export function CartItemSheet({
   restoreFocusTo,
   item,
   members,
+  onMutated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -54,6 +55,17 @@ export function CartItemSheet({
    */
   item: CartListItemOutput | null;
   members: readonly CartItemSheetMember[];
+  /**
+   * Marks a row as changed by this client — the sheet's half of
+   * `own-changes.ts`'s contract (task 2.3/2.4). Called once when an action
+   * dispatches and again when it settles successfully, mirroring
+   * `setStatus`'s own double-mark in `cart-screen.tsx`: the second mark
+   * covers a write queued offline and delivered minutes later, well past the
+   * first mark's window. Without both, a note, buyer or service set from
+   * this sheet would flash as «партнёр что-то поменял» on the very next
+   * refetch of the caller's own making.
+   */
+  onMutated: (rowId: string) => void;
 }) {
   const t = useTranslations("cart");
   const tCommon = useTranslations("common");
@@ -139,10 +151,18 @@ export function CartItemSheet({
    * success, and reports the given message on failure. `onSuccess` is a
    * courtesy for `remove` (which also closes the sheet) — every other action
    * simply lets the fresh `item` prop show the result in place.
+   *
+   * `rowId` is marked via `onMutated` **twice**: once before `action` runs
+   * (the server is about to stamp `updatedAt`, and the mark has to be in
+   * place before the invalidate below can trigger a refetch that diffs
+   * against it) and again on success (covering a write that paused offline
+   * and only actually lands, and triggers its own refetch, minutes later —
+   * see the prop's own doc comment).
    */
   async function run(
     action: () => Promise<unknown>,
     errorMessage: string,
+    rowId: string,
     onSuccess?: () => void,
   ) {
     if (busyRef.current) {
@@ -150,10 +170,12 @@ export function CartItemSheet({
     }
     busyRef.current = true;
     setError(null);
+    onMutated(rowId);
 
     try {
       await action();
       void queryClient.invalidateQueries(trpc.cart.pathFilter());
+      onMutated(rowId);
       onSuccess?.();
     } catch {
       setError(errorMessage);
@@ -240,6 +262,7 @@ export function CartItemSheet({
                       note: note.trim() === "" ? null : note.trim(),
                     }),
                   t("editSaveError"),
+                  item.id,
                 )
               }
             >
@@ -263,6 +286,7 @@ export function CartItemSheet({
                     () =>
                       updateItem.mutateAsync({ id: item.id, buyerId: null }),
                     t("buyerError"),
+                    item.id,
                   )
                 }
               >
@@ -286,6 +310,7 @@ export function CartItemSheet({
                           buyerId: member.userId,
                         }),
                       t("buyerError"),
+                      item.id,
                     )
                   }
                 >
@@ -317,6 +342,7 @@ export function CartItemSheet({
                       void run(
                         () => setOrderedVia(item, service),
                         t("orderedError"),
+                        item.id,
                       )
                     }
                   >
@@ -338,6 +364,7 @@ export function CartItemSheet({
                           status: "needed",
                         }),
                       t("orderedError"),
+                      item.id,
                     )
                   }
                 >
@@ -356,6 +383,7 @@ export function CartItemSheet({
                 void run(
                   () => remove.mutateAsync({ id: item.id }),
                   t("removeError"),
+                  item.id,
                   onClose,
                 )
               }

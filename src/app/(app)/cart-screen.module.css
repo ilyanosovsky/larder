@@ -322,11 +322,17 @@
   white-space: nowrap;
 }
 
-/* An ordered row (mockup 1a): the name stops stretching so the badge sits
+/* An ordered row (mockup 1a): the name stops *growing* so the badge sits
    right after it instead of being pushed to the far edge — `.rowQtyPushed`
-   is what claims the freed-up space instead. */
+   is what claims the freed-up space instead. `flex: 0 1 auto` rather than
+   `none`, and `min-width: 0` alongside it: a flex item's implicit minimum
+   width is its content size, so without this a long product name would
+   refuse to shrink at all and push the badge/qty/avatar that follow it past
+   `.rowBody`'s `overflow: hidden` edge instead of ellipsis-truncating like an
+   ordinary row's name does. */
 .rowNameOrdered {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .rowNote {
