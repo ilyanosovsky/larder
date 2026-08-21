@@ -308,6 +308,42 @@ describe("installOfflineQueue: the stored envelope", () => {
   });
 });
 
+describe("installOfflineQueue: purge", () => {
+  it("deletes the stored envelope, awaited", async () => {
+    // What sign-out needs. `queryClient.clear()` only *schedules* an empty
+    // replacement through the persister's throttle and nothing waits for it,
+    // so a reload landing in that gap would restore the household that was
+    // just signed out of.
+    const { queryClient, queue, entries } = install();
+    successfulQuery(queryClient, [["cart", "list"], { type: "query" }]);
+    await queue.saveNow();
+    expect(entries.has(OFFLINE_CACHE_KEY)).toBe(true);
+
+    await queue.purge();
+
+    expect(entries.has(OFFLINE_CACHE_KEY)).toBe(false);
+  });
+
+  it("leaves nothing behind even if a scheduled save lands afterwards", async () => {
+    const { queryClient, queue, entries } = install();
+    successfulQuery(queryClient, [["cart", "list"], { type: "query" }]);
+    await queue.saveNow();
+
+    queryClient.clear();
+    await queue.purge();
+    // The throttle keeps only the latest arguments, and by now the cache is
+    // empty — so the worst a late write can do is re-create an empty one.
+    await queue.saveNow();
+
+    const stored = entries.get(OFFLINE_CACHE_KEY);
+    if (stored !== undefined) {
+      const envelope = superjson.parse<PersistedClient>(stored);
+      expect(envelope.clientState.queries).toHaveLength(0);
+      expect(envelope.clientState.mutations).toHaveLength(0);
+    }
+  });
+});
+
 describe("createInertPersistOptions", () => {
   it("restores nothing, so the server render never reads storage", async () => {
     const { persister } = createInertPersistOptions();

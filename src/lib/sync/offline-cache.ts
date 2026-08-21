@@ -1,5 +1,6 @@
 import type { PersistedClient } from "@tanstack/react-query-persist-client";
 import superjson from "superjson";
+import { z } from "zod";
 
 import { isQueuedMutationState } from "./delivery";
 
@@ -66,9 +67,59 @@ export function serializeOfflineCache(client: PersistedClient): string {
   return superjson.stringify(client);
 }
 
-/** Inverse of {@link serializeOfflineCache}. */
+/**
+ * The envelope's own shape, checked at the storage boundary.
+ *
+ * Deliberately **shallow**: the entries are TanStack's `DehydratedQuery` /
+ * `DehydratedMutation`, whose inner `state` this app neither owns nor should
+ * re-declare — a stricter schema would break on the library's next minor
+ * release, which is a worse failure than the one it guards. What it does
+ * check is exactly what `hydrate` walks unguarded: that the two collections
+ * are arrays, and that every entry has the handful of fields
+ * `queryCache.build` / `mutationCache.build` read. Anything deeper is already
+ * treated as untrusted where it is used — see `queuedCartRowIds` and
+ * `isQueuedMutationState`.
+ */
+const dehydratedQuerySchema = z.looseObject({
+  queryKey: z.array(z.unknown()),
+  queryHash: z.string(),
+  state: z.looseObject({}),
+});
+
+const dehydratedMutationSchema = z.looseObject({
+  mutationKey: z.array(z.unknown()).optional(),
+  state: z.looseObject({}),
+});
+
+const persistedClientSchema = z.looseObject({
+  timestamp: z.number(),
+  buster: z.string(),
+  clientState: z.looseObject({
+    queries: z.array(dehydratedQuerySchema),
+    mutations: z.array(dehydratedMutationSchema),
+  }),
+});
+
+/**
+ * Inverse of {@link serializeOfflineCache}, and the one place this app reads
+ * back something it wrote to a store the user's browser owns.
+ *
+ * `superjson.parse<PersistedClient>` is a **type assertion**, not a check:
+ * a truncated write, a hand-edited entry, or a payload from a build whose
+ * buster happens to match would arrive at `hydrate` as an arbitrary object.
+ * That matters because `hydrate` walks `queries` and `mutations` without
+ * guards — a bad entry halfway down throws mid-loop, leaving the cache
+ * half-populated *and* the storage purged by
+ * `persistQueryClientRestore`'s error path.
+ *
+ * Throwing here instead makes it all-or-nothing: the restore's `catch` runs
+ * before anything has been hydrated, drops the entry, and the app boots on
+ * the server's data.
+ */
 export function deserializeOfflineCache(raw: string): PersistedClient {
-  return superjson.parse<PersistedClient>(raw);
+  const parsed: unknown = superjson.parse(raw);
+  persistedClientSchema.parse(parsed);
+  return parsed as PersistedClient;
 }
 
 /**

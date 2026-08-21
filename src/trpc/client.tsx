@@ -20,6 +20,7 @@ import {
   createInertPersistOptions,
   installOfflineQueue,
   type OfflinePersistOptions,
+  type OfflineQueue,
 } from "./offline-queue";
 import { makeQueryClient } from "./query-client";
 
@@ -97,9 +98,23 @@ interface ClientRuntime {
    * until that flips.
    */
   onRestored: () => void;
+  /** The tab's offline queue, absent on the server. */
+  queue?: OfflineQueue;
 }
 
 let browserRuntime: ClientRuntime | undefined;
+
+/**
+ * The offline queue this tab installed, if it has one.
+ *
+ * Only for the handful of places that must reach past the React tree —
+ * sign-out has to erase the stored cart, and `useQueryClient()` cannot do
+ * that: clearing the cache only *schedules* an empty replacement through the
+ * persister. Everything else should go through the providers.
+ */
+export function getOfflineQueue(): OfflineQueue | undefined {
+  return browserRuntime?.queue;
+}
 
 function getRuntime(): ClientRuntime {
   if (typeof window === "undefined") {
@@ -128,6 +143,7 @@ function getRuntime(): ClientRuntime {
     browserRuntime = {
       queryClient,
       trpcClient,
+      queue,
       persistOptions: queue.persistOptions,
       onRestored: queue.onRestored,
     };

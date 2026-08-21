@@ -277,6 +277,94 @@ describe("offline cache envelope", () => {
   });
 });
 
+describe("deserializeOfflineCache: a corrupt entry", () => {
+  /**
+   * Rejecting has to happen **before** anything is hydrated. TanStack's
+   * `hydrate` walks `queries` and `mutations` without guards, so a bad entry
+   * halfway down throws mid-loop, leaving the cache half-populated and the
+   * storage purged by the restore's error path. Throwing here makes the
+   * restore all-or-nothing.
+   */
+  function rejects(value: unknown) {
+    expect(() =>
+      deserializeOfflineCache(superjson.stringify(value)),
+    ).toThrowError();
+  }
+
+  it("rejects a payload that is not an envelope at all", () => {
+    rejects(null);
+    rejects("larder");
+    rejects(42);
+    rejects([]);
+  });
+
+  it("rejects an envelope missing its version markers", () => {
+    rejects({ clientState: { queries: [], mutations: [] } });
+    rejects({ timestamp: 1, clientState: { queries: [], mutations: [] } });
+    rejects({ buster: "x", clientState: { queries: [], mutations: [] } });
+  });
+
+  it("rejects an envelope whose collections are not arrays", () => {
+    rejects({
+      timestamp: 1,
+      buster: OFFLINE_CACHE_BUSTER,
+      clientState: { queries: {}, mutations: [] },
+    });
+    rejects({
+      timestamp: 1,
+      buster: OFFLINE_CACHE_BUSTER,
+      clientState: { queries: [], mutations: "none" },
+    });
+  });
+
+  it("rejects an entry hydrate would choke on, however good its neighbours are", () => {
+    rejects({
+      timestamp: 1,
+      buster: OFFLINE_CACHE_BUSTER,
+      clientState: {
+        queries: [],
+        // No `state`: `mutationCache.build` is handed `undefined` and the
+        // whole restore dies partway through the list.
+        mutations: [{ mutationKey: [["cart", "setStatus"]] }],
+      },
+    });
+  });
+
+  it("accepts an empty envelope — that is what a signed-out device holds", () => {
+    const empty = {
+      timestamp: 1,
+      buster: OFFLINE_CACHE_BUSTER,
+      clientState: { queries: [], mutations: [] },
+    };
+
+    expect(deserializeOfflineCache(superjson.stringify(empty))).toEqual(empty);
+  });
+
+  it("accepts fields it does not know about, so a newer build's payload still loads", () => {
+    // The buster is what rejects an incompatible payload; the schema must not
+    // second-guess it by tripping over an added field.
+    const withExtras = {
+      timestamp: 1,
+      buster: OFFLINE_CACHE_BUSTER,
+      somethingNew: true,
+      clientState: {
+        queries: [],
+        mutations: [
+          {
+            mutationKey: [["cart", "setStatus"]],
+            scope: { id: "cart" },
+            state: { isPaused: true, futureField: 1 },
+          },
+        ],
+      },
+    };
+
+    expect(deserializeOfflineCache(superjson.stringify(withExtras))).toEqual(
+      withExtras,
+    );
+  });
+});
+
 describe("cache version", () => {
   /**
    * The buster is what makes an incompatible payload disappear instead of

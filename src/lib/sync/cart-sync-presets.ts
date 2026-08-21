@@ -1,3 +1,5 @@
+import { OFFLINE_CACHE_MAX_AGE_MS } from "./offline-cache";
+
 /**
  * How often the cart polls while its screen is open, in ms.
  *
@@ -44,4 +46,22 @@ export const cartSyncQueryOptions = {
    */
   refetchOnWindowFocus: "always",
   refetchOnReconnect: "always",
+  /**
+   * Kept in memory for as long as the offline cache keeps it on disk
+   * (task 2.4).
+   *
+   * TanStack's default `gcTime` is 5 minutes, and the persister dehydrates
+   * whatever is in the cache *at the time of a save*. So with the default,
+   * walking away from S3 for five minutes garbage-collects `cart.list`, the
+   * 'removed' event triggers a save, and the stored envelope loses the list —
+   * hours before `OFFLINE_CACHE_MAX_AGE_MS` says it should. The warm list on
+   * reopen would then only ever survive a short absence, which is the
+   * opposite of the case it exists for.
+   *
+   * Set here rather than as a `QueryClient` default, for the same reason the
+   * refetch policy is: this is the one query the app persists. Making every
+   * `product.search` immortal would grow the cache with each keystroke, and
+   * none of those are worth a byte of storage.
+   */
+  gcTime: OFFLINE_CACHE_MAX_AGE_MS,
 } as const;

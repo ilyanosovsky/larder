@@ -60,6 +60,13 @@ export interface OfflineQueue {
   readonly onRestored: () => void;
   /** Write the current cache to storage now, bypassing the save throttle. */
   readonly saveNow: () => Promise<void>;
+  /**
+   * Delete the stored envelope, awaited. For sign-out: `queryClient.clear()`
+   * alone only *schedules* an empty replacement through the persister's
+   * throttle, and nothing waits for that write — so the previous household's
+   * cart can still be sitting in IndexedDB when the next page load reads it.
+   */
+  readonly purge: () => Promise<void>;
 }
 
 export interface OfflineQueueOptions {
@@ -408,6 +415,15 @@ export function installOfflineQueue(
     flush,
     onRestored,
     saveNow,
+    /**
+     * `removeClient` goes straight at the store rather than through the
+     * save throttle, so awaiting it is a real guarantee. A save already
+     * scheduled when this runs can still land afterwards and re-create the
+     * entry — but `asyncThrottle` keeps only the *latest* arguments, and by
+     * then the cache has been cleared, so what it would write is an empty
+     * envelope. Either outcome leaves nothing of the previous session.
+     */
+    purge: () => Promise.resolve(persister.removeClient()),
     persistOptions: {
       persister,
       buster: OFFLINE_CACHE_BUSTER,

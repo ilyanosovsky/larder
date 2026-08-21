@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 import { LOGIN_PATH } from "@/lib/auth-redirect";
+import { getOfflineQueue } from "@/trpc/client";
 
 import styles from "./sign-out-button.module.css";
 
@@ -60,10 +61,15 @@ export function SignOutButton() {
       // singleton for the tab's lifetime — would otherwise outlive the
       // session, and since task 2.4 it is written to IndexedDB as well.
       // Another person signing in on this device would then be shown the
-      // previous household's cart out of storage. Clearing also emits the
-      // cache events the persister listens to, so the stored copy goes with
-      // it.
+      // previous household's cart out of storage.
       queryClient.clear();
+
+      // `clear()` only empties memory. It does emit the cache events the
+      // persister listens to, but that write goes through the persister's
+      // throttle and nothing waits for it — so a reload landing in that gap
+      // would restore the household this line just signed out of. `purge()`
+      // deletes the stored envelope directly, and is awaited.
+      await getOfflineQueue()?.purge();
 
       router.replace(LOGIN_PATH);
       // Drop the cached server-rendered tree so the shell cannot be shown
