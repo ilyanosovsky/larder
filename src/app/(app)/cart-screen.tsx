@@ -102,7 +102,13 @@ type AddFlow =
  * `purchases-screen.tsx` — this component is still exactly the standalone S3
  * screen it always was, just no longer mounted directly by the page.
  *
- * Deferred by design: «Завершить закупку» (3.2).
+ * **«Завершить закупку» (task 3.2) is the one control here that is not
+ * optimistic**, and deliberately so: it moves every bought line into history
+ * and the pantry in one server transaction, and guessing that result on the
+ * client would mean predicting which lines the server found bought at that
+ * instant — including the partner's ticks that this screen may not have
+ * refetched yet. It is also not till-critical the way the checkbox is: one
+ * tap at the end of a run, with a pending label, is the honest shape.
  */
 export function CartScreen() {
   const t = useTranslations("cart");
@@ -172,6 +178,15 @@ export function CartScreen() {
    */
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
 
+  /**
+   * `trip.close` rewrites the cart as thoroughly as any `cart.*` mutation
+   * does — every bought line leaves it — so it has to mute the passive
+   * refetches for exactly the same reason, even though it lives under a
+   * different router key.
+   */
+  const tripMutating = useIsMutating({ mutationKey: trpc.trip.pathKey() }) > 0;
+  const writesInFlight = cartMutating || tripMutating;
+
   const isOnline = useIsOnline();
 
   const cart = useQuery(
@@ -193,7 +208,7 @@ export function CartScreen() {
        * gap: if the partner writes the same row in the same instant, one of
        * the two wins and the next refetch shows it. VISION §3.1 accepts that.
        */
-      ...(cartMutating
+      ...(writesInFlight
         ? {
             refetchInterval: false as const,
             refetchOnWindowFocus: false as const,
@@ -462,6 +477,66 @@ export function CartScreen() {
     receiveOrder.mutate({ orderedVia });
   }
 
+  /**
+   * The bottom «+ Добавить», so focus has somewhere deliberate to go when the
+   * «Завершить закупку» button next to it disappears under the finger — see
+   * `closeTrip` below. `pantry-screen.tsx` solves the same problem with
+   * `pickNextFocusTarget`; here the neighbour is fixed, so a ref is enough.
+   */
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * The close-trip tap's own lock, synchronous for the reason every other
+   * guard on this screen is: `isPending` and a `disabled` attribute both land
+   * a render too late, and two closes fired in one tick would mint two trips
+   * — the second one empty, or worse, carrying lines the partner ticked in
+   * between.
+   */
+  const closingRef = useRef(false);
+
+  /**
+   * «Завершить закупку» (VISION §3.1, DESIGN_BRIEF S3): one tap, no
+   * confirmation. Plain mutate-and-invalidate — see this component's doc
+   * comment for why this one control is deliberately not optimistic — and
+   * `mutate`, never an awaited `mutateAsync`: a mutation TanStack pauses for
+   * being offline may not resolve until the connection returns.
+   *
+   * Both lists are invalidated: the cart loses the bought lines and the
+   * pantry gains a row for each of them, so leaving `pantry.list` alone would
+   * show a stale «Кладовая» tab one segment-control tap away.
+   */
+  const closeTrip = useMutation(
+    trpc.trip.close.mutationOptions({
+      onSuccess: (result) => {
+        if (result.count === 0) {
+          // Nothing was bought after all — the partner closed the same run a
+          // moment ago, or un-ticked the last line. Silent on purpose: the
+          // refetch below is the whole answer, and a toast would report a
+          // purchase that this tap did not make.
+          return;
+        }
+        showToast(t("closeTripDone", { count: result.count }));
+        // The button is about to unmount with the rows it counted, and a
+        // browser drops focus to the document body when that happens.
+        addButtonRef.current?.focus();
+      },
+      onError: () => showToast(t("closeTripError")),
+      onSettled: () => {
+        closingRef.current = false;
+        void queryClient.invalidateQueries(cartFilter);
+        void queryClient.invalidateQueries(trpc.pantry.list.queryFilter());
+      },
+    }),
+  );
+
+  function handleCloseTrip() {
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
+    closeTrip.mutate();
+  }
+
   function toggleStatus(item: CartListItemOutput) {
     // Per row rather than per screen: ticking three things one after another
     // is ordinary shopping and must never be blocked, but a second tap on the
@@ -563,6 +638,13 @@ export function CartScreen() {
    */
   const orderedGroups = receivableServiceGroups(groupOrderedByService(items));
 
+  /**
+   * What «Завершить закупку (N)» counts — every bought line in the cart,
+   * whoever ticked it: «закупка общая на household, а не на человека»
+   * (VISION §3.1), which is exactly what `trip.close` stamps.
+   */
+  const boughtCount = items.filter((item) => item.status === "bought").length;
+
   // The household's members, for the row sheet's «кто берёт» chips. Prefetched
   // server-side alongside `cart.list`/`category.list` (`page.tsx`), so this is
   // warm on first paint rather than a second client round trip.
@@ -639,7 +721,7 @@ export function CartScreen() {
           // the refetch would not fail but *pause* — leaving the control
           // spinning until the connection came back, promising a check it
           // cannot make. The banner above already says why.
-          disabled={isRefreshing || cartMutating || !isOnline}
+          disabled={isRefreshing || writesInFlight || !isOnline}
           aria-label={t("refreshAria")}
           // A bare ⟳ names itself to a screen reader through `aria-label`,
           // but not to a mouse — no browser surfaces that as a tooltip.
@@ -866,6 +948,7 @@ export function CartScreen() {
       {isEmpty ? null : (
         <div className={styles.actionBar}>
           <button
+            ref={addButtonRef}
             type="button"
             className={styles.addButton}
             onClick={(event) => openSearch(event.currentTarget)}
@@ -873,6 +956,28 @@ export function CartScreen() {
           >
             + {t("add")}
           </button>
+
+          {/* DESIGN_BRIEF S3: «внизу при наличии купленного», beside
+              «+ Добавить» rather than as a second floating pill — the two
+              are one decision bar. */}
+          {boughtCount === 0 ? null : (
+            <button
+              type="button"
+              className={styles.closeTripButton}
+              // `aria-disabled`, never `disabled`: the browser drops focus
+              // off a control the moment it becomes disabled, which would
+              // throw a keyboard user back to the top of the page mid-tap.
+              // `closingRef` is what actually prevents the second fire — the
+              // same split the row checkbox documents.
+              aria-disabled={closeTrip.isPending || undefined}
+              aria-busy={closeTrip.isPending || undefined}
+              onClick={handleCloseTrip}
+            >
+              {closeTrip.isPending
+                ? t("closeTripPending")
+                : t("closeTrip", { count: boughtCount })}
+            </button>
+          )}
         </div>
       )}
 
@@ -880,9 +985,17 @@ export function CartScreen() {
           text changes. A `role="status"` node that appears together with its
           content is not reliably announced — assistive technology has to have
           been watching the region *before* the text arrived. The visible card
-          below is therefore presentation only. */}
+          below is therefore presentation only.
+
+          `toast.seq` keys the *child*, never the region itself (the solved
+          version of this from `pantry-screen.tsx`): React skips an in-place
+          text update when the new string is identical to the old one, so two
+          consecutive «Не получилось отметить» — or two closes of two
+          one-item trips — would be announced once. A fresh child node is a
+          real mutation inside the already-live region, which assistive tech
+          observes whether or not the text repeats. */}
       <p className={styles.srOnly} role="status">
-        {toast?.message ?? ""}
+        <span key={toast?.seq ?? "empty"}>{toast?.message ?? ""}</span>
       </p>
 
       {toast === null ? null : (

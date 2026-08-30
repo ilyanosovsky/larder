@@ -31,7 +31,13 @@
     "kitchenProfileSave": "Сохранить",
     "kitchenProfileSavePending": "Сохраняем…",
     "kitchenProfileSaved": "Профиль кухни сохранён",
-    "kitchenProfileError": "Не получилось сохранить. Попробуй ещё раз."
+    "kitchenProfileError": "Не получилось сохранить. Попробуй ещё раз.",
+    "tripHistoryTitle": "История закупок",
+    "tripHistoryLoading": "Загружаем историю…",
+    "tripHistoryLoadFailed": "Не удалось загрузить историю закупок.",
+    "tripHistoryRetry": "Повторить",
+    "tripHistoryEmpty": "Пока пусто — история появится после первой завершённой закупки.",
+    "tripHistoryItems": "{count, plural, one {# позиция} few {# позиции} many {# позиций} other {# позиции}}"
   },
   "cart": {
     "title": "Корзина",
@@ -87,7 +93,11 @@
     "receiveOrder": "Заказ получен ({count})",
     "receiveOrderService": "Заказ получен · {service} ({count})",
     "receiveOrderPending": "Получаем…",
-    "receiveOrderError": "Не получилось. Попробуй ещё раз."
+    "receiveOrderError": "Не получилось. Попробуй ещё раз.",
+    "closeTrip": "Завершить закупку ({count})",
+    "closeTripPending": "Завершаем…",
+    "closeTripDone": "Закупка завершена — {count} в кладовой",
+    "closeTripError": "Не получилось завершить закупку. Попробуй ещё раз."
   },
   "purchases": {
     "segmentAria": "Корзина или кладовая",
