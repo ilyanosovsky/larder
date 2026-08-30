@@ -216,17 +216,17 @@ export const products = pgTable(
  * creates.
  *
  * There is no "open trip" row and no `openedAt`: a trip only ever comes into
- * existence at the moment it is closed, when task 3.2 stamps its id onto every
- * `bought` cart item in one statement. Until then the household simply has
- * active cart items, and "the current trip" is the set of rows with
- * `trip_id IS NULL` — which is precisely what the cart's partial unique index
- * is built on. Modelling an open trip as a row would mean a second source of
- * truth for the same fact, and a household could then have zero or two of
- * them.
+ * existence at the moment it is closed, when `trip.close` (task 3.2) stamps
+ * its id onto every `bought` cart item in one transaction. Until then the
+ * household simply has active cart items, and "the current trip" is the set of
+ * rows with `trip_id IS NULL` — which is precisely what the cart's partial
+ * unique index is built on. Modelling an open trip as a row would mean a
+ * second source of truth for the same fact, and a household could then have
+ * zero or two of them.
  *
- * The table exists now, ahead of the endpoint that writes it, purely so
- * `cart_items.trip_id` has a foreign key target from the first migration —
- * the invariant below is unexpressible without it.
+ * The table was created ahead of that endpoint, from the very first
+ * migration, so `cart_items.trip_id` has a foreign key target — the invariant
+ * below is unexpressible without one.
  */
 export const shoppingTrips = pgTable(
   "shopping_trips",
@@ -360,10 +360,12 @@ export const cartItems = pgTable(
  * upkeep discipline, and VISION's own reasoning is that such systems get
  * abandoned. A row's mere existence is the entire fact this table records.
  *
- * Populated by «Завершить закупку» (task 3.2) moving bought cart lines here;
- * emptied one row at a time by «Кончилось» (`pantry.ranOut`), which deletes
- * the row and sends the product back to the cart. There is no update
- * endpoint — a pantry fact is either present or it is gone, never edited.
+ * Populated by «Завершить закупку» (`trip.close`, task 3.2) moving bought cart
+ * lines here — an upsert, so buying something already at home refreshes the
+ * row rather than failing on the unique index below; emptied one row at a time
+ * by «Кончилось» (`pantry.ranOut`), which deletes the row and sends the
+ * product back to the cart. There is no update endpoint — a pantry fact is
+ * either present or it is gone, never edited.
  *
  * `productId` is `restrict`, the same reasoning as `cart_items.product_id`
  * (VISION §3.1): a pantry fact that still names a product must not survive

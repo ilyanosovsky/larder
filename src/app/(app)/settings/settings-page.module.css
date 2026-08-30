@@ -68,6 +68,39 @@
   font-size: var(--t-meta);
 }
 
+/* ── Purchase history (task 3.2) ──
+   A ledger of closed runs: hairline-separated rows, date left, count right in
+   the mono figure face the rest of the app uses for quantities. */
+
+.tripList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tripRow {
+  display: flex;
+  min-height: 44px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-3) 0;
+}
+
+.tripDate {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.tripCount {
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  white-space: nowrap;
+}
+
 /* ── Identity + sign-out footer ── */
 
 .footer {

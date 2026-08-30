@@ -6,6 +6,7 @@ import { inviteRouter } from "@/server/api/routers/invite";
 import { kitchenProfileRouter } from "@/server/api/routers/kitchen-profile";
 import { pantryRouter } from "@/server/api/routers/pantry";
 import { productRouter } from "@/server/api/routers/product";
+import { tripRouter } from "@/server/api/routers/trip";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
@@ -20,6 +21,7 @@ export const appRouter = createTRPCRouter({
   product: productRouter,
   cart: cartRouter,
   pantry: pantryRouter,
+  trip: tripRouter,
   kitchenProfile: kitchenProfileRouter,
 });
 

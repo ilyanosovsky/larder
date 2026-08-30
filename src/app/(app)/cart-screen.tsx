@@ -102,7 +102,13 @@ type AddFlow =
  * `purchases-screen.tsx` — this component is still exactly the standalone S3
  * screen it always was, just no longer mounted directly by the page.
  *
- * Deferred by design: «Завершить закупку» (3.2).
+ * **«Завершить закупку» (task 3.2) is the one control here that is not
+ * optimistic**, and deliberately so: it moves every bought line into history
+ * and the pantry in one server transaction, and guessing that result on the
+ * client would mean predicting which lines the server found bought at that
+ * instant — including the partner's ticks that this screen may not have
+ * refetched yet. It is also not till-critical the way the checkbox is: one
+ * tap at the end of a run, with a pending label, is the honest shape.
  */
 export function CartScreen() {
   const t = useTranslations("cart");
@@ -172,6 +178,15 @@ export function CartScreen() {
    */
   const cartMutating = useIsMutating({ mutationKey: trpc.cart.pathKey() }) > 0;
 
+  /**
+   * `trip.close` rewrites the cart as thoroughly as any `cart.*` mutation
+   * does — every bought line leaves it — so it has to mute the passive
+   * refetches for exactly the same reason, even though it lives under a
+   * different router key.
+   */
+  const tripMutating = useIsMutating({ mutationKey: trpc.trip.pathKey() }) > 0;
+  const writesInFlight = cartMutating || tripMutating;
+
   const isOnline = useIsOnline();
 
   const cart = useQuery(
@@ -193,7 +208,7 @@ export function CartScreen() {
        * gap: if the partner writes the same row in the same instant, one of
        * the two wins and the next refetch shows it. VISION §3.1 accepts that.
        */
-      ...(cartMutating
+      ...(writesInFlight
         ? {
             refetchInterval: false as const,
             refetchOnWindowFocus: false as const,
@@ -462,6 +477,135 @@ export function CartScreen() {
     receiveOrder.mutate({ orderedVia });
   }
 
+  /**
+   * Whichever «+ Добавить» is currently on screen — the action bar's, or the
+   * empty state's once the last line leaves the cart. Only one of the two is
+   * ever mounted, so one ref covers both, and that matters here: closing a
+   * trip that empties the cart swaps one for the other.
+   */
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Set by a successful close, consumed by the effect below.
+   *
+   * Focus cannot be moved from `onSuccess`: the «Завершить закупку» button is
+   * still mounted at that point and the rows it counted are still in the
+   * cache, so focusing then would land on a button that the invalidate below
+   * is about to unmount — and, if the trip emptied the cart, on one that is
+   * replaced by the empty state's own. The effect waits for the refreshed
+   * list to render and puts focus wherever «+ Добавить» ended up.
+   */
+  const restoreFocusAfterCloseRef = useRef(false);
+
+  useEffect(() => {
+    if (!restoreFocusAfterCloseRef.current) {
+      return;
+    }
+    restoreFocusAfterCloseRef.current = false;
+
+    // Only ever a rescue, never a steal: focus is on `body` exactly when the
+    // control that had it has been unmounted. If the cart still holds bought
+    // lines the close button is still there with focus on it, and if the
+    // shopper has since moved on — opened S4, tapped a row — that element
+    // keeps it.
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      addButtonRef.current?.focus();
+    }
+    // The query's own array reference, deliberately: it is a fresh one on
+    // every refetch (superjson mints new `Date`s), which is precisely the
+    // signal "the list on screen has been redrawn since the close". The ref
+    // guard above is what keeps that from doing anything the rest of the time.
+  }, [cart.data]);
+
+  /**
+   * The close-trip tap's own lock, synchronous for the reason every other
+   * guard on this screen is: `isPending` and a `disabled` attribute both land
+   * a render too late, and two closes fired in one tick would mint two trips
+   * — the second one empty, or worse, carrying lines the partner ticked in
+   * between.
+   */
+  const closingRef = useRef(false);
+
+  /**
+   * «Завершить закупку» (VISION §3.1, DESIGN_BRIEF S3): one tap, no
+   * confirmation. Plain mutate-and-invalidate — see this component's doc
+   * comment for why this one control is deliberately not optimistic — and
+   * `mutate`, never an awaited `mutateAsync`: a mutation TanStack pauses for
+   * being offline may not resolve until the connection returns.
+   *
+   * Both lists are invalidated: the cart loses the bought lines and the
+   * pantry gains a row for each of them, so leaving `pantry.list` alone would
+   * show a stale «Кладовая» tab one segment-control tap away.
+   */
+  const closeTrip = useMutation(
+    trpc.trip.close.mutationOptions({
+      onSuccess: (result) => {
+        // Armed for **both** outcomes, before the count is looked at: the
+        // invalidate below runs either way, and a close that found nothing
+        // (the partner got there first) still drops `boughtCount` to 0 and
+        // unmounts the button under the finger — which is exactly the case
+        // the rescue exists for. The effect above moves focus once the
+        // refreshed list has rendered.
+        restoreFocusAfterCloseRef.current = true;
+
+        if (result.count === 0) {
+          // Silent on purpose: a toast here would report a purchase that
+          // this tap did not make.
+          return;
+        }
+        showToast(t("closeTripDone", { count: result.count }));
+      },
+      onError: () => showToast(t("closeTripError")),
+      onSettled: () => {
+        closingRef.current = false;
+        void queryClient.invalidateQueries(cartFilter);
+        void queryClient.invalidateQueries(trpc.pantry.list.queryFilter());
+        // S12's «История закупок» reads `trip.list`, and the trip that was
+        // just closed is the row it is missing. Without this the query keeps
+        // its 30s `staleTime` copy, and a Back navigation to settings
+        // restores that copy from the client cache without re-running the
+        // page's server-side prefetch — history a tap out of date.
+        void queryClient.invalidateQueries(trpc.trip.list.queryFilter());
+      },
+    }),
+  );
+
+  /**
+   * Whether a close may be sent at all right now — the same two conditions
+   * the «Обновить» control above is disabled by, and for a sharper reason.
+   *
+   * **Offline**: a `trip.close` tapped offline does not fail, it *pauses*,
+   * and the bought ticks made offline are paused alongside it. Nothing orders
+   * those on reconnect — `resumePausedMutations()` fires them together — so
+   * the close can reach the server ahead of the ticks it counted and close a
+   * trip missing exactly them (the button said 5, the toast says 3, and two
+   * lines stay in the cart as bought). Refusing the tap while there is no
+   * connection is what keeps that from being possible at all; the offline
+   * banner already explains why the screen is in this state.
+   *
+   * **A write of ours still in flight**: the online miniature of the same
+   * race — tick the last item, tap close in the next instant, and the close
+   * can be served before that `setStatus`. Waiting for the tick to settle
+   * costs a moment at the end of a run and makes the count truthful.
+   *
+   * `writesInFlight` counts paused mutations as well as in-flight ones
+   * (`useIsMutating` does), which is what makes the offline queue's backlog
+   * hold the button closed until it has actually drained.
+   */
+  const closeBlocked = !isOnline || writesInFlight;
+
+  function handleCloseTrip() {
+    // The ref is the synchronous half (a second tap in the same tick); the
+    // blocked check is the ordering half. Both are re-checked here rather
+    // than trusted to the attribute, which `aria-disabled` does not enforce.
+    if (closingRef.current || closeBlocked) {
+      return;
+    }
+    closingRef.current = true;
+    closeTrip.mutate();
+  }
+
   function toggleStatus(item: CartListItemOutput) {
     // Per row rather than per screen: ticking three things one after another
     // is ordinary shopping and must never be blocked, but a second tap on the
@@ -563,6 +707,13 @@ export function CartScreen() {
    */
   const orderedGroups = receivableServiceGroups(groupOrderedByService(items));
 
+  /**
+   * What «Завершить закупку (N)» counts — every bought line in the cart,
+   * whoever ticked it: «закупка общая на household, а не на человека»
+   * (VISION §3.1), which is exactly what `trip.close` stamps.
+   */
+  const boughtCount = items.filter((item) => item.status === "bought").length;
+
   // The household's members, for the row sheet's «кто берёт» chips. Prefetched
   // server-side alongside `cart.list`/`category.list` (`page.tsx`), so this is
   // warm on first paint rather than a second client round trip.
@@ -639,7 +790,7 @@ export function CartScreen() {
           // the refetch would not fail but *pause* — leaving the control
           // spinning until the connection came back, promising a check it
           // cannot make. The banner above already says why.
-          disabled={isRefreshing || cartMutating || !isOnline}
+          disabled={isRefreshing || writesInFlight || !isOnline}
           aria-label={t("refreshAria")}
           // A bare ⟳ names itself to a screen reader through `aria-label`,
           // but not to a mouse — no browser surfaces that as a tooltip.
@@ -672,6 +823,7 @@ export function CartScreen() {
           </div>
           <p className={styles.emptyText}>{t("empty")}</p>
           <button
+            ref={addButtonRef}
             type="button"
             className={styles.addButton}
             onClick={(event) => openSearch(event.currentTarget)}
@@ -866,6 +1018,7 @@ export function CartScreen() {
       {isEmpty ? null : (
         <div className={styles.actionBar}>
           <button
+            ref={addButtonRef}
             type="button"
             className={styles.addButton}
             onClick={(event) => openSearch(event.currentTarget)}
@@ -873,6 +1026,30 @@ export function CartScreen() {
           >
             + {t("add")}
           </button>
+
+          {/* DESIGN_BRIEF S3: «внизу при наличии купленного», beside
+              «+ Добавить» rather than as a second floating pill — the two
+              are one decision bar. */}
+          {boughtCount === 0 ? null : (
+            <button
+              type="button"
+              className={styles.closeTripButton}
+              // `aria-disabled`, never `disabled`: the browser drops focus
+              // off a control the moment it becomes disabled, which would
+              // throw a keyboard user back to the top of the page mid-tap.
+              // The guards in `handleCloseTrip` are what actually prevent the
+              // fire — the same split the row checkbox documents. `busy` is
+              // only for our own request; `disabled` also covers "offline"
+              // and "a tick of ours has not landed yet" (see `closeBlocked`).
+              aria-disabled={closeBlocked || undefined}
+              aria-busy={closeTrip.isPending || undefined}
+              onClick={handleCloseTrip}
+            >
+              {closeTrip.isPending
+                ? t("closeTripPending")
+                : t("closeTrip", { count: boughtCount })}
+            </button>
+          )}
         </div>
       )}
 
@@ -880,9 +1057,17 @@ export function CartScreen() {
           text changes. A `role="status"` node that appears together with its
           content is not reliably announced — assistive technology has to have
           been watching the region *before* the text arrived. The visible card
-          below is therefore presentation only. */}
+          below is therefore presentation only.
+
+          `toast.seq` keys the *child*, never the region itself (the solved
+          version of this from `pantry-screen.tsx`): React skips an in-place
+          text update when the new string is identical to the old one, so two
+          consecutive «Не получилось отметить» — or two closes of two
+          one-item trips — would be announced once. A fresh child node is a
+          real mutation inside the already-live region, which assistive tech
+          observes whether or not the text repeats. */}
       <p className={styles.srOnly} role="status">
-        {toast?.message ?? ""}
+        <span key={toast?.seq ?? "empty"}>{toast?.message ?? ""}</span>
       </p>
 
       {toast === null ? null : (
