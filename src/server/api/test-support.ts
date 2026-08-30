@@ -71,7 +71,7 @@ export function signedInContext(
 
 /** One statement the router ran, in the order it ran it. */
 export interface RecordedStatement {
-  kind: "select" | "insert" | "update" | "delete";
+  kind: "select" | "insert" | "update" | "delete" | "execute";
   /** Table name, once the builder revealed one (`from`/`insert`/`update`). */
   table: string | null;
   /** Payload handed to `.values()` or `.set()`. */
@@ -97,6 +97,19 @@ export interface RecordedStatement {
    */
   orderBys: unknown[];
   /**
+   * Columns/expressions handed to `.groupBy()`, in call order — what an
+   * aggregate (`trip.list`'s per-trip item count) collapses rows by.
+   */
+  groupBys: unknown[];
+  /**
+   * The raw SQL handed to `db.execute()`, or `undefined` for a statement
+   * built through the query builder. Compile it with `PgDialect` the way
+   * `wheres` are compiled: that is how a test asserts a statement with no
+   * builder of its own — a `pg_advisory_xact_lock`, say — is issued at all,
+   * in the right place, and with the right parameters.
+   */
+  query: unknown;
+  /**
    * The lock strength and config handed to `.for()` (e.g.
    * `.for("update")`), or `null` if the statement never locked. `for()`
    * takes a plain string rather than a SQL fragment, so this is asserted
@@ -104,11 +117,22 @@ export interface RecordedStatement {
    */
   lock: { strength: unknown; config: unknown } | null;
   /**
-   * The target/set handed to `.onConflictDoUpdate({ target, set })`, or
-   * `null` for an insert that never upserts. `target` is a real column
-   * reference, so a test compiles it the same way `wheres` are compiled.
+   * Conditions handed to `.innerJoin()`/`.leftJoin()`, in call order —
+   * compiled like `wheres`. A join condition is a place a household
+   * predicate can silently go missing, so it has to be assertable.
    */
-  onConflict: { target: unknown; set: unknown } | null;
+  joins: unknown[];
+  /**
+   * The config handed to `.onConflictDoUpdate({ target, set, setWhere })`, or
+   * `null` for an insert that never upserts. `target` is a real column
+   * reference and `setWhere` a condition, so a test compiles them the same
+   * way `wheres` are compiled.
+   */
+  onConflict: {
+    target: unknown;
+    set: unknown;
+    setWhere?: unknown;
+  } | null;
   /**
    * How many `transaction()` callbacks the statement was issued inside: `0`
    * for a bare statement, `1` inside a transaction, `2` inside a nested one.
@@ -158,6 +182,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
     kind: RecordedStatement["kind"],
     table: Table | null,
     fields?: unknown,
+    query?: unknown,
   ) {
     const statement: RecordedStatement = {
       kind,
@@ -166,6 +191,9 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       fields,
       wheres: [],
       orderBys: [],
+      groupBys: [],
+      joins: [],
+      query,
       lock: null,
       onConflict: null,
       txDepth,
@@ -185,8 +213,14 @@ export function createDbStub(results: StubResult[] = []): DbStub {
         statement.values = values;
         return chain;
       },
-      innerJoin: () => chain,
-      leftJoin: () => chain,
+      innerJoin(_source: Table, condition?: unknown) {
+        statement.joins.push(condition);
+        return chain;
+      },
+      leftJoin(_source: Table, condition?: unknown) {
+        statement.joins.push(condition);
+        return chain;
+      },
       where(condition: unknown) {
         statement.wheres.push(condition);
         return chain;
@@ -195,13 +229,25 @@ export function createDbStub(results: StubResult[] = []): DbStub {
         statement.orderBys.push(...columns);
         return chain;
       },
+      groupBy(...columns: unknown[]) {
+        statement.groupBys.push(...columns);
+        return chain;
+      },
       limit: () => chain,
       for(strength: unknown, config?: unknown) {
         statement.lock = { strength, config };
         return chain;
       },
-      onConflictDoUpdate(config: { target: unknown; set: unknown }) {
-        statement.onConflict = { target: config.target, set: config.set };
+      onConflictDoUpdate(config: {
+        target: unknown;
+        set: unknown;
+        setWhere?: unknown;
+      }) {
+        statement.onConflict = {
+          target: config.target,
+          set: config.set,
+          setWhere: config.setWhere,
+        };
         return chain;
       },
       returning: () => chain,
@@ -224,6 +270,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
     insert: (table: Table) => begin("insert", table),
     update: (table: Table) => begin("update", table),
     delete: (table: Table) => begin("delete", table),
+    // Raw SQL, for the statements no builder covers — `pg_advisory_xact_lock`
+    // is the only one so far. Recorded (and queued-result-consuming) like any
+    // other statement, so its *position* is assertable too.
+    execute: (query: unknown) => begin("execute", null, undefined, query),
     transaction: async <TResult>(fn: (tx: unknown) => Promise<TResult>) => {
       txDepth += 1;
       try {

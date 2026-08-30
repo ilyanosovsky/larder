@@ -83,12 +83,15 @@ function expectScopedByHousehold(statement: RecordedStatement | undefined) {
   expect(compile(statement?.wheres[0])).toContain('"household_id"');
 }
 
-/** household check → the DELETE … RETURNING → the product's defaultUnit read. */
+/**
+ * household check → the advisory lock (task 3.2) → the DELETE … RETURNING →
+ * the product's `defaultUnit` read.
+ */
 function ranOutPreamble(
   deleted: StubResult = [{ productId: PRODUCT_ID }],
   product: StubResult = [{ defaultUnit: "шт" }],
 ): StubResult[] {
-  return [[membershipRow], deleted, product];
+  return [[membershipRow], [], deleted, product];
 }
 
 describe("pantry.list", () => {
@@ -163,16 +166,37 @@ describe("pantry.ranOut", () => {
     );
   });
 
+  it("takes the household's advisory lock before it touches a row", async () => {
+    // The deadlock design of task 3.2 (`src/server/household-lock.ts`): this
+    // transaction locks pantry→cart and `trip.close` locks cart→pantry, so
+    // both have to serialize on the household *first*. A lock taken after the
+    // DELETE below orders nothing, and nothing else in this suite would fail.
+    const { caller, stub } = callerWith([
+      ...ranOutPreamble(),
+      [],
+      [cartRow({ qty: 1 })],
+    ]);
+
+    await caller.pantry.ranOut({ id: PANTRY_ID });
+
+    const lock = stub.statements[1];
+    expect(lock).toMatchObject({ kind: "execute", txDepth: 1 });
+    expect(compile(lock?.query)).toContain("pg_advisory_xact_lock");
+    expect(
+      new PgDialect().sqlToQuery((lock?.query as SQLWrapper).getSQL()).params,
+    ).toEqual([HOUSEHOLD_ID]);
+  });
+
   it("is a no-op when the pantry row is already gone — a partner's tap won", async () => {
-    const { caller, stub } = callerWith([[membershipRow], []]);
+    const { caller, stub } = callerWith([[membershipRow], [], []]);
 
     await expect(caller.pantry.ranOut({ id: PANTRY_ID })).resolves.toEqual({
       outcome: "gone",
     });
 
-    // household check → the DELETE that matched nothing. Nothing else ran:
-    // no product lookup, no cart lock, no write.
-    expect(stub.statements).toHaveLength(2);
+    // household check → advisory lock → the DELETE that matched nothing.
+    // Nothing else ran: no product lookup, no cart lock, no write.
+    expect(stub.statements).toHaveLength(3);
   });
 
   it("deletes the caller's own pantry row, scoped by household", async () => {
@@ -184,12 +208,12 @@ describe("pantry.ranOut", () => {
 
     await caller.pantry.ranOut({ id: PANTRY_ID });
 
-    expect(stub.statements[1]).toMatchObject({
+    expect(stub.statements[2]).toMatchObject({
       kind: "delete",
       table: "pantry_items",
     });
-    expectScopedByHousehold(stub.statements[1]);
-    expect(compile(stub.statements[1]?.wheres[0])).toContain('"id"');
+    expectScopedByHousehold(stub.statements[2]);
+    expect(compile(stub.statements[2]?.wheres[0])).toContain('"id"');
   });
 
   it("scopes the product lookup to the caller's own household", async () => {
@@ -207,11 +231,11 @@ describe("pantry.ranOut", () => {
 
     await caller.pantry.ranOut({ id: PANTRY_ID });
 
-    expect(stub.statements[2]).toMatchObject({
+    expect(stub.statements[3]).toMatchObject({
       kind: "select",
       table: "products",
     });
-    expectScopedByHousehold(stub.statements[2]);
+    expectScopedByHousehold(stub.statements[3]);
   });
 
   describe("no active line for the product", () => {
@@ -229,7 +253,7 @@ describe("pantry.ranOut", () => {
         item: { qty: 1, unit: "кг" },
       });
 
-      expect(stub.statements[4]).toMatchObject({
+      expect(stub.statements[5]).toMatchObject({
         kind: "insert",
         table: "cart_items",
         values: {
@@ -252,7 +276,7 @@ describe("pantry.ranOut", () => {
 
       await caller.pantry.ranOut({ id: PANTRY_ID });
 
-      const lock = stub.statements[3];
+      const lock = stub.statements[4];
       expect(lock).toMatchObject({ kind: "select", table: "cart_items" });
       expect(lock?.lock).toMatchObject({ strength: "update" });
       expectScopedByHousehold(lock);
@@ -292,8 +316,9 @@ describe("pantry.ranOut", () => {
           item: { status, qty: 3 },
         });
 
-        // household → delete → product lookup → the lock. No write at all.
-        expect(stub.statements).toHaveLength(4);
+        // household → advisory lock → delete → product lookup → the row
+        // lock. No write at all.
+        expect(stub.statements).toHaveLength(5);
       },
     );
   });
@@ -329,7 +354,7 @@ describe("pantry.ranOut", () => {
         item: { qty: 6, unit: "кг", status: "needed" },
       });
 
-      const values = stub.statements[4]?.values as Record<string, unknown>;
+      const values = stub.statements[5]?.values as Record<string, unknown>;
       expect(values).toMatchObject({
         status: "needed",
         addedBy: "user_1",
@@ -341,8 +366,8 @@ describe("pantry.ranOut", () => {
       expect(values).not.toHaveProperty("unit");
       expect(values).not.toHaveProperty("note");
 
-      expectScopedByHousehold(stub.statements[4]);
-      expect(compile(stub.statements[4]?.wheres[0])).toContain('"id"');
+      expectScopedByHousehold(stub.statements[5]);
+      expect(compile(stub.statements[5]?.wheres[0])).toContain('"id"');
     });
   });
 
@@ -354,7 +379,7 @@ describe("pantry.ranOut", () => {
     await expect(caller.pantry.ranOut({ id: PANTRY_ID })).rejects.toSatisfy(
       hasCode("INTERNAL_SERVER_ERROR"),
     );
-    expect(stub.statements).toHaveLength(3);
+    expect(stub.statements).toHaveLength(4);
   });
 
   it("gives up rather than looping when the winner cannot be found", async () => {

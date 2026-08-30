@@ -13,6 +13,7 @@ import {
   toCartItemOutput,
   toUnit,
 } from "@/server/api/routers/cart";
+import { lockHousehold } from "@/server/household-lock";
 import { decidePantryRanOut } from "@/server/pantry/ran-out";
 
 /**
@@ -63,10 +64,10 @@ export type RanOutOutput = z.infer<typeof ranOutOutput>;
  * "What's at home" (VISION §3.2) and the one action it offers: «Кончилось»
  * sends a product straight back to the cart.
  *
- * There is no `create`/`remove` endpoint here in task 3.1's scope. Rows are
- * populated by «Завершить закупку» (task 3.2, not yet wired) and emptied
- * exclusively by `ranOut` — a pantry fact is never edited by hand, only
- * asserted true (by a purchase) or false (by running out).
+ * There is no `create`/`remove` endpoint here. Rows are populated by
+ * «Завершить закупку» (`trip.close`, task 3.2) and emptied exclusively by
+ * `ranOut` — a pantry fact is never edited by hand, only asserted true (by a
+ * purchase) or false (by running out).
  */
 export const pantryRouter = createTRPCRouter({
   /**
@@ -126,6 +127,15 @@ export const pantryRouter = createTRPCRouter({
    * a concurrent insert won the race with. Two passes is the whole budget,
    * for the same reason it is in `cart.add`: after a lost race an active row
    * provably exists, so a second miss is a bug, not something to retry.
+   *
+   * **The advisory lock on the first line is load-bearing, not ceremony**
+   * (task 3.2). This transaction locks *pantry row → cart row*; `trip.close`
+   * has to go *cart rows → pantry row*, and two of them running at the same
+   * instant for the same product is a textbook lock-order cycle that Postgres
+   * resolves by aborting one with 40P01. Serializing both on the household
+   * removes the cycle rather than making it rarer — the full argument, and
+   * why the alternative (reordering `trip.close`) does not survive its own
+   * correctness requirement, is in `src/server/household-lock.ts`.
    */
   ranOut: householdProcedure
     .input(ranOutInput)
@@ -134,6 +144,10 @@ export const pantryRouter = createTRPCRouter({
       const householdId = ctx.household.id;
 
       return ctx.db.transaction(async (tx) => {
+        // Must stay the first statement: a lock taken after the delete below
+        // has already ordered nothing.
+        await lockHousehold(tx, householdId);
+
         const [deleted] = await tx
           .delete(pantryItems)
           .where(
