@@ -538,7 +538,20 @@ export function PantryScreen({
         <RevisionMode
           items={items}
           onRanOut={handleRevisionRanOut}
-          onClose={() => setRevisionOpen(false)}
+          onClose={() => {
+            // The toolbar button that opened this overlay unmounts if the
+            // shopper marks every card «кончилось» — the optimistic removals
+            // make `isEmpty` true while the overlay is still up. Without this,
+            // `RevisionMode`'s own cleanup would find a disconnected opener
+            // and simply leave focus wherever the browser dropped it
+            // (`<body>`); redirecting the capture to `screenRef` reuses the
+            // same fallback target `moveFocusAfterTap` already falls back to
+            // for the identical "nothing left to land on" situation.
+            if (!revisionOpener.restoreFocusTo.current?.isConnected) {
+              revisionOpener.captureOpener(screenRef.current);
+            }
+            setRevisionOpen(false);
+          }}
           restoreFocusTo={revisionOpener.restoreFocusTo}
         />
       ) : null}

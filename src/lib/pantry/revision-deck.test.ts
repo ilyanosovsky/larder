@@ -47,6 +47,25 @@ describe("buildRevisionDeck", () => {
     expect(deck).not.toBe(items);
   });
 
+  it("never returns the same row object references it was given", () => {
+    const items = [BUTTER, MILK];
+    const deck = buildRevisionDeck(items);
+    expect(deck[0]).not.toBe(BUTTER);
+    expect(deck[1]).not.toBe(MILK);
+  });
+
+  it("is unaffected by a later field mutation on a source row", () => {
+    // Nothing in this app mutates a cached pantry row in place, but the deck
+    // must not leak that mutation through even if something someday did —
+    // it holds its own copy of every row, not the same object reference.
+    const source = { ...BUTTER };
+    const deck = buildRevisionDeck([source, MILK]);
+
+    source.productName = "Маргарин";
+
+    expect(deck[0]).toEqual(BUTTER);
+  });
+
   it("is unaffected by later mutations to the source array", () => {
     const items = [BUTTER, MILK];
     const deck = buildRevisionDeck(items);

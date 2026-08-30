@@ -60,30 +60,12 @@
   cursor: progress;
 }
 
-/* «Ревизия» (task 3.3) — same mono-pill vocabulary as `.ranOutButton`, sat
-   between the count and the refresh icon (the latter keeps its own
-   `margin-left: auto`, so it stays pinned to the toolbar's far edge either
-   way). */
-.revisionButton {
-  display: flex;
-  flex: none;
-  min-height: 36px;
-  align-items: center;
-  border: var(--bd-hair) solid var(--rule-2);
-  border-radius: var(--radius);
-  background: transparent;
-  padding: 0 var(--s-3);
-  color: var(--accent-ink);
-  font-family: var(--font-mono);
-  font-size: var(--t-small);
-  letter-spacing: var(--track-badge);
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
+/* `.revisionButton` (below, near `.ranOutButton` — its own local `composes`
+   target has to be defined earlier in this file for css-loader to resolve
+   it) is not listed here: it composes that class, so the element carries
+   its name too and this rule already matches it. */
 .refreshButton:focus-visible,
-.ranOutButton:focus-visible,
-.revisionButton:focus-visible {
+.ranOutButton:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;
 }
@@ -210,6 +192,18 @@
 .ranOutButton[aria-disabled="true"] {
   cursor: progress;
   opacity: 0.55;
+}
+
+/* «Ревизия» (task 3.3) toolbar button — the exact same mono-pill vocabulary
+   as `.ranOutButton` above, `composes` rather than a second copy of the
+   declarations so the two controls cannot quietly drift apart. Sits between
+   the toolbar's count and the refresh icon (the latter keeps its own
+   `margin-left: auto`, so it stays pinned to the toolbar's far edge either
+   way) — hence living down here with `.ranOutButton` rather than up by
+   `.refreshButton`: css-loader's local `composes` needs its target class
+   already defined earlier in the file. */
+.revisionButton {
+  composes: ranOutButton;
 }
 
 /* ── EmptyState ── */

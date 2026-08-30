@@ -22,20 +22,22 @@ export type RevisionDecision = "have" | "ranOut";
  * partner's addition simply isn't part of this session — it'll be there the
  * next time «Ревизия» opens.
  *
- * `[...items]` rather than handing back `items` itself, defensively:
- * nothing in this app currently mutates a query's cached array in place, but
- * a caller holding the exact same reference the query cache has would make
- * that bug easy to introduce later without this function's own tests
- * noticing. The caller (`revision-mode.tsx`) additionally takes this
- * snapshot inside a lazy `useState` initializer, so even a parent that
- * re-renders with a fresh `items` reference mid-run (a live refetch landing
- * behind the overlay) cannot feed a second snapshot in — the deck is built
- * exactly once per run.
+ * A fresh array **and a fresh object per row** — `items.map((item) => ({
+ * ...item }))`, not `[...items]` — for the same defensive reason either way:
+ * nothing in this app currently mutates a query's cached row in place, but a
+ * deck holding the exact same object references the query cache has would
+ * make that bug easy to introduce later (on either side — a mutation to the
+ * cached row leaking into the still-running deck, or vice versa) without
+ * this function's own tests noticing. The caller (`revision-mode.tsx`)
+ * additionally takes this snapshot inside a lazy `useState` initializer, so
+ * even a parent that re-renders with a fresh `items` reference mid-run (a
+ * live refetch landing behind the overlay) cannot feed a second snapshot in
+ * — the deck is built exactly once per run.
  */
 export function buildRevisionDeck<TItem extends RevisionCard>(
   items: readonly TItem[],
 ): readonly TItem[] {
-  return [...items];
+  return items.map((item) => ({ ...item }));
 }
 
 /** Where a run stands, after `index` cards have been decided. */

@@ -46,7 +46,7 @@ describe("decideSwipeCommit", () => {
     expect(decideSwipeCommit({ dx: 100, dy: 150, elapsedMs: 300 })).toBeNull();
   });
 
-  it("treats equal horizontal and vertical movement as not-horizontal-enough", () => {
+  it("commits when horizontal movement equals vertical movement (the tie favors horizontal)", () => {
     expect(decideSwipeCommit({ dx: 100, dy: 100, elapsedMs: 300 })).toBe(
       "have",
     );
