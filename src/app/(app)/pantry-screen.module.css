@@ -60,8 +60,30 @@
   cursor: progress;
 }
 
+/* «Ревизия» (task 3.3) — same mono-pill vocabulary as `.ranOutButton`, sat
+   between the count and the refresh icon (the latter keeps its own
+   `margin-left: auto`, so it stays pinned to the toolbar's far edge either
+   way). */
+.revisionButton {
+  display: flex;
+  flex: none;
+  min-height: 36px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
 .refreshButton:focus-visible,
-.ranOutButton:focus-visible {
+.ranOutButton:focus-visible,
+.revisionButton:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;
 }

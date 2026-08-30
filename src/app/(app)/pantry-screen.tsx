@@ -9,6 +9,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
+import { useSheetOpener } from "@/components/use-sheet-opener";
 import { cx } from "@/lib/cx";
 import { groupProductsByCategory } from "@/lib/group-products";
 import {
@@ -24,6 +25,7 @@ import type { PantryListItemOutput } from "@/server/api/routers/pantry";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./pantry-screen.module.css";
+import { RevisionMode } from "./revision-mode";
 
 /** The same beat S3's own toast uses (`cart-screen.tsx`). */
 const TOAST_MS = 2500;
@@ -93,10 +95,15 @@ function prefersReducedMotion(): boolean {
  * entirely under `prefers-reduced-motion`, checked here rather than by the
  * parent so no flight is ever constructed for one that will not be shown.
  *
- * **Deliberately out of scope for task 3.1** (per the plan row): the
- * «Ревизия» swipe-through mode (task 3.3) and long-tap «изменить продукт»
- * (mirrors the S3 row sheet, not built here). This screen is read-plus-one-
- * action, nothing more.
+ * **«Ревизия» (task 3.3, `revision-mode.tsx`)** is a separate full-screen
+ * component this screen only launches — a toolbar button, `useSheetOpener`
+ * for the focus-return-on-close convention, and `handleRevisionRanOut`
+ * sharing the exact `ranOut` mutation instance below with the row button
+ * (`fireRanOut` factors out the common "mark pending, remember the name,
+ * mutate" half; each caller keeps its own pre-guard — the row's focus-move
+ * and fly-over, the revision mode's own card animation and deck advance).
+ * Long-tap «изменить продукт» (mirrors the S3 row sheet) is still not built
+ * here — out of scope for both 3.1 and 3.3.
  *
  * Unlike the cart, `pantry.ranOut` is **not** wired into the IndexedDB
  * offline queue (`src/trpc/offline-queue.ts`): that queue's persistence
@@ -117,6 +124,9 @@ export function PantryScreen({
   const t = useTranslations("pantry");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+
+  const [revisionOpen, setRevisionOpen] = useState(false);
+  const revisionOpener = useSheetOpener();
 
   const [toast, setToast] = useState<{
     visible: string;
@@ -316,6 +326,26 @@ export function PantryScreen({
     }),
   );
 
+  /**
+   * The "mark pending, remember the name, actually mutate" half of
+   * «Кончилось» — shared verbatim between the row's own button
+   * (`handleRanOut`) and «Ревизия» (`handleRevisionRanOut`, task 3.3): same
+   * optimistic cache removal, rollback and outcome toast either way, since
+   * both ultimately just call this `ranOut` mutation.
+   *
+   * Deliberately **not** the pending-guard check itself — callers each have
+   * their own pre-guard work to do first (the row moves focus and starts the
+   * fly-over; the revision mode advances its own deck and plays its own card
+   * animation), and none of that should run for an id that is already in
+   * flight. Every caller checks `pendingRef` before doing anything, this
+   * function included.
+   */
+  function fireRanOut(item: PantryListItemOutput) {
+    markPending(item.id, true);
+    pendingProductNames.current.set(item.id, item.productName);
+    ranOut.mutate({ id: item.id });
+  }
+
   function handleRanOut(
     item: PantryListItemOutput,
     buttonEl: HTMLButtonElement,
@@ -323,8 +353,6 @@ export function PantryScreen({
     if (pendingRef.current.has(item.id)) {
       return;
     }
-    markPending(item.id, true);
-    pendingProductNames.current.set(item.id, item.productName);
 
     // Both read the pre-removal list/DOM, synchronously, before anything
     // about the row changes.
@@ -337,7 +365,22 @@ export function PantryScreen({
       });
     }
 
-    ranOut.mutate({ id: item.id });
+    fireRanOut(item);
+  }
+
+  /**
+   * «Кончилось» as decided from inside «Ревизия» (`revision-mode.tsx`) — the
+   * same `ranOut` mutation `handleRanOut` fires, minus the row-button-only
+   * parts: there is no list row to move focus away from (the underlying
+   * list isn't even visible behind the full-screen overlay) and no
+   * fly-to-cart ghost (`revision-mode.tsx` has its own card-exit animation
+   * instead, DESIGN_BRIEF makes no mention of the ghost for this mode).
+   */
+  function handleRevisionRanOut(item: PantryListItemOutput) {
+    if (pendingRef.current.has(item.id)) {
+      return;
+    }
+    fireRanOut(item);
   }
 
   const items = pantry.data ?? [];
@@ -346,128 +389,160 @@ export function PantryScreen({
   const isEmpty = hasList && items.length === 0;
 
   return (
-    <section
-      ref={screenRef}
-      className={styles.screen}
-      // Programmatic-only focus target (`moveFocusAfterTap`'s fallback), so
-      // it needs a name to announce when it actually receives focus — the
-      // visible `<h1>` right below already says the same thing, but that
-      // does not by itself give this container an accessible name of its
-      // own to read out.
-      tabIndex={-1}
-      aria-label={t("title")}
-    >
-      <div className={styles.toolbar}>
-        <h1 className={styles.toolbarTitle}>{t("title")}</h1>
-        {hasList ? (
-          <span className={styles.toolbarCount}>
-            {t("count", { count: items.length })}
-          </span>
-        ) : null}
-        <button
-          type="button"
-          className={styles.refreshButton}
-          onClick={() => void refresh()}
-          disabled={isRefreshing || pantryMutating}
-          aria-label={t("refreshAria")}
-          title={t("refresh")}
-        >
-          <span
-            className={cx(
-              styles.refreshIcon,
-              isRefreshing && styles.refreshIconBusy,
-            )}
-            aria-hidden="true"
-          >
-            ⟳
-          </span>
-        </button>
-      </div>
-
-      {pantry.isError ? (
-        <p className={styles.error} role="alert">
-          {t("loadFailed")}
-        </p>
-      ) : null}
-
-      {pantry.isPending ? <PantrySkeleton label={t("loading")} /> : null}
-
-      {isEmpty ? (
-        <div className={styles.empty}>
-          <div className={styles.emptyMark} aria-hidden="true">
-            🗄️
-          </div>
-          <p className={styles.emptyText}>{t("empty")}</p>
-        </div>
-      ) : null}
-
-      {sections.map((section, index) => (
-        <div key={`${index}-${section.categoryId}`} className={styles.section}>
-          <h2 className={styles.sectionHeader}>
-            <span aria-hidden="true">{section.icon}</span>
-            <span className={styles.sectionName}>{section.name}</span>
-            <span className={styles.sectionCount}>
-              {t("sectionCount", { count: section.items.length })}
+    <>
+      <section
+        ref={screenRef}
+        className={styles.screen}
+        // Programmatic-only focus target (`moveFocusAfterTap`'s fallback), so
+        // it needs a name to announce when it actually receives focus — the
+        // visible `<h1>` right below already says the same thing, but that
+        // does not by itself give this container an accessible name of its
+        // own to read out.
+        tabIndex={-1}
+        aria-label={t("title")}
+      >
+        <div className={styles.toolbar}>
+          <h1 className={styles.toolbarTitle}>{t("title")}</h1>
+          {hasList ? (
+            <span className={styles.toolbarCount}>
+              {t("count", { count: items.length })}
             </span>
-          </h2>
-
-          <ul className={styles.rows}>
-            {section.items.map((item) => {
-              const pending = pendingIds.has(item.id);
-
-              return (
-                <li key={item.id}>
-                  <div className={styles.row}>
-                    <span className={styles.rowIcon} aria-hidden="true">
-                      {item.productIcon}
-                    </span>
-                    <span className={styles.rowName}>{item.productName}</span>
-                    <button
-                      type="button"
-                      ref={(el) => registerRanOutButtonRef(item.id, el)}
-                      className={styles.ranOutButton}
-                      aria-disabled={pending || undefined}
-                      aria-busy={pending || undefined}
-                      data-pending={pending || undefined}
-                      onClick={(event) =>
-                        handleRanOut(item, event.currentTarget)
-                      }
-                    >
-                      {t("ranOut")}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          ) : null}
+          {/* Hidden rather than disabled on an empty pantry (DESIGN_BRIEF S5,
+            task 3.3) — there is nothing a run through zero cards would show
+            beyond the summary screen's own "всё на месте" copy, so offering
+            the button at all would just be a detour to the same empty-state
+            message the toolbar already communicates via `isEmpty` below. */}
+          {hasList && !isEmpty ? (
+            <button
+              type="button"
+              className={styles.revisionButton}
+              onClick={(event) => {
+                revisionOpener.captureOpener(event.currentTarget);
+                setRevisionOpen(true);
+              }}
+              aria-label={t("revisionAria")}
+            >
+              {t("revision")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={styles.refreshButton}
+            onClick={() => void refresh()}
+            disabled={isRefreshing || pantryMutating}
+            aria-label={t("refreshAria")}
+            title={t("refresh")}
+          >
+            <span
+              className={cx(
+                styles.refreshIcon,
+                isRefreshing && styles.refreshIconBusy,
+              )}
+              aria-hidden="true"
+            >
+              ⟳
+            </span>
+          </button>
         </div>
-      ))}
 
-      {/* `toast.seq` keys the *child*, never the region itself. This `<p>` is
-          mounted once for the life of the screen and never again — the same
-          reasoning `cart-screen.tsx`'s own live region documents: a
-          `role="status"` node that appears together with its content is not
-          reliably announced, since assistive tech has to already be watching
-          the node before the text arrives. What a stable region does *not*
-          fix on its own is React skipping an in-place text update when the
-          new string is identical to the old one — naming the product in
-          `toast.sr` closes that for the common case, but not for two
-          consecutive `ranOutError` toasts, which carry no product name and
-          are byte-identical. A changed `key` forces React to unmount the old
-          child and mount a fresh one instead of patching text in place — a
-          real node replacement inside the already-live region, which
-          assistive tech observes as a mutation regardless of whether the
-          text itself repeats. */}
-      <p className={styles.srOnly} role="status">
-        <span key={toast?.seq ?? "empty"}>{toast?.sr ?? ""}</span>
-      </p>
+        {pantry.isError ? (
+          <p className={styles.error} role="alert">
+            {t("loadFailed")}
+          </p>
+        ) : null}
 
-      {toast === null ? null : (
-        <p className={styles.toast} aria-hidden="true">
-          {toast.visible}
+        {pantry.isPending ? <PantrySkeleton label={t("loading")} /> : null}
+
+        {isEmpty ? (
+          <div className={styles.empty}>
+            <div className={styles.emptyMark} aria-hidden="true">
+              🗄️
+            </div>
+            <p className={styles.emptyText}>{t("empty")}</p>
+          </div>
+        ) : null}
+
+        {sections.map((section, index) => (
+          <div
+            key={`${index}-${section.categoryId}`}
+            className={styles.section}
+          >
+            <h2 className={styles.sectionHeader}>
+              <span aria-hidden="true">{section.icon}</span>
+              <span className={styles.sectionName}>{section.name}</span>
+              <span className={styles.sectionCount}>
+                {t("sectionCount", { count: section.items.length })}
+              </span>
+            </h2>
+
+            <ul className={styles.rows}>
+              {section.items.map((item) => {
+                const pending = pendingIds.has(item.id);
+
+                return (
+                  <li key={item.id}>
+                    <div className={styles.row}>
+                      <span className={styles.rowIcon} aria-hidden="true">
+                        {item.productIcon}
+                      </span>
+                      <span className={styles.rowName}>{item.productName}</span>
+                      <button
+                        type="button"
+                        ref={(el) => registerRanOutButtonRef(item.id, el)}
+                        className={styles.ranOutButton}
+                        aria-disabled={pending || undefined}
+                        aria-busy={pending || undefined}
+                        data-pending={pending || undefined}
+                        onClick={(event) =>
+                          handleRanOut(item, event.currentTarget)
+                        }
+                      >
+                        {t("ranOut")}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+
+        {/* `toast.seq` keys the *child*, never the region itself. This `<p>` is
+            mounted once for the life of the screen and never again — the same
+            reasoning `cart-screen.tsx`'s own live region documents: a
+            `role="status"` node that appears together with its content is not
+            reliably announced, since assistive tech has to already be watching
+            the node before the text arrives. What a stable region does *not*
+            fix on its own is React skipping an in-place text update when the
+            new string is identical to the old one — naming the product in
+            `toast.sr` closes that for the common case, but not for two
+            consecutive `ranOutError` toasts, which carry no product name and
+            are byte-identical. A changed `key` forces React to unmount the old
+            child and mount a fresh one instead of patching text in place — a
+            real node replacement inside the already-live region, which
+            assistive tech observes as a mutation regardless of whether the
+            text itself repeats. */}
+        <p className={styles.srOnly} role="status">
+          <span key={toast?.seq ?? "empty"}>{toast?.sr ?? ""}</span>
         </p>
-      )}
-    </section>
+
+        {toast === null ? null : (
+          <p className={styles.toast} aria-hidden="true">
+            {toast.visible}
+          </p>
+        )}
+      </section>
+
+      {revisionOpen ? (
+        <RevisionMode
+          items={items}
+          onRanOut={handleRevisionRanOut}
+          onClose={() => setRevisionOpen(false)}
+          restoreFocusTo={revisionOpener.restoreFocusTo}
+        />
+      ) : null}
+    </>
   );
 }
 
