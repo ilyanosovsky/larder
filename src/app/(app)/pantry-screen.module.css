@@ -1,0 +1,280 @@
+/* S5 «Кладовая» — Paper Ledger, the same hairline-ruled-rows treatment as S3
+   (cart-screen.module.css), pared down to what this screen actually shows:
+   no checkbox, no zebra highlight machinery, one action per row. */
+
+.screen {
+  padding-bottom: var(--s-6);
+}
+
+/* ── Toolbar: title, count, «Обновить» — same shape as S3's own ── */
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+}
+
+.toolbarTitle {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.toolbarCount {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.refreshButton {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  margin-bottom: calc(-1 * var(--s-3));
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.refreshButton:disabled {
+  cursor: progress;
+}
+
+.refreshButton:focus-visible,
+.ranOutButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.refreshIcon {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.refreshIconBusy {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshIconBusy {
+    opacity: 0.5;
+    animation: none;
+  }
+}
+
+.error {
+  margin-top: var(--s-4);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* ── CategorySection — identical rules to S3's, own copy per the codebase's
+   per-screen CSS Module convention (no shared base across S3/S5/S4/S8). ── */
+
+.section {
+  margin-top: var(--s-5);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  border-bottom: var(--bd-ink) solid var(--ink);
+  padding-bottom: var(--s-2);
+}
+
+.sectionName {
+  flex: 1;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.sectionCount {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+}
+
+.rows {
+  list-style: none;
+}
+
+.rows > li:nth-child(even) {
+  background: var(--zebra);
+}
+
+/* ── ProductRow — no checkbox, no highlight states: a pantry row is either
+   here or it isn't, and it leaves the list the instant it is acted on. ── */
+
+.row {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-2) var(--s-1);
+}
+
+.rowIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.rowName {
+  overflow: hidden;
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* «Кончилось» — the row's one action, styled after S3's «Заказ получен»
+   pills (mono, uppercase, hairline-bordered) rather than the primary
+   accent-filled button: this is a frequent, low-stakes tap, not a commit. */
+.ranOutButton {
+  display: flex;
+  flex: none;
+  min-height: 36px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.ranOutButton[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+/* ── EmptyState ── */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-8) var(--s-6);
+  text-align: center;
+}
+
+.emptyMark {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) dashed var(--rule-2);
+  font-size: 40px;
+}
+
+.emptyText {
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+/* ── The permanently-mounted live region behind the toast — same reasoning
+   as S3's own: mounted for the screen's whole life so assistive tech is
+   already watching it before the text arrives. ── */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.toast {
+  position: fixed;
+  bottom: calc(56px + var(--s-4) + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 20;
+  overflow: hidden;
+  max-width: calc(100% - 2 * var(--s-4));
+  background: var(--ink);
+  box-shadow: var(--shadow-dialog);
+  padding: var(--s-3) var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+/* ── First-load skeleton ── */
+
+.skeletonHeader {
+  border-bottom: var(--bd-ink) solid var(--rule-2);
+  padding: var(--s-5) 0 var(--s-2);
+}
+
+.skeletonHeaderBar {
+  display: block;
+  width: 120px;
+  height: 10px;
+  background: var(--rule);
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-4) var(--s-1);
+}
+
+.skeletonBox {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  background: var(--rule);
+}
+
+.skeletonName {
+  max-width: 60%;
+  height: 12px;
+  background: var(--rule);
+}
+
+@media (min-width: 1024px) {
+  .toast {
+    bottom: var(--s-6);
+  }
+}

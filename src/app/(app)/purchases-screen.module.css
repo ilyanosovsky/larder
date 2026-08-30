@@ -1,0 +1,48 @@
+/* S3's segment control (DESIGN_BRIEF §4): «Корзина | Кладовая», Paper Ledger —
+   hairline-bordered, mono uppercase labels, the active side reading as an
+   ink-filled tab rather than an accent pill (this sits above both S3 and S5's
+   own accent-coloured controls, so it needed a register of its own). */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.segment {
+  display: flex;
+  margin-bottom: var(--s-4);
+  border: var(--bd-hair) solid var(--rule-2);
+}
+
+.segmentButton {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.segmentButton + .segmentButton {
+  border-left: var(--bd-hair) solid var(--rule-2);
+}
+
+.segmentButton:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: -2px;
+}
+
+.segmentButtonActive {
+  background: var(--ink);
+  color: var(--paper);
+}

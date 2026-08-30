@@ -504,6 +504,53 @@ The residual: two contexts that restore in the same instant, before either has r
 - **Delivery is at-least-once, not exactly-once.** Two cases can send a write the server already applied: a crash after the write but before the response (indistinguishable from "never arrived"), and two contexts restoring the same envelope in the same instant. `setStatus`, `updateItem` and `remove` are idempotent, so only `cart.add` can show it — as a doubled quantity, which the household can see and correct. The alternative (drop anything unproven) trades a visible, correctable error for an invisible, uncorrectable one; idempotency keys are the real fix and are post-MVP.
 - **A queued change delivered in a _later_ session can still flash as a partner change.** `cart-screen.tsx` re-marks the row in `onSettled` so a same-session delivery is suppressed, but a mutation restored from storage has no observer and no `ownChangesRef` continuity across a reload. Highlighting a row that genuinely changed since the screen opened is defensible; it is simply not distinguishable from the partner's edit.
 
+## Pantry
+
+"What's at home" (VISION §3.2) — presence only, no quantities, no expiry dates: a conscious scope cut, the same reasoning VISION gives for why full stock-level tracking gets abandoned in practice. Task 3.1 builds the model, the `pantry` router, the S5 screen and the S3/S5 «Корзина | Кладовая» segment control; task 3.2's «Завершить закупку» is what will actually populate the table (bought cart lines moving here on trip close) — until then it is reachable but empty for every household.
+
+`pantry_items` (`src/db/schema.ts`): `householdId`, `productId` (FK `restrict` — same reasoning as `cart_items.product_id`), `createdAt`, `updatedAt`. No `qty`, no `note` — a row's mere existence is the entire fact.
+
+**The unique index is on `productId` alone, no `householdId`** — exactly `cart_items`' own partial-unique-index reasoning: a product row belongs to exactly one household, so uniqueness per product is already at least as strict as uniqueness per (household, product). Unlike `cart_items`' index it is **not partial** — a pantry row has no `tripId`-style "still active" qualifier to scope it by; one row per product, full stop.
+
+### `pantry` router
+
+| Procedure       | Boundary             | Notes                                                                         |
+| --------------- | --------------------- | ------------------------------------------------------------------------------ |
+| `pantry.list`   | `householdProcedure`  | The household's pantry, in `cart.list`'s own walking order (department `sortOrder`, then product name) |
+| `pantry.ranOut` | `householdProcedure`  | `{ id }` (the pantry row) → the four-way outcome union below                  |
+
+There is no `create`/`remove` endpoint in task 3.1's scope. Rows are populated by task 3.2's «Завершить закупку» and emptied exclusively by `ranOut` — a pantry fact is never edited by hand, only asserted true (a purchase) or false (running out).
+
+### «Кончилось» (`pantry.ranOut`, `src/server/pantry/ran-out.ts`, pure, unit-tested)
+
+**Ensure-in-cart, not add-quantity.** «Кончилось» asserts presence-needed, not a quantity to add on top of whatever is already on the list — the pantry itself tracks no quantities to compute one from. `decidePantryRanOut({ existing, defaultUnit })` is the decision half, with no database in it, mirroring `decideCartAdd` (`src/server/cart/merge.ts`) but narrower — no merge branch, no unit-mismatch question, because there is nothing to sum:
+
+| Existing active cart row | Outcome         | What happens                                                        |
+| ------------------------- | --------------- | --------------------------------------------------------------------- |
+| none                       | `added`          | new `needed` line, qty **1**, the product's `defaultUnit`             |
+| `needed` / `ordered`       | `alreadyInCart`  | row left **completely** untouched — not bumped                       |
+| `bought`                   | `restored`       | → `needed`, **keeping** the row's own qty/unit (there is no new quantity to replace them with), buyer and `orderedVia` cleared, note kept |
+
+The router (`src/server/api/routers/pantry.ts`) supplies the locked rows the same way `cart.add` does, reusing its exact tested helpers rather than a second copy: `lockActiveItem`, `insertActiveItem`, `activeItemScope`, `cartItemColumns` and `toCartItemOutput`/`toUnit` are exported from `cart.ts` for this — behaviour unchanged, `export` added to existing functions.
+
+**The delete is one `DELETE … RETURNING`, not a separate locking `SELECT` followed by a delete.** `DELETE FROM pantry_items WHERE id = … AND household_id = … RETURNING product_id` already gives the atomicity a `SELECT … FOR UPDATE` would: it either removes a row nobody else has removed yet and hands back its `productId`, or it matches nothing and the call knows at once there is nothing left to do. Two overlapping calls for the same row — a double tap, or an offline-queue replay racing a live one — can never both see a row to act on; exactly one wins the delete.
+
+**`gone` is a no-op, not an error**, and it is what makes the whole mutation replay-safe for at-least-once delivery: a pantry row a partner already cleared (or a queued tap replayed after this one landed) is simply too late to mean anything — the cart line it would have ensured already exists from whichever call won. A `ranOut` sent twice is `gone` the second time, never a duplicate line.
+
+Ensuring the cart line then follows `cart.add`'s own shape: lock the product's active row, decide, and — for the one outcome with nothing to lock (`added`) — retry once against whatever a concurrent insert won the race with (`RAN_OUT_ATTEMPTS = 2`, same bound and same reasoning as `cart.add`'s `ADD_ATTEMPTS`).
+
+### Pantry screen (S5, task 3.1) and the segment control
+
+`purchases-screen.tsx` is the «Покупки» tab's actual root now (`page.tsx` renders it, prefetching both `cart.list` and `pantry.list`): the «Корзина | Кладовая» segment control, local `useState`, defaulting to «Корзина», with `CartScreen` or the new `PantryScreen` mounted underneath. The control sits **above** both screens rather than folded into `CartScreen`'s own toolbar — `cart-screen.module.css` had a forward-looking comment speculating the control would replace that toolbar's title/count pair; it does not, by decision recorded in that file and in `purchases-screen.tsx`'s own doc comment. `CartScreen` is a large, already-tested, actively-synced component (tasks 2.2–2.5), and reaching into its toolbar to also drive a sibling screen would mean threading tab state through it for no benefit to the cart itself. A thin wrapper gets the same DESIGN_BRIEF layout with a far smaller blast radius.
+
+`PantryScreen` (`pantry-screen.tsx`) is `CartScreen`'s shape pared down to what S5 actually shows: `groupProductsByCategory` sections, no checkbox, one action per row («Кончилось»), no offline banner, no highlight-on-refetch machinery, no row action sheet — none of that is in task 3.1's scope (long-tap «изменить продукт» mirrors S3's row sheet and is explicitly deferred; «Ревизия» is task 3.3). It reuses `cartSyncQueryOptions` (`src/lib/sync/cart-sync-presets.ts`) for `pantry.list` as-is — that preset's own doc comment already anticipated being used for "cart.list and, later, anything else task 2.3+ renders alongside it".
+
+**«Кончилось» is optimistic, the same pattern as the S3 checkbox** — but a **removal**, not a field patch, because a pantry row's whole lifecycle _is_ presence: `removePantryRow`/`restorePantryRow` (`src/lib/pantry/optimistic-remove.ts`, pure, tested) take the row out of the cached `pantry.list` in `onMutate` and can put it back at the exact index it came from if the mutation fails — never appending it at the list's end, which would jump it across a department-section boundary the same way an unscoped `sortBoughtLast` would in the cart. The double-tap guard is a synchronous ref (`pendingRef`), not render state, for the same reason `cart-screen.tsx`'s own is. `describePantryRanOutOutcome` (`src/lib/pantry/ran-out-outcome.ts`, pure, tested) maps the four outcomes to a toast: `added`/`restored` both read «В корзине» (the distinction is server bookkeeping, not something worth a different sentence to the shopper), `alreadyInCart` reads «Уже в корзине», `gone` is silent — the row is already off the screen by the time the answer comes back, so there is nothing left to point a toast at.
+
+**Fire-and-observe, never `mutateAsync` awaited** — `ranOut.mutate(...)`, exactly the rule `cart-screen.tsx` follows for the same reason: a mutation TanStack pauses for being offline may not resolve for as long as the connection is down.
+
+**Not wired into the IndexedDB offline queue** (`src/trpc/offline-queue.ts`), and this is a deliberate, documented scope decision rather than an oversight. That module's persistence filter (`createOfflineCacheFilters`, `src/lib/sync/offline-cache.ts`) is hard-scoped to the `cart` router's path key and `cart.list`'s query key; widening it to a second router — and bumping `OFFLINE_CACHE_VERSION`/the buster, since the persisted shape would change — is a real piece of work with its own blast radius (every existing stored envelope, every offline-cache test), not something that belongs as a side effect of the pantry screen's PR (AGENTS.md: no drive-by refactors inside feature PRs). What this costs in practice: a `pantry.ranOut` made while offline still **pauses** rather than fails — that much is TanStack's own default `networkMode` behaviour, independent of this app's queue — and resumes automatically as long as the app stays open until the connection returns. What it does not survive is the app being killed while still offline (the iOS-PWA case the cart's queue exists for): the paused mutation and its optimistic patch are both only in memory, so on the next load `pantry.list` simply refetches from the server and the row reappears, exactly as if the tap never happened. Nothing is corrupted on either side — the mutation was designed to be replay-safe (`gone`) precisely so that widening the queue to cover it later is a config change, not a rewrite.
+
 ## Kitchen profile
 
 A household's equipment checklist + headcount (VISION §3.3, §5) — what a recipe is checked against, and what the assistant reads for "adapt this to what we have" once it exists. Task 1.4 builds the model, the router, the S2 onboarding step and a first S12 settings section; the assistant integration is later.

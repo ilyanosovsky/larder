@@ -89,6 +89,25 @@
     "receiveOrderPending": "Получаем…",
     "receiveOrderError": "Не получилось. Попробуй ещё раз."
   },
+  "purchases": {
+    "segmentAria": "Корзина или кладовая",
+    "cart": "Корзина",
+    "pantry": "Кладовая"
+  },
+  "pantry": {
+    "title": "Кладовая",
+    "count": "{count, plural, one {# позиция} few {# позиции} many {# позиций} other {# позиции}}",
+    "loading": "Загружаем кладовую…",
+    "loadFailed": "Не удалось загрузить кладовую. Попробуй обновить.",
+    "refresh": "Обновить",
+    "refreshAria": "Обновить кладовую",
+    "empty": "Кладовая наполнится сама после первой закупки",
+    "sectionCount": "{count}",
+    "ranOut": "Кончилось",
+    "toastInCart": "В корзине",
+    "toastAlreadyInCart": "Уже в корзине",
+    "ranOutError": "Не получилось отправить в корзину. Попробуй ещё раз."
+  },
   "autocomplete": {
     "title": "Что купить?",
     "searchLabel": "Название продукта",

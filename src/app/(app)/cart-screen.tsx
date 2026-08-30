@@ -98,8 +98,11 @@ type AddFlow =
  * through plain mutate-and-invalidate: none of that is perf-critical the way
  * the checkbox is, so there is no optimistic patch to keep in sync there.
  *
- * Deferred by design: the «Корзина | Кладовая» segment control (3.1) and
- * «Завершить закупку» (3.2).
+ * The «Корзина | Кладовая» segment control (task 3.1) lives one level up, in
+ * `purchases-screen.tsx` — this component is still exactly the standalone S3
+ * screen it always was, just no longer mounted directly by the page.
+ *
+ * Deferred by design: «Завершить закупку» (3.2).
  */
 export function CartScreen() {
   const t = useTranslations("cart");
