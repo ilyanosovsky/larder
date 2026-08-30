@@ -18,10 +18,16 @@ import {
   type PantryRemovalSnapshot,
 } from "@/lib/pantry/optimistic-remove";
 import { pickNextFocusTarget } from "@/lib/pantry/next-focus-target";
-import { describePantryRanOutOutcome } from "@/lib/pantry/ran-out-outcome";
+import {
+  describePantryRanOutOutcome,
+  type RanOutFeedback,
+} from "@/lib/pantry/ran-out-outcome";
 import { cartSyncQueryOptions } from "@/lib/sync/cart-sync-presets";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
-import type { PantryListItemOutput } from "@/server/api/routers/pantry";
+import type {
+  PantryListItemOutput,
+  RanOutOutput,
+} from "@/server/api/routers/pantry";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./pantry-screen.module.css";
@@ -194,6 +200,23 @@ export function PantryScreen({
    */
   const pendingProductNames = useRef<Map<string, string>>(new Map());
 
+  /**
+   * Per-tap outcome callbacks, by pantry-row id — how «Ревизия»
+   * (`revision-mode.tsx`, task 3.3) gets told what its own tap did, since
+   * `ranOut` below is a single shared mutation instance rather than one per
+   * caller. Registered by `fireRanOut` when a caller supplies one, read once
+   * in `onSuccess`/`onError` (in place of `showToast` for that id, never in
+   * addition to it — the row button's own toast is invisible and unreachable
+   * behind «Ревизия»'s opaque full-screen overlay, and duplicating the
+   * announcement into two live regions at once is worse than routing it to
+   * whichever surface the shopper can actually see), and always cleared in
+   * `onSettled` for the same "never outlives its tap" reason
+   * `pendingProductNames` documents.
+   */
+  const pendingOutcomeCallbacks = useRef<
+    Map<string, (feedback: RanOutFeedback | null) => void>
+  >(new Map());
+
   function registerRanOutButtonRef(
     id: string,
     el: HTMLButtonElement | null,
@@ -251,6 +274,35 @@ export function PantryScreen({
   );
   const { refresh, isRefreshing } = useManualRefresh(pantryFilter);
 
+  /**
+   * Turns a settled `ranOut` outcome into `RanOutFeedback`, or `null` for
+   * the silent `gone` case — the same `describePantryRanOutOutcome` mapping
+   * `onSuccess` below used to build its toast text inline, pulled out so
+   * `handleRevisionRanOut`'s per-tap `onOutcome` callback can render the
+   * identical copy inside «Ревизия»'s own dialog instead of this screen's
+   * toast.
+   *
+   * `name` is `pendingProductNames`'s entry for this id — the row is already
+   * gone from the cache by the time this runs, so the sr text has to come
+   * from what was captured at tap time, not a fresh cache read.
+   */
+  function ranOutFeedback(
+    result: RanOutOutput,
+    name: string | undefined,
+  ): RanOutFeedback | null {
+    const action = describePantryRanOutOutcome(result);
+    if (action.toastKey === null) {
+      return null;
+    }
+    return {
+      visible: t(action.toastKey),
+      sr:
+        name === undefined
+          ? t(action.toastKey)
+          : t(`${action.toastKey}Sr`, { name }),
+    };
+  }
+
   const ranOut = useMutation(
     trpc.pantry.ranOut.mutationOptions({
       onMutate: async (variables) => {
@@ -269,24 +321,21 @@ export function PantryScreen({
         return { snapshot };
       },
       onSuccess: (result, variables) => {
-        const action = describePantryRanOutOutcome(result);
-        if (action.toastKey !== null) {
-          // The row is already gone from the cache by the time this runs, so
-          // the product name for the **sr-only** announcement has to come
-          // from `pendingProductNames` (captured at tap time), not from a
-          // fresh cache read. `added`/`restored` render the identical
-          // visible string every time (DESIGN_BRIEF keeps it generic), which
-          // means a second identical tap within the toast's own window
-          // mutates nothing in the live region — no text change, no
-          // announcement. Naming the product makes every event's sr text
-          // distinct.
-          const name = pendingProductNames.current.get(variables.id);
-          showToast(
-            t(action.toastKey),
-            name === undefined
-              ? t(action.toastKey)
-              : t(`${action.toastKey}Sr`, { name }),
-          );
+        const name = pendingProductNames.current.get(variables.id);
+        const feedback = ranOutFeedback(result, name);
+        const onOutcome = pendingOutcomeCallbacks.current.get(variables.id);
+        if (onOutcome) {
+          // Routed to «Ревизия»'s own in-dialog toast instead — this
+          // screen's toast is invisible (z-index) and unreachable by
+          // assistive tech (outside the dialog's aria-modal subtree) behind
+          // the full-screen overlay, so showing it here too would be a
+          // silent no-op at best and a confusing double announcement at
+          // worst. `feedback === null` (the silent `gone` outcome) still
+          // reaches the callback — it's the caller's job to decide that
+          // means "say nothing", the same as this branch does below.
+          onOutcome(feedback);
+        } else if (feedback !== null) {
+          showToast(feedback.visible, feedback.sr);
         }
         // The cart may have gained or changed a line — S3 catches up on its
         // own poll regardless, but invalidating means it is not stale the
@@ -297,7 +346,7 @@ export function PantryScreen({
         // thing worth not showing stale.
         void queryClient.invalidateQueries(cartFilter);
       },
-      onError: (_error, _variables, context) => {
+      onError: (_error, variables, context) => {
         if (context?.snapshot) {
           const snapshot = context.snapshot;
           queryClient.setQueryData(pantryKey, (current) =>
@@ -306,11 +355,26 @@ export function PantryScreen({
               : restorePantryRow(current, snapshot),
           );
         }
-        showToast(t("ranOutError"));
+        const errorFeedback: RanOutFeedback = {
+          visible: t("ranOutError"),
+          sr: t("ranOutError"),
+        };
+        const onOutcome = pendingOutcomeCallbacks.current.get(variables.id);
+        if (onOutcome) {
+          // Same routing as `onSuccess` above — and the one outcome finding
+          // 1's review called out explicitly: a failed «кончилось» inside
+          // «Ревизия» MUST surface somewhere the shopper can actually see
+          // and hear, not just silently roll the row back while the card
+          // has already flung off screen as if it had succeeded.
+          onOutcome(errorFeedback);
+        } else {
+          showToast(errorFeedback.visible, errorFeedback.sr);
+        }
       },
       onSettled: (_data, _error, variables) => {
         markPending(variables.id, false);
         pendingProductNames.current.delete(variables.id);
+        pendingOutcomeCallbacks.current.delete(variables.id);
         // Deferred until every outstanding «Кончилось» has settled, not
         // fired per mutation: with two rows in flight, an earlier settle's
         // refetch would land while the later one is still pending — the
@@ -333,6 +397,13 @@ export function PantryScreen({
    * optimistic cache removal, rollback and outcome toast either way, since
    * both ultimately just call this `ranOut` mutation.
    *
+   * `onOutcome`, when supplied, redirects the settled/error feedback away
+   * from this screen's own toast to the caller's own surface — see the
+   * `pendingOutcomeCallbacks` and `ranOut`'s `onSuccess`/`onError` doc
+   * comments for why that redirection exists at all (in short: this
+   * screen's toast is invisible and unreachable behind «Ревизия»'s
+   * full-screen overlay).
+   *
    * Deliberately **not** the pending-guard check itself — callers each have
    * their own pre-guard work to do first (the row moves focus and starts the
    * fly-over; the revision mode advances its own deck and plays its own card
@@ -340,9 +411,15 @@ export function PantryScreen({
    * flight. Every caller checks `pendingRef` before doing anything, this
    * function included.
    */
-  function fireRanOut(item: PantryListItemOutput) {
+  function fireRanOut(
+    item: PantryListItemOutput,
+    onOutcome?: (feedback: RanOutFeedback | null) => void,
+  ) {
     markPending(item.id, true);
     pendingProductNames.current.set(item.id, item.productName);
+    if (onOutcome) {
+      pendingOutcomeCallbacks.current.set(item.id, onOutcome);
+    }
     ranOut.mutate({ id: item.id });
   }
 
@@ -375,12 +452,19 @@ export function PantryScreen({
    * list isn't even visible behind the full-screen overlay) and no
    * fly-to-cart ghost (`revision-mode.tsx` has its own card-exit animation
    * instead, DESIGN_BRIEF makes no mention of the ghost for this mode).
+   *
+   * `onOutcome` comes straight from `RevisionMode`'s own call and is handed
+   * to `fireRanOut` unchanged — this function's whole job is the
+   * pending-guard, exactly like `handleRanOut`'s.
    */
-  function handleRevisionRanOut(item: PantryListItemOutput) {
+  function handleRevisionRanOut(
+    item: PantryListItemOutput,
+    onOutcome: (feedback: RanOutFeedback | null) => void,
+  ) {
     if (pendingRef.current.has(item.id)) {
       return;
     }
-    fireRanOut(item);
+    fireRanOut(item, onOutcome);
   }
 
   const items = pantry.data ?? [];

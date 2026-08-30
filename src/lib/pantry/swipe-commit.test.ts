@@ -4,60 +4,164 @@ import { decideSwipeCommit } from "@/lib/pantry/swipe-commit";
 
 describe("decideSwipeCommit", () => {
   it("springs back for a small, slow drag below both thresholds", () => {
-    expect(decideSwipeCommit({ dx: 10, dy: 0, elapsedMs: 400 })).toBeNull();
+    expect(
+      decideSwipeCommit({ dx: 10, dy: 0, recentDx: 10, recentElapsedMs: 400 }),
+    ).toBeNull();
   });
 
   it("commits «have» once the distance threshold is crossed to the right", () => {
-    expect(decideSwipeCommit({ dx: 120, dy: 0, elapsedMs: 500 })).toBe("have");
+    expect(
+      decideSwipeCommit({
+        dx: 120,
+        dy: 0,
+        recentDx: 120,
+        recentElapsedMs: 500,
+      }),
+    ).toBe("have");
   });
 
   it("commits «ranOut» once the distance threshold is crossed to the left", () => {
-    expect(decideSwipeCommit({ dx: -120, dy: 0, elapsedMs: 500 })).toBe(
-      "ranOut",
-    );
+    expect(
+      decideSwipeCommit({
+        dx: -120,
+        dy: 0,
+        recentDx: -120,
+        recentElapsedMs: 500,
+      }),
+    ).toBe("ranOut");
   });
 
   it("does not commit right at the distance floor minus one", () => {
-    expect(decideSwipeCommit({ dx: 95, dy: 0, elapsedMs: 500 })).toBeNull();
+    expect(
+      decideSwipeCommit({ dx: 95, dy: 0, recentDx: 95, recentElapsedMs: 500 }),
+    ).toBeNull();
   });
 
   it("commits exactly at the distance threshold", () => {
-    expect(decideSwipeCommit({ dx: 96, dy: 0, elapsedMs: 500 })).toBe("have");
+    expect(
+      decideSwipeCommit({ dx: 96, dy: 0, recentDx: 96, recentElapsedMs: 500 }),
+    ).toBe("have");
   });
 
   it("commits a fast short flick even under the distance threshold", () => {
     // 40px in 50ms = 0.8 px/ms, above the fling velocity floor.
-    expect(decideSwipeCommit({ dx: 40, dy: 0, elapsedMs: 50 })).toBe("have");
+    expect(
+      decideSwipeCommit({ dx: 40, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBe("have");
   });
 
   it("does not commit a fast but tiny jitter under the fling distance floor", () => {
     // 10px in 5ms = 2 px/ms — fast, but too short a distance to count as a
     // deliberate flick rather than a shaky lift-off.
-    expect(decideSwipeCommit({ dx: 10, dy: 0, elapsedMs: 5 })).toBeNull();
+    expect(
+      decideSwipeCommit({ dx: 10, dy: 0, recentDx: 10, recentElapsedMs: 5 }),
+    ).toBeNull();
   });
 
   it("does not commit a slow drag that crossed the fling distance floor but not the velocity floor", () => {
     // 40px in 200ms = 0.2 px/ms, below the fling velocity floor and below
     // the full distance threshold.
-    expect(decideSwipeCommit({ dx: 40, dy: 0, elapsedMs: 200 })).toBeNull();
+    expect(
+      decideSwipeCommit({ dx: 40, dy: 0, recentDx: 40, recentElapsedMs: 200 }),
+    ).toBeNull();
   });
 
   it("never commits a drag that moved more vertically than horizontally", () => {
-    expect(decideSwipeCommit({ dx: 100, dy: 150, elapsedMs: 300 })).toBeNull();
+    expect(
+      decideSwipeCommit({
+        dx: 100,
+        dy: 150,
+        recentDx: 100,
+        recentElapsedMs: 300,
+      }),
+    ).toBeNull();
   });
 
   it("commits when horizontal movement equals vertical movement (the tie favors horizontal)", () => {
-    expect(decideSwipeCommit({ dx: 100, dy: 100, elapsedMs: 300 })).toBe(
-      "have",
-    );
+    expect(
+      decideSwipeCommit({
+        dx: 100,
+        dy: 100,
+        recentDx: 100,
+        recentElapsedMs: 300,
+      }),
+    ).toBe("have");
   });
 
-  it("handles a zero-duration release without dividing by zero", () => {
-    expect(decideSwipeCommit({ dx: 120, dy: 0, elapsedMs: 0 })).toBe("have");
-    expect(decideSwipeCommit({ dx: 10, dy: 0, elapsedMs: 0 })).toBeNull();
+  it("handles a zero-duration recent window without dividing by zero", () => {
+    expect(
+      decideSwipeCommit({ dx: 120, dy: 0, recentDx: 120, recentElapsedMs: 0 }),
+    ).toBe("have");
+    expect(
+      decideSwipeCommit({ dx: 10, dy: 0, recentDx: 10, recentElapsedMs: 0 }),
+    ).toBeNull();
   });
 
   it("does not commit a perfectly still release", () => {
-    expect(decideSwipeCommit({ dx: 0, dy: 0, elapsedMs: 300 })).toBeNull();
+    expect(
+      decideSwipeCommit({ dx: 0, dy: 0, recentDx: 0, recentElapsedMs: 300 }),
+    ).toBeNull();
+  });
+
+  it("commits the direction the drag actually ended in (total dx), not the recent window's own sign", () => {
+    // A contrived case — a real single continuous gesture never actually
+    // disagrees like this — but the contract is that the committed
+    // direction always reads off the total displacement.
+    expect(
+      decideSwipeCommit({
+        dx: 120,
+        dy: 0,
+        recentDx: -30,
+        recentElapsedMs: 500,
+      }),
+    ).toBe("have");
+  });
+
+  // ── Recent-window velocity (finding 8): a long hold before a fast final
+  // flick must still read as fast — averaging over the whole gesture's
+  // elapsed time would dilute it into "slow". ──
+
+  it("commits a deliberate flick that follows a long hold, using only the recent window's velocity", () => {
+    // The finger sat still for 900ms, then flicked 40px in the final 50ms.
+    // `dx` (total) is small and `recentElapsedMs` reflects only the flick
+    // itself, not the 950ms the whole gesture took.
+    expect(
+      decideSwipeCommit({ dx: 40, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBe("have");
+  });
+
+  it("does not commit when the recent window itself was slow, even after a long total gesture", () => {
+    // Same total displacement as above, but this time the caller reports a
+    // slow recent window (as if averaged over the whole 950ms gesture) —
+    // pins that `decideSwipeCommit` trusts `recentElapsedMs` as given and
+    // never falls back to a total-gesture average on its own.
+    expect(
+      decideSwipeCommit({ dx: 40, dy: 0, recentDx: 40, recentElapsedMs: 950 }),
+    ).toBeNull();
+  });
+
+  // ── Exact boundaries (finding 12) — pins `>=` so a future `>` typo or a
+  // constant drift shows up as a failing test, not a silent behavior change. ──
+
+  it("commits exactly at the fling distance floor with velocity exactly at the floor", () => {
+    // 24px in 48ms = 0.5 px/ms — both floors met exactly, neither exceeded.
+    expect(
+      decideSwipeCommit({ dx: 24, dy: 0, recentDx: 24, recentElapsedMs: 48 }),
+    ).toBe("have");
+  });
+
+  it("does not commit one px short of the fling distance floor, even at very high velocity", () => {
+    // 23px in 1ms = 23 px/ms — velocity is nowhere near the limiting
+    // factor; the distance floor alone rejects this.
+    expect(
+      decideSwipeCommit({ dx: 23, dy: 0, recentDx: 23, recentElapsedMs: 1 }),
+    ).toBeNull();
+  });
+
+  it("does not commit just below the fling velocity floor, at exactly the distance floor", () => {
+    // 24px in 49ms ≈ 0.49 px/ms — a hair under the velocity floor.
+    expect(
+      decideSwipeCommit({ dx: 24, dy: 0, recentDx: 24, recentElapsedMs: 49 }),
+    ).toBeNull();
   });
 });
