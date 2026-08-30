@@ -6,6 +6,16 @@
   padding-bottom: var(--s-6);
 }
 
+/* The screen's own root doubles as the fallback keyboard-focus target once
+   «Кончилось» removes the last row with no neighbour left to land on
+   (`moveFocusAfterTap` in pantry-screen.tsx) — programmatic-only (`tabIndex`
+   is set to `-1` in the component, not here), so this only ever shows up
+   right after such a move, never from ordinary Tabbing through the page. */
+.screen:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ── Toolbar: title, count, «Обновить» — same shape as S3's own ── */
 
 .toolbar {

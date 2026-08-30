@@ -192,6 +192,28 @@ describe("pantry.ranOut", () => {
     expect(compile(stub.statements[1]?.wheres[0])).toContain('"id"');
   });
 
+  it("scopes the product lookup to the caller's own household", async () => {
+    // Defense in depth (same reasoning as `cart.add`'s own `productId`
+    // check): nothing in the schema forces `pantry_items.household_id` and
+    // `products.household_id` to agree, so this SELECT has to repeat the
+    // guard rather than trust the id alone. Without this test, dropping
+    // `eq(products.householdId, householdId)` from that statement leaves the
+    // rest of the suite green.
+    const { caller, stub } = callerWith([
+      ...ranOutPreamble(),
+      [],
+      [cartRow({ qty: 1 })],
+    ]);
+
+    await caller.pantry.ranOut({ id: PANTRY_ID });
+
+    expect(stub.statements[2]).toMatchObject({
+      kind: "select",
+      table: "products",
+    });
+    expectScopedByHousehold(stub.statements[2]);
+  });
+
   describe("no active line for the product", () => {
     it("inserts a new needed line at qty 1, in the product's default unit", async () => {
       const { caller, stub } = callerWith([

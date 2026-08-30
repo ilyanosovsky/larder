@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { removePantryRow, restorePantryRow } from "@/lib/pantry/optimistic-remove";
+import {
+  removePantryRow,
+  restorePantryRow,
+} from "@/lib/pantry/optimistic-remove";
 
 interface Row {
   id: string;
@@ -72,5 +75,38 @@ describe("restorePantryRow", () => {
     restorePantryRow(list, { row: MILK, index: 0 });
 
     expect(list).toEqual([BUTTER]);
+  });
+
+  it("is idempotent when the row already came back before the rollback ran", () => {
+    // A refetch (a manual «Обновить», or a mount past staleTime — the passive
+    // triggers this screen mutes are not the only source of one) restored the
+    // row from the server's own list before this rollback got to it.
+    // Reinserting on top would leave two rows sharing one id.
+    const list = [BUTTER, MILK, EGGS];
+    const snapshot = { row: MILK, index: 1 };
+
+    expect(restorePantryRow(list, snapshot)).toEqual([BUTTER, MILK, EGGS]);
+  });
+
+  it("matches the already-present row by id, not by object identity", () => {
+    // The row that came back from a refetch is a different object than the
+    // one this snapshot is holding, even though it describes the same
+    // product — the guard has to compare by id.
+    const serverMilk: Row = { id: "milk", name: "Молоко" };
+    const list = [BUTTER, serverMilk, EGGS];
+    const staleSnapshot = { row: MILK, index: 1 };
+
+    expect(restorePantryRow(list, staleSnapshot)).toEqual([
+      BUTTER,
+      serverMilk,
+      EGGS,
+    ]);
+  });
+
+  it("does not mutate the list on the idempotent path either", () => {
+    const list = [BUTTER, MILK];
+    restorePantryRow(list, { row: MILK, index: 0 });
+
+    expect(list).toEqual([BUTTER, MILK]);
   });
 });

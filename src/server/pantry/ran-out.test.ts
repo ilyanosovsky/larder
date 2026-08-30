@@ -13,18 +13,22 @@ function line(status: CartItemStatus): RanOutActiveLine {
 
 describe("decidePantryRanOut — no active line", () => {
   it("adds a new needed line at qty 1, in the product's default unit", () => {
-    expect(
-      decidePantryRanOut({ existing: null, defaultUnit: "кг" }),
-    ).toEqual({ outcome: "added", qty: RAN_OUT_QTY, unit: "кг" });
+    expect(decidePantryRanOut({ existing: null, defaultUnit: "кг" })).toEqual({
+      outcome: "added",
+      qty: RAN_OUT_QTY,
+      unit: "кг",
+    });
   });
 
   it("uses whatever default unit the product carries, not a fixed one", () => {
     // Companion to the test above: a different unit, expecting *that* one
     // back — proves the decision reads `defaultUnit` rather than a hardcoded
     // «кг», which would pass the first test by coincidence.
-    expect(
-      decidePantryRanOut({ existing: null, defaultUnit: "шт" }),
-    ).toEqual({ outcome: "added", qty: RAN_OUT_QTY, unit: "шт" });
+    expect(decidePantryRanOut({ existing: null, defaultUnit: "шт" })).toEqual({
+      outcome: "added",
+      qty: RAN_OUT_QTY,
+      unit: "шт",
+    });
   });
 
   it("RAN_OUT_QTY is the smallest whole quantity — there is no previous qty to reuse", () => {

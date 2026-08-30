@@ -105,7 +105,9 @@
     "sectionCount": "{count}",
     "ranOut": "Кончилось",
     "toastInCart": "В корзине",
+    "toastInCartSr": "{name}: в корзине",
     "toastAlreadyInCart": "Уже в корзине",
+    "toastAlreadyInCartSr": "{name}: уже в корзине",
     "ranOutError": "Не получилось отправить в корзину. Попробуй ещё раз."
   },
   "autocomplete": {

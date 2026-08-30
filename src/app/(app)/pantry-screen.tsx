@@ -16,6 +16,7 @@ import {
   restorePantryRow,
   type PantryRemovalSnapshot,
 } from "@/lib/pantry/optimistic-remove";
+import { pickNextFocusTarget } from "@/lib/pantry/next-focus-target";
 import { describePantryRanOutOutcome } from "@/lib/pantry/ran-out-outcome";
 import { cartSyncQueryOptions } from "@/lib/sync/cart-sync-presets";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
@@ -31,6 +32,29 @@ const SKELETON_SECTIONS = [
   [170, 120, 200],
   [140, 180],
 ];
+
+/**
+ * What the "flew off toward the cart" ghost (`purchases-screen.tsx`) needs to
+ * animate — a plain `DOMRect` satisfies `rect` structurally, no cast needed.
+ */
+export interface PantryRanOutFlight {
+  readonly icon: string;
+  readonly name: string;
+  readonly rect: { left: number; top: number; width: number; height: number };
+}
+
+/** Whether the OS/browser asks for reduced motion — checked at the moment of
+ * the tap, not once at mount, since a setting change mid-session should take
+ * effect on the very next tap. `matchMedia` is guarded rather than assumed:
+ * this only ever runs from a click handler (browser-only), but a defensive
+ * check costs nothing and keeps the function honest about its environment. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 /**
  * S5 «Кладовая» (DESIGN_BRIEF §4, VISION §3.2) — "дома есть", grouped by
@@ -51,6 +75,24 @@ const SKELETON_SECTIONS = [
  * offline may not resolve for as long as the connection is down, and nothing
  * here should block on that.
  *
+ * **Keyboard focus is moved deterministically, not left to the browser.** The
+ * tapped «Кончилось» button is typically the focused element, and it
+ * unmounts the instant the optimistic removal lands — a browser drops focus
+ * to `<body>` in that case rather than picking a neighbour, throwing a
+ * keyboard shopper back to the top of the page mid-list. `moveFocusAfterTap`
+ * below computes the destination with `pickNextFocusTarget`
+ * (`src/lib/pantry/next-focus-target.ts`, pure, tested) **before** the
+ * removal even happens — the target row is still mounted at that instant, so
+ * the move is synchronous with the tap rather than waiting on an effect tied
+ * to the optimistic patch landing.
+ *
+ * **The fly-over ghost is owned by the parent** (`purchases-screen.tsx`):
+ * this screen only reports *that* a row flew off and *from where*
+ * (`onRanOutStart`) — the destination is the «Корзина» segment button, which
+ * lives one level up and this screen has no business knowing about. Skipped
+ * entirely under `prefers-reduced-motion`, checked here rather than by the
+ * parent so no flight is ever constructed for one that will not be shown.
+ *
  * **Deliberately out of scope for task 3.1** (per the plan row): the
  * «Ревизия» swipe-through mode (task 3.3) and long-tap «изменить продукт»
  * (mirrors the S3 row sheet, not built here). This screen is read-plus-one-
@@ -67,19 +109,25 @@ const SKELETON_SECTIONS = [
  * is the app being killed while still offline, in which case the pantry row
  * simply reappears on the next load, nothing corrupted either side.
  */
-export function PantryScreen() {
+export function PantryScreen({
+  onRanOutStart,
+}: {
+  onRanOutStart: (flight: PantryRanOutFlight) => void;
+}) {
   const t = useTranslations("pantry");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [toast, setToast] = useState<{ message: string; seq: number } | null>(
-    null,
-  );
+  const [toast, setToast] = useState<{
+    visible: string;
+    sr: string;
+    seq: number;
+  } | null>(null);
   const toastSeq = useRef(0);
 
-  function showToast(message: string) {
+  function showToast(visible: string, sr: string = visible) {
     toastSeq.current += 1;
-    setToast({ message, seq: toastSeq.current });
+    setToast({ visible, sr, seq: toastSeq.current });
   }
 
   useEffect(() => {
@@ -109,6 +157,62 @@ export function PantryScreen() {
       pendingRef.current.delete(id);
     }
     setPendingIds(new Set(pendingRef.current));
+  }
+
+  /**
+   * Every row's «Кончилось» button, by product-row id — the only way to move
+   * focus onto a *different* row than the one just tapped (`pickNextFocusTarget`
+   * names an id; this is what turns that id into an actual DOM node).
+   * A plain `Map` on a ref, not state: registering it is DOM bookkeeping, not
+   * something a re-render should ever depend on.
+   */
+  const rowButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  /** The screen's own root — the fallback focus target once no other row is
+   * left to land on (VISION §3.2: the pantry can run out to empty). */
+  const screenRef = useRef<HTMLElement>(null);
+
+  /**
+   * The tapped row's product name, by pantry-row id — captured at tap time so
+   * `onSuccess` can name it in the sr-only toast even though the row is
+   * already gone from the cache by the time that callback runs. A plain ref
+   * rather than the mutation's own context: threading it through `onMutate`'s
+   * return value hit a context-typing dead end with this tRPC/TanStack
+   * version's `onSuccess` overload, and a small id-keyed map sidesteps that
+   * without depending on the fix landing upstream. Read once in `onSuccess`
+   * and always cleared in `onSettled`, so it never accumulates entries beyond
+   * however many «Кончилось» taps are genuinely in flight at once.
+   */
+  const pendingProductNames = useRef<Map<string, string>>(new Map());
+
+  function registerRanOutButtonRef(
+    id: string,
+    el: HTMLButtonElement | null,
+  ): void {
+    if (el) {
+      rowButtonRefs.current.set(id, el);
+    } else {
+      rowButtonRefs.current.delete(id);
+    }
+  }
+
+  /**
+   * Moves focus **before** `removedId`'s row is ever removed — the target is
+   * still mounted at this instant, so there is no race to win against the
+   * optimistic patch. `items` must be the list as it stood at the moment of
+   * the tap (the caller's own render-scope value, not something re-read
+   * later), which is exactly what `pickNextFocusTarget` needs to name a
+   * neighbour by the row that is about to disappear.
+   */
+  function moveFocusAfterTap(
+    items: readonly PantryListItemOutput[],
+    removedId: string,
+  ): void {
+    const targetId = pickNextFocusTarget(items, removedId);
+    const target =
+      targetId === null
+        ? screenRef.current
+        : (rowButtonRefs.current.get(targetId) ?? screenRef.current);
+    target?.focus();
   }
 
   const pantryFilter = trpc.pantry.list.queryFilter();
@@ -142,8 +246,7 @@ export function PantryScreen() {
       onMutate: async (variables) => {
         await queryClient.cancelQueries(pantryFilter);
 
-        let snapshot: PantryRemovalSnapshot<PantryListItemOutput> | null =
-          null;
+        let snapshot: PantryRemovalSnapshot<PantryListItemOutput> | null = null;
         queryClient.setQueryData(pantryKey, (current) => {
           if (current === undefined) {
             return current;
@@ -155,10 +258,25 @@ export function PantryScreen() {
 
         return { snapshot };
       },
-      onSuccess: (result) => {
+      onSuccess: (result, variables) => {
         const action = describePantryRanOutOutcome(result);
         if (action.toastKey !== null) {
-          showToast(t(action.toastKey));
+          // The row is already gone from the cache by the time this runs, so
+          // the product name for the **sr-only** announcement has to come
+          // from `pendingProductNames` (captured at tap time), not from a
+          // fresh cache read. `added`/`restored` render the identical
+          // visible string every time (DESIGN_BRIEF keeps it generic), which
+          // means a second identical tap within the toast's own window
+          // mutates nothing in the live region — no text change, no
+          // announcement. Naming the product makes every event's sr text
+          // distinct.
+          const name = pendingProductNames.current.get(variables.id);
+          showToast(
+            t(action.toastKey),
+            name === undefined
+              ? t(action.toastKey)
+              : t(`${action.toastKey}Sr`, { name }),
+          );
         }
         // The cart may have gained or changed a line — S3 catches up on its
         // own poll regardless, but invalidating means it is not stale the
@@ -182,6 +300,7 @@ export function PantryScreen() {
       },
       onSettled: (_data, _error, variables) => {
         markPending(variables.id, false);
+        pendingProductNames.current.delete(variables.id);
         // Deferred until every outstanding «Кончилось» has settled, not
         // fired per mutation: with two rows in flight, an earlier settle's
         // refetch would land while the later one is still pending — the
@@ -197,11 +316,27 @@ export function PantryScreen() {
     }),
   );
 
-  function handleRanOut(item: PantryListItemOutput) {
+  function handleRanOut(
+    item: PantryListItemOutput,
+    buttonEl: HTMLButtonElement,
+  ) {
     if (pendingRef.current.has(item.id)) {
       return;
     }
     markPending(item.id, true);
+    pendingProductNames.current.set(item.id, item.productName);
+
+    // Both read the pre-removal list/DOM, synchronously, before anything
+    // about the row changes.
+    moveFocusAfterTap(items, item.id);
+    if (!prefersReducedMotion()) {
+      onRanOutStart({
+        icon: item.productIcon,
+        name: item.productName,
+        rect: buttonEl.getBoundingClientRect(),
+      });
+    }
+
     ranOut.mutate({ id: item.id });
   }
 
@@ -211,7 +346,17 @@ export function PantryScreen() {
   const isEmpty = hasList && items.length === 0;
 
   return (
-    <section className={styles.screen}>
+    <section
+      ref={screenRef}
+      className={styles.screen}
+      // Programmatic-only focus target (`moveFocusAfterTap`'s fallback), so
+      // it needs a name to announce when it actually receives focus — the
+      // visible `<h1>` right below already says the same thing, but that
+      // does not by itself give this container an accessible name of its
+      // own to read out.
+      tabIndex={-1}
+      aria-label={t("title")}
+    >
       <div className={styles.toolbar}>
         <h1 className={styles.toolbarTitle}>{t("title")}</h1>
         {hasList ? (
@@ -279,11 +424,14 @@ export function PantryScreen() {
                     <span className={styles.rowName}>{item.productName}</span>
                     <button
                       type="button"
+                      ref={(el) => registerRanOutButtonRef(item.id, el)}
                       className={styles.ranOutButton}
                       aria-disabled={pending || undefined}
                       aria-busy={pending || undefined}
                       data-pending={pending || undefined}
-                      onClick={() => handleRanOut(item)}
+                      onClick={(event) =>
+                        handleRanOut(item, event.currentTarget)
+                      }
                     >
                       {t("ranOut")}
                     </button>
@@ -296,12 +444,12 @@ export function PantryScreen() {
       ))}
 
       <p className={styles.srOnly} role="status">
-        {toast?.message ?? ""}
+        {toast?.sr ?? ""}
       </p>
 
       {toast === null ? null : (
         <p className={styles.toast} aria-hidden="true">
-          {toast.message}
+          {toast.visible}
         </p>
       )}
     </section>

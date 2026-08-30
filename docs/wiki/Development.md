@@ -514,10 +514,10 @@ The residual: two contexts that restore in the same instant, before either has r
 
 ### `pantry` router
 
-| Procedure       | Boundary             | Notes                                                                         |
-| --------------- | --------------------- | ------------------------------------------------------------------------------ |
-| `pantry.list`   | `householdProcedure`  | The household's pantry, in `cart.list`'s own walking order (department `sortOrder`, then product name) |
-| `pantry.ranOut` | `householdProcedure`  | `{ id }` (the pantry row) → the four-way outcome union below                  |
+| Procedure       | Boundary             | Notes                                                                                                  |
+| --------------- | -------------------- | ------------------------------------------------------------------------------------------------------ |
+| `pantry.list`   | `householdProcedure` | The household's pantry, in `cart.list`'s own walking order (department `sortOrder`, then product name) |
+| `pantry.ranOut` | `householdProcedure` | `{ id }` (the pantry row) → the four-way outcome union below                                           |
 
 There is no `create`/`remove` endpoint in task 3.1's scope. Rows are populated by task 3.2's «Завершить закупку» and emptied exclusively by `ranOut` — a pantry fact is never edited by hand, only asserted true (a purchase) or false (running out).
 
@@ -525,11 +525,11 @@ There is no `create`/`remove` endpoint in task 3.1's scope. Rows are populated b
 
 **Ensure-in-cart, not add-quantity.** «Кончилось» asserts presence-needed, not a quantity to add on top of whatever is already on the list — the pantry itself tracks no quantities to compute one from. `decidePantryRanOut({ existing, defaultUnit })` is the decision half, with no database in it, mirroring `decideCartAdd` (`src/server/cart/merge.ts`) but narrower — no merge branch, no unit-mismatch question, because there is nothing to sum:
 
-| Existing active cart row | Outcome         | What happens                                                        |
-| ------------------------- | --------------- | --------------------------------------------------------------------- |
-| none                       | `added`          | new `needed` line, qty **1**, the product's `defaultUnit`             |
-| `needed` / `ordered`       | `alreadyInCart`  | row left **completely** untouched — not bumped                       |
-| `bought`                   | `restored`       | → `needed`, **keeping** the row's own qty/unit (there is no new quantity to replace them with), buyer and `orderedVia` cleared, note kept |
+| Existing active cart row | Outcome         | What happens                                                                                                                              |
+| ------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| none                     | `added`         | new `needed` line, qty **1**, the product's `defaultUnit`                                                                                 |
+| `needed` / `ordered`     | `alreadyInCart` | row left **completely** untouched — not bumped                                                                                            |
+| `bought`                 | `restored`      | → `needed`, **keeping** the row's own qty/unit (there is no new quantity to replace them with), buyer and `orderedVia` cleared, note kept |
 
 The router (`src/server/api/routers/pantry.ts`) supplies the locked rows the same way `cart.add` does, reusing its exact tested helpers rather than a second copy: `lockActiveItem`, `insertActiveItem`, `activeItemScope`, `cartItemColumns` and `toCartItemOutput`/`toUnit` are exported from `cart.ts` for this — behaviour unchanged, `export` added to existing functions.
 

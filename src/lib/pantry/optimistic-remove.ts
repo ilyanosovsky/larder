@@ -56,11 +56,26 @@ export function removePantryRow<TRow extends RemovablePantryRow>(
  * further (another row removed) or grown (a refetch landed) since this
  * snapshot was taken, and a stale index must degrade to "put it back at the
  * end" rather than throw or silently drop the row.
+ *
+ * **Idempotent when the row is already back.** A rollback runs some time
+ * after the tap — after the mutation has actually failed — and in that
+ * window a refetch (the passive triggers this screen mutes are not the only
+ * source of one: a manual «Обновить», or a mount that lands past
+ * `staleTime`, both still fire) can already have restored the row from the
+ * server's own list, which never lost it. Reinserting on top of that would
+ * leave two rows sharing one id — a duplicate `<li key>` and the product
+ * shown twice until the next refetch quietly heals it. Checked by id rather
+ * than by reference, because the row that came back from the server is a
+ * different object than the one this snapshot is holding.
  */
-export function restorePantryRow<TRow>(
+export function restorePantryRow<TRow extends RemovablePantryRow>(
   list: readonly TRow[],
   snapshot: PantryRemovalSnapshot<TRow>,
 ): TRow[] {
+  if (list.some((row) => row.id === snapshot.row.id)) {
+    return [...list];
+  }
+
   const index = Math.min(snapshot.index, list.length);
   return [...list.slice(0, index), snapshot.row, ...list.slice(index)];
 }
