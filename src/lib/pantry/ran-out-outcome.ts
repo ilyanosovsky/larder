@@ -8,6 +8,22 @@ export interface PantryRanOutAction {
 }
 
 /**
+ * What a settled (or failed) `ranOut` mutation tells the tapper — visible
+ * banner text plus its sr-only counterpart. Shared shape so both the pantry
+ * row's own toast (`pantry-screen.tsx`) and «Ревизия»'s in-dialog toast
+ * (task 3.3, `revision-mode.tsx`) render through the exact same
+ * `describePantryRanOutOutcome` mapping rather than each inventing its own
+ * strings. Lives here, not in either screen component, so `revision-mode.tsx`
+ * can depend on the type without importing from `pantry-screen.tsx` (and
+ * risking a cycle back the other way, since that file already imports
+ * `RevisionMode`).
+ */
+export interface RanOutFeedback {
+  readonly visible: string;
+  readonly sr: string;
+}
+
+/**
  * Turns one of `pantry.ranOut`'s four outcomes into what S5 tells the shopper
  * — split out for the same reason `describeCartAddOutcome`
  * (`src/lib/cart/add-outcome.ts`) is: this repo's vitest collects

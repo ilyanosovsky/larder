@@ -118,7 +118,24 @@
     "toastInCartSr": "{name}: в корзине",
     "toastAlreadyInCart": "Уже в корзине",
     "toastAlreadyInCartSr": "{name}: уже в корзине",
-    "ranOutError": "Не получилось отправить в корзину. Попробуй ещё раз."
+    "ranOutError": "Не получилось отправить в корзину. Попробуй ещё раз.",
+    "revision": "Ревизия",
+    "revisionAria": "Начать ревизию кладовой"
+  },
+  "pantryRevision": {
+    "dialogTitle": "Ревизия кладовой",
+    "progress": "{current} из {total}",
+    "progressSr": "{current} из {total}: {name}",
+    "have": "Есть",
+    "ranOut": "Кончилось",
+    "haveAria": "{name} — есть дома",
+    "ranOutAria": "{name} — кончилось",
+    "hint": "Смахни вправо — «есть», влево — «кончилось»",
+    "summaryEmpty": "Всё на месте — ничего не кончилось.",
+    "summaryEmptySr": "Ревизия завершена. Всё на месте — ничего не кончилось.",
+    "summaryDone": "Готово: {count, plural, one {# продукт улетел в корзину} few {# продукта улетели в корзину} many {# продуктов улетело в корзину} other {# продукта улетели в корзину}}",
+    "summaryDoneSr": "Ревизия завершена. {count, plural, one {# продукт улетел в корзину} few {# продукта улетели в корзину} many {# продуктов улетело в корзину} other {# продукта улетели в корзину}}",
+    "summaryClose": "Готово"
   },
   "autocomplete": {
     "title": "Что купить?",
