@@ -117,6 +117,25 @@ describe("decideSwipeCommit", () => {
     ).toBe("have");
   });
 
+  it("never commits a fling on a reversal that ends back at the origin", () => {
+    // Drag left fast, reverse, release exactly where the drag began: total
+    // displacement is zero, but the *recent* window (the final flick back)
+    // easily clears both fling floors on its own. Without requiring
+    // `distance > 0`, `dx > 0 ? "have" : "ranOut"` would fall through to
+    // "ranOut" purely because `0 > 0` is false — sending the removal
+    // mutation for a card that visually ended up right back where it
+    // started.
+    expect(
+      decideSwipeCommit({ dx: 0, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBeNull();
+  });
+
+  it("never commits a fling on a reversal, in either recent direction", () => {
+    expect(
+      decideSwipeCommit({ dx: 0, dy: 0, recentDx: -40, recentElapsedMs: 50 }),
+    ).toBeNull();
+  });
+
   // ── Recent-window velocity (finding 8): a long hold before a fast final
   // flick must still read as fast — averaging over the whole gesture's
   // elapsed time would dilute it into "slow". ──

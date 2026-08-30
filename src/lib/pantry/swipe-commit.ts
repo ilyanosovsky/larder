@@ -80,6 +80,13 @@ export function decideSwipeCommit(gesture: SwipeGesture): SwipeCommit {
   const velocity = recentElapsedMs > 0 ? recentDistance / recentElapsedMs : 0;
   const committedByDistance = distance >= DISTANCE_THRESHOLD_PX;
   const committedByFling =
+    // `distance > 0`: a reversal — drag left, then flick back right (or vice
+    // versa) — can have `recentDistance`/`velocity` easily clear the fling
+    // floor while the *total* displacement nets to zero. Without this, `dx >
+    // 0 ? "have" : "ranOut"` below would fall through to "ranOut" purely
+    // because `0 > 0` is `false`, sending the removal mutation for a card
+    // that visually ended up right back where it started.
+    distance > 0 &&
     recentDistance >= FLING_MIN_DISTANCE_PX &&
     velocity >= FLING_VELOCITY_PX_PER_MS;
 
