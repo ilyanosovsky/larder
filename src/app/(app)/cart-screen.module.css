@@ -505,10 +505,11 @@
   cursor: pointer;
 }
 
-/* `aria-disabled`, never `disabled` (see `cart-screen.tsx`), so the pending
-   state has to be styled off the ARIA attribute rather than off `:disabled`. */
+/* `aria-disabled`, never `disabled` (see `cart-screen.tsx`), so the refused
+   state — our own request in flight, offline, or a tick of ours not yet
+   landed — is styled off the ARIA attribute rather than off `:disabled`. */
 .closeTripButton[aria-disabled="true"] {
-  cursor: progress;
+  cursor: not-allowed;
   opacity: 0.55;
 }
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { pantryItems } from "@/db/schema";
 import { createCaller } from "@/server/api/root";
+import { TRIP_HISTORY_LIMIT } from "@/server/api/routers/trip";
 import {
   anonymousContext,
   createDbStub,
@@ -135,9 +136,17 @@ describe("trip.close", () => {
       expect(read?.lock).toMatchObject({ strength: "update" });
       expectScopedByHousehold(read);
 
-      const where = compile(read?.wheres[0]).sql;
-      expect(where).toContain('"trip_id" is null');
-      expect(where).toContain('"status"');
+      const where = compile(read?.wheres[0]);
+      expect(where.sql).toContain('"trip_id" is null');
+      expect(where.sql).toContain('"status"');
+      // The **value**, not just the column: VISION §3.1 says «Позиции "нужно"
+      // и "заказано" остаются в корзине», and asserting only that a status
+      // predicate exists lets the literal drift to `needed` with every test
+      // in the repo still green — which would sweep the whole cart into the
+      // pantry.
+      expect(where.params).toEqual(
+        expect.arrayContaining([HOUSEHOLD_ID, "bought"]),
+      );
     });
 
     it("creates the trip row for the caller's own household", async () => {
@@ -174,11 +183,19 @@ describe("trip.close", () => {
       // The ids, plus the household and the active/bought predicates: an id
       // never reaches a write on its own (VISION §6.7), and a line another
       // transaction carried off first must not land in a second trip.
+      // `"bought"` is pinned by value here too — the read and the stamp
+      // drifting *together* to another status would otherwise stay green.
       expect(where.params).toEqual(
-        expect.arrayContaining([ITEM_ID, OTHER_ITEM_ID, HOUSEHOLD_ID]),
+        expect.arrayContaining([
+          ITEM_ID,
+          OTHER_ITEM_ID,
+          HOUSEHOLD_ID,
+          "bought",
+        ]),
       );
       expect(where.sql).toContain('"household_id"');
       expect(where.sql).toContain('"trip_id" is null');
+      expect(where.sql).toContain('"status"');
     });
 
     it("upserts pantry presence for every stamped product", async () => {
@@ -338,6 +355,18 @@ describe("trip.list", () => {
       '"shopping_trips"."closed_at" desc',
     );
     expect(compile(select?.groupBys[0]).sql).toBe('"shopping_trips"."id"');
+  });
+
+  it("caps the history at TRIP_HISTORY_LIMIT rows", async () => {
+    // The cap is behaviour, not decoration: a `.limit(0)` here would render
+    // the S12 block permanently empty, and asserting the constant separately
+    // is what keeps the two from drifting to zero together.
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await caller.trip.list();
+
+    expect(TRIP_HISTORY_LIMIT).toBeGreaterThan(0);
+    expect(stub.statements[1]?.limit).toBe(TRIP_HISTORY_LIMIT);
   });
 
   it("scopes the joined cart lines by household too", async () => {

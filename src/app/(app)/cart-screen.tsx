@@ -541,30 +541,65 @@ export function CartScreen() {
   const closeTrip = useMutation(
     trpc.trip.close.mutationOptions({
       onSuccess: (result) => {
+        // Armed for **both** outcomes, before the count is looked at: the
+        // invalidate below runs either way, and a close that found nothing
+        // (the partner got there first) still drops `boughtCount` to 0 and
+        // unmounts the button under the finger — which is exactly the case
+        // the rescue exists for. The effect above moves focus once the
+        // refreshed list has rendered.
+        restoreFocusAfterCloseRef.current = true;
+
         if (result.count === 0) {
-          // Nothing was bought after all — the partner closed the same run a
-          // moment ago, or un-ticked the last line. Silent on purpose: the
-          // refetch below is the whole answer, and a toast would report a
-          // purchase that this tap did not make.
+          // Silent on purpose: a toast here would report a purchase that
+          // this tap did not make.
           return;
         }
         showToast(t("closeTripDone", { count: result.count }));
-        // The button is about to unmount with the rows it counted, and a
-        // browser drops focus to the document body when that happens — the
-        // effect above moves it once the refreshed list has rendered.
-        restoreFocusAfterCloseRef.current = true;
       },
       onError: () => showToast(t("closeTripError")),
       onSettled: () => {
         closingRef.current = false;
         void queryClient.invalidateQueries(cartFilter);
         void queryClient.invalidateQueries(trpc.pantry.list.queryFilter());
+        // S12's «История закупок» reads `trip.list`, and the trip that was
+        // just closed is the row it is missing. Without this the query keeps
+        // its 30s `staleTime` copy, and a Back navigation to settings
+        // restores that copy from the client cache without re-running the
+        // page's server-side prefetch — history a tap out of date.
+        void queryClient.invalidateQueries(trpc.trip.list.queryFilter());
       },
     }),
   );
 
+  /**
+   * Whether a close may be sent at all right now — the same two conditions
+   * the «Обновить» control above is disabled by, and for a sharper reason.
+   *
+   * **Offline**: a `trip.close` tapped offline does not fail, it *pauses*,
+   * and the bought ticks made offline are paused alongside it. Nothing orders
+   * those on reconnect — `resumePausedMutations()` fires them together — so
+   * the close can reach the server ahead of the ticks it counted and close a
+   * trip missing exactly them (the button said 5, the toast says 3, and two
+   * lines stay in the cart as bought). Refusing the tap while there is no
+   * connection is what keeps that from being possible at all; the offline
+   * banner already explains why the screen is in this state.
+   *
+   * **A write of ours still in flight**: the online miniature of the same
+   * race — tick the last item, tap close in the next instant, and the close
+   * can be served before that `setStatus`. Waiting for the tick to settle
+   * costs a moment at the end of a run and makes the count truthful.
+   *
+   * `writesInFlight` counts paused mutations as well as in-flight ones
+   * (`useIsMutating` does), which is what makes the offline queue's backlog
+   * hold the button closed until it has actually drained.
+   */
+  const closeBlocked = !isOnline || writesInFlight;
+
   function handleCloseTrip() {
-    if (closingRef.current) {
+    // The ref is the synchronous half (a second tap in the same tick); the
+    // blocked check is the ordering half. Both are re-checked here rather
+    // than trusted to the attribute, which `aria-disabled` does not enforce.
+    if (closingRef.current || closeBlocked) {
       return;
     }
     closingRef.current = true;
@@ -1002,9 +1037,11 @@ export function CartScreen() {
               // `aria-disabled`, never `disabled`: the browser drops focus
               // off a control the moment it becomes disabled, which would
               // throw a keyboard user back to the top of the page mid-tap.
-              // `closingRef` is what actually prevents the second fire — the
-              // same split the row checkbox documents.
-              aria-disabled={closeTrip.isPending || undefined}
+              // The guards in `handleCloseTrip` are what actually prevent the
+              // fire — the same split the row checkbox documents. `busy` is
+              // only for our own request; `disabled` also covers "offline"
+              // and "a tick of ours has not landed yet" (see `closeBlocked`).
+              aria-disabled={closeBlocked || undefined}
               aria-busy={closeTrip.isPending || undefined}
               onClick={handleCloseTrip}
             >

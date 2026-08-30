@@ -16,7 +16,7 @@ import { lockHousehold } from "@/server/household-lock";
  * block becomes a real screen (task 7.1) it gets a cursor, and this constant
  * is the reminder that it does not have one yet.
  */
-const TRIP_HISTORY_LIMIT = 50;
+export const TRIP_HISTORY_LIMIT = 50;
 
 export const closeTripOutput = z.object({
   /** `null` for the no-op: nothing was bought, so no trip was created. */

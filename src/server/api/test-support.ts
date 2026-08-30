@@ -110,6 +110,13 @@ export interface RecordedStatement {
    */
   query: unknown;
   /**
+   * The row cap handed to `.limit()`, or `null` if the statement never
+   * capped. Recorded rather than swallowed: a cap is a real behavioural
+   * decision (`trip.list`'s history limit), and a stub that drops it lets
+   * `.limit(0)` pass every test while rendering a permanently empty screen.
+   */
+  limit: number | null;
+  /**
    * The lock strength and config handed to `.for()` (e.g.
    * `.for("update")`), or `null` if the statement never locked. `for()`
    * takes a plain string rather than a SQL fragment, so this is asserted
@@ -194,6 +201,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       groupBys: [],
       joins: [],
       query,
+      limit: null,
       lock: null,
       onConflict: null,
       txDepth,
@@ -233,7 +241,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
         statement.groupBys.push(...columns);
         return chain;
       },
-      limit: () => chain,
+      limit(rows: number) {
+        statement.limit = rows;
+        return chain;
+      },
       for(strength: unknown, config?: unknown) {
         statement.lock = { strength, config };
         return chain;
