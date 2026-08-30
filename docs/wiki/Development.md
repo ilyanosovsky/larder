@@ -240,7 +240,7 @@ That is a property of `products`, not of `cart_items`' own foreign keys. Those a
 
 The index is the **authority, not a pre-check**. Adding a product that is already in the cart raises the existing line instead of minting a second one, and two partners doing it at the same instant race in Postgres rather than on a read. «Помидоры и вверху, и внизу» — the note-app pain this whole product started from — is impossible by construction. Application code must never work around it (AGENTS.md).
 
-`shopping_trips` exists ahead of the endpoint that writes it (task 3.2) purely so `trip_id` has a foreign key target — the index is unexpressible without one. There is deliberately no "open trip" row: a trip is only ever created at the moment it is closed, and "the current trip" is simply the set of rows with `trip_id IS NULL`. An open-trip row would be a second source of truth for the same fact, and a household could then have zero or two of them.
+`shopping_trips` is written by exactly one endpoint, `trip.close` (task 3.2, see [Closing a trip](#closing-a-trip-завершить-закупку) below). There is deliberately no "open trip" row: a trip is only ever created at the moment it is closed, and "the current trip" is simply the set of rows with `trip_id IS NULL`. An open-trip row would be a second source of truth for the same fact, and a household could then have zero or two of them.
 
 `qty` is `numeric(10, 3)` in drizzle's `number` mode — «0.5 кг» has to survive a round trip, and a float would make «0.1 + 0.2» a support ticket. `unit` and `orderedVia` are `text` re-validated on read (the same treatment `products.default_unit` gets); `status` is a real pg enum, because it drives every branch of the merge rules and an unknown value there would have no safe fallback.
 
@@ -506,7 +506,7 @@ The residual: two contexts that restore in the same instant, before either has r
 
 ## Pantry
 
-"What's at home" (VISION §3.2) — presence only, no quantities, no expiry dates: a conscious scope cut, the same reasoning VISION gives for why full stock-level tracking gets abandoned in practice. Task 3.1 builds the model, the `pantry` router, the S5 screen and the S3/S5 «Корзина | Кладовая» segment control; task 3.2's «Завершить закупку» is what will actually populate the table (bought cart lines moving here on trip close) — until then it is reachable but empty for every household.
+"What's at home" (VISION §3.2) — presence only, no quantities, no expiry dates: a conscious scope cut, the same reasoning VISION gives for why full stock-level tracking gets abandoned in practice. Task 3.1 builds the model, the `pantry` router, the S5 screen and the S3/S5 «Корзина | Кладовая» segment control; task 3.2's «Завершить закупку» ([Closing a trip](#closing-a-trip-завершить-закупку)) is what populates the table — bought cart lines moving here on trip close is the **only** way a row ever appears.
 
 `pantry_items` (`src/db/schema.ts`): `householdId`, `productId` (FK `restrict` — same reasoning as `cart_items.product_id`), `createdAt`, `updatedAt`. No `qty`, no `note` — a row's mere existence is the entire fact.
 
@@ -519,7 +519,9 @@ The residual: two contexts that restore in the same instant, before either has r
 | `pantry.list`   | `householdProcedure` | The household's pantry, in `cart.list`'s own walking order (department `sortOrder`, then product name) |
 | `pantry.ranOut` | `householdProcedure` | `{ id }` (the pantry row) → the four-way outcome union below                                           |
 
-There is no `create`/`remove` endpoint in task 3.1's scope. Rows are populated by task 3.2's «Завершить закупку» and emptied exclusively by `ranOut` — a pantry fact is never edited by hand, only asserted true (a purchase) or false (running out).
+There is no `create`/`remove` endpoint. Rows are populated by `trip.close` and emptied exclusively by `ranOut` — a pantry fact is never edited by hand, only asserted true (a purchase) or false (running out).
+
+`ranOut`'s transaction opens with the household's advisory lock (task 3.2) — see [Lock ordering](#lock-ordering-between-tripclose-and-pantryranout) for why that line is load-bearing rather than ceremony.
 
 ### «Кончилось» (`pantry.ranOut`, `src/server/pantry/ran-out.ts`, pure, unit-tested)
 
@@ -550,6 +552,67 @@ Ensuring the cart line then follows `cart.add`'s own shape: lock the product's a
 **Fire-and-observe, never `mutateAsync` awaited** — `ranOut.mutate(...)`, exactly the rule `cart-screen.tsx` follows for the same reason: a mutation TanStack pauses for being offline may not resolve for as long as the connection is down.
 
 **Not wired into the IndexedDB offline queue** (`src/trpc/offline-queue.ts`), and this is a deliberate, documented scope decision rather than an oversight. That module's persistence filter (`createOfflineCacheFilters`, `src/lib/sync/offline-cache.ts`) is hard-scoped to the `cart` router's path key and `cart.list`'s query key; widening it to a second router — and bumping `OFFLINE_CACHE_VERSION`/the buster, since the persisted shape would change — is a real piece of work with its own blast radius (every existing stored envelope, every offline-cache test), not something that belongs as a side effect of the pantry screen's PR (AGENTS.md: no drive-by refactors inside feature PRs). What this costs in practice: a `pantry.ranOut` made while offline still **pauses** rather than fails — that much is TanStack's own default `networkMode` behaviour, independent of this app's queue — and resumes automatically as long as the app stays open until the connection returns. What it does not survive is the app being killed while still offline (the iOS-PWA case the cart's queue exists for): the paused mutation and its optimistic patch are both only in memory, so on the next load `pantry.list` simply refetches from the server and the row reappears, exactly as if the tap never happened. Nothing is corrupted on either side — the mutation was designed to be replay-safe (`gone`) precisely so that widening the queue to cover it later is a config change, not a rewrite.
+
+## Closing a trip («Завершить закупку»)
+
+The hinge between the cart and the pantry (VISION §3.1, §3.2), and the moment purchase history comes into existence. Task 3.2: the `trip` router, the S3 bottom-bar button and the S12 history block.
+
+### `trip` router
+
+| Procedure    | Boundary             | Notes                                                                                   |
+| ------------ | -------------------- | --------------------------------------------------------------------------------------- |
+| `trip.close` | `householdProcedure` | No input. → `{ tripId, count, productIds }`, `tripId` null for the no-op                |
+| `trip.list`  | `householdProcedure` | Closed trips, newest first, each with its line count (`LIMIT 50`, no pagination in MVP) |
+
+**What `close` does, in one transaction:**
+
+1. Takes the household's advisory lock (below).
+2. `SELECT … FOR UPDATE` over the household's active `bought` lines. It answers "is there anything to close" _and_ pins the answer: with those rows locked, a partner un-ticking one blocks until this transaction commits, so the set counted is exactly the set stamped.
+3. Inserts the `shopping_trips` row — **only if step 2 found something**.
+4. Stamps `trip_id` on exactly those lines (re-checking `household_id`, `trip_id IS NULL` and `status = 'bought'` — an id never reaches a write on its own, VISION §6.7), then upserts one `pantry_items` row per stamped product.
+
+**The purchase is the household's, not the shopper's.** Every bought line goes, whoever ticked it — VISION §3.1's «чьи бы они ни были: закупка общая на household». `needed` and `ordered` lines stay in the cart: a delivery that has not arrived is not part of the run that just ended.
+
+**The stamp is what frees the partial unique index.** `cart_items_productId_active_uidx` is `WHERE trip_id IS NULL`, so stamping a line is what lets the same product be added — and bought — again next week. This is the only place `trip_id` is ever written.
+
+**Nothing bought is an idempotent no-op**: `{ tripId: null, count: 0, productIds: [] }`, no error and **no trip row**, the same shape `cart.receiveOrder` returns when nothing is ordered. Minting a trip for an empty run would put a permanent «0 позиций» line in the S12 history for a tap that did nothing. If the stamp somehow matches no rows after the trip row has been inserted (unreachable while step 2 holds its locks), the procedure throws rather than returning: the trip row is already in the transaction, and rolling back is the only way not to leave an empty one behind.
+
+**The pantry upsert is `ON CONFLICT (product_id) DO UPDATE SET updated_at = now()`**, not `DO NOTHING`: buying something the pantry already lists is a fresher fact about the same product, not a no-op. Presence only — the insert carries the pair of ids and nothing else (VISION §3.2). The product ids are de-duplicated first: the partial unique index already guarantees one active line per product, but a multi-row `ON CONFLICT DO UPDATE` whose values hit one key twice is a hard Postgres error (21000, "cannot affect row a second time"), and an impossible state should not become a failed purchase.
+
+**The partner sees the closure on their next refetch** (VISION §6.3) — no realtime in the MVP. The plan row's mention of "realtime-события" is legacy wording from before that decision.
+
+### Lock ordering between `trip.close` and `pantry.ranOut`
+
+`src/server/household-lock.ts`, and it is a real bug fixed rather than a precaution:
+
+- `pantry.ranOut` locks **pantry row → cart row**: `DELETE … RETURNING` on `pantry_items`, then `SELECT … FOR UPDATE` (or an insert against the cart's unique index).
+- `trip.close` has to lock **cart rows → pantry row**: the stamping `UPDATE … RETURNING` is what authoritatively decides which products were bought, so it cannot come second.
+
+Run both for the same product at the same instant and Postgres has a lock-order cycle: `ranOut` holds the pantry-row delete and waits for the cart row, `close` holds the cart row and waits on the pantry key's uncommitted delete. One of them is aborted with **40P01** — a 500 for a tap that did nothing wrong.
+
+**The resolution is a coarse per-household serialization**: both transactions take `pg_advisory_xact_lock(hashtextextended(household_id::text, 0))` as their **first** statement (a lock taken after the first row lock orders nothing). Transaction-scoped rather than session-scoped, so Postgres releases it on commit or rollback — there is no unlock to forget, which matters on serverless where the connection outlives the request. The cost is nothing in practice: a household is two people, these are the only two transactions that take it, and the contention window is one tap against the partner's.
+
+**The alternative was reordering `close`, and it does not survive its own correctness requirement.** For `close` to touch the pantry first it would have to read the bought lines without locking them; any line un-bought in that gap would leave a pantry row for something still sitting in the cart. Hash collisions between two households are possible in principle and harmless: two unrelated households briefly serialize with each other, which is not a data problem.
+
+Both sides are covered by a test that fails if the lock moves or disappears (`trip.test.ts`, `pantry.test.ts`) — the db stub records `db.execute()` statements and their position, so "first statement of the transaction" is assertable without a database.
+
+### S3 «Завершить закупку (N)»
+
+`cart-screen.tsx`: a second button in the existing bottom action bar (never a second floating pill — the bar is one decision), rendered only while at least one row is `bought`, with `N` = that count. One tap, no confirmation dialog, per DESIGN_BRIEF S3.
+
+**Deliberately not optimistic**, unlike everything else on this screen. The server decides which lines were bought at that instant — including the partner's ticks this client may not have refetched yet — so a client-side guess would routinely be wrong about the count and about which rows to remove. It is also not till-critical the way the checkbox is: one tap at the end of a run, with a «Завершаем…» label, is the honest shape. The double-tap guard is still a synchronous ref (`isPending` lands a render too late, and two closes in one tick would mint two trips), and the button uses `aria-disabled`, never `disabled`, so a keyboard user is not thrown to the top of the page mid-tap; on success focus moves deliberately to «+ Добавить», since the button is about to unmount with the rows it counted.
+
+`onSettled` invalidates **both** `cart.list` and `pantry.list` — the cart loses the bought lines and the pantry gains a row for each of them, so leaving the pantry alone would show a stale «Кладовая» one segment-control tap away. `trip.close` also mutes the cart's passive refetch triggers while it is in flight, the same way `cart.*` mutations do (`useIsMutating` on `trpc.trip.pathKey()`).
+
+The S3 live region's child is now keyed on the toast sequence, the solved version from `pantry-screen.tsx`: React skips an in-place text update when the new string is identical to the old one, so two consecutive identical toasts used to be announced once.
+
+**Offline it pauses, like `pantry.ranOut`** and for the same documented reason: the IndexedDB queue (`src/trpc/offline-queue.ts`) is hard-scoped to the `cart` router's path key, and widening it to a second router is its own piece of work rather than a side effect of this PR. TanStack resumes the paused mutation on reconnect as long as the app stays open; killed while offline, the tap is simply lost and the cart still shows the bought lines, which is the correct state for a trip that was never closed. A duplicate delivery cannot duplicate a trip either: the second one finds whatever is bought _at that moment_, which for an immediate replay is nothing at all — the no-op, no second trip row.
+
+### S12 «История закупок»
+
+`settings/trip-history-section.tsx`, prefetched with the page like the kitchen profile beside it. One row per trip: the date and «N позиций». Skeleton level on purpose — DESIGN_BRIEF's «строка раскрывается в список купленного» needs a per-trip read that task 7.1 adds with the rest of the S12 assembly, which is also why `trip.list` returns a count rather than the lines themselves.
+
+The date goes through **next-intl's `useFormatter`**, not `toLocaleDateString`: this is a client component, so it renders on the server too, and next-intl resolves the time zone once on the server and hands that same zone to the client provider. A raw `Intl` call would use the server's zone during SSR and the browser's after hydration — a mismatch landing exactly on dates near midnight. No global `timeZone` is configured (`src/i18n/request.ts`), so dates read in the deployment's zone (UTC on Vercel); pinning the household's own zone is a settings question for task 7.1.
 
 ## Kitchen profile
 
@@ -655,7 +718,7 @@ This decision is specifically about composite tenancy FKs, the mechanism CodeRab
 
 - `unusableDb` — a Proxy that throws on any property access, so a test can prove a procedure rejected _before_ it queried.
 - `unusableOpenai` — the same idea for `ctx.openai()`. It is the default in both contexts below, so a test that unexpectedly reaches an AI call fails loudly instead of dialing a paid API.
-- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — including `wheres`, `orderBys` and the `fields` projection, each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters, plus `txDepth`, the transaction nesting a statement was issued at (`0` bare, `1` in a transaction, `2` in a savepoint). `txDepth` exists because some nesting is load-bearing rather than stylistic — see the cart's insert-inside-a-savepoint — and the stub has no database to reveal it any other way.
+- `createDbStub(results)` — a drizzle-shaped query-builder stub. Every clause returns the builder, and awaiting one shifts the next queued result off `results`; an `Error` in the queue is thrown instead, which is how a constraint violation is simulated. `stub.statements` records what the resolver ran, in order — `wheres`, `orderBys`, `groupBys`, join conditions (`joins`), the `fields` projection, an `onConflictDoUpdate` config and the raw SQL of a `db.execute()` (`query`), each of which can be compiled with `PgDialect` to assert on the real SQL and its parameters — plus `txDepth`, the transaction nesting a statement was issued at (`0` bare, `1` in a transaction, `2` in a savepoint). `txDepth` exists because some nesting is load-bearing rather than stylistic — see the cart's insert-inside-a-savepoint — and the stub has no database to reveal it any other way. The same goes for position: recording `execute` as an ordinary statement is what lets a test prove the advisory lock is the _first_ thing a transaction does.
 - `anonymousContext(db, openai?)` / `signedInContext(db, openai?)` — the two contexts to hand `createCaller`.
 
 Business rules that do not need a query at all (invite validity, accept decisions) live as pure functions and are tested directly. No test opens a database connection.
