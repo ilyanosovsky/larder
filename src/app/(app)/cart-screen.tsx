@@ -478,12 +478,45 @@ export function CartScreen() {
   }
 
   /**
-   * The bottom «+ Добавить», so focus has somewhere deliberate to go when the
-   * «Завершить закупку» button next to it disappears under the finger — see
-   * `closeTrip` below. `pantry-screen.tsx` solves the same problem with
-   * `pickNextFocusTarget`; here the neighbour is fixed, so a ref is enough.
+   * Whichever «+ Добавить» is currently on screen — the action bar's, or the
+   * empty state's once the last line leaves the cart. Only one of the two is
+   * ever mounted, so one ref covers both, and that matters here: closing a
+   * trip that empties the cart swaps one for the other.
    */
   const addButtonRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Set by a successful close, consumed by the effect below.
+   *
+   * Focus cannot be moved from `onSuccess`: the «Завершить закупку» button is
+   * still mounted at that point and the rows it counted are still in the
+   * cache, so focusing then would land on a button that the invalidate below
+   * is about to unmount — and, if the trip emptied the cart, on one that is
+   * replaced by the empty state's own. The effect waits for the refreshed
+   * list to render and puts focus wherever «+ Добавить» ended up.
+   */
+  const restoreFocusAfterCloseRef = useRef(false);
+
+  useEffect(() => {
+    if (!restoreFocusAfterCloseRef.current) {
+      return;
+    }
+    restoreFocusAfterCloseRef.current = false;
+
+    // Only ever a rescue, never a steal: focus is on `body` exactly when the
+    // control that had it has been unmounted. If the cart still holds bought
+    // lines the close button is still there with focus on it, and if the
+    // shopper has since moved on — opened S4, tapped a row — that element
+    // keeps it.
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      addButtonRef.current?.focus();
+    }
+    // The query's own array reference, deliberately: it is a fresh one on
+    // every refetch (superjson mints new `Date`s), which is precisely the
+    // signal "the list on screen has been redrawn since the close". The ref
+    // guard above is what keeps that from doing anything the rest of the time.
+  }, [cart.data]);
 
   /**
    * The close-trip tap's own lock, synchronous for the reason every other
@@ -517,8 +550,9 @@ export function CartScreen() {
         }
         showToast(t("closeTripDone", { count: result.count }));
         // The button is about to unmount with the rows it counted, and a
-        // browser drops focus to the document body when that happens.
-        addButtonRef.current?.focus();
+        // browser drops focus to the document body when that happens — the
+        // effect above moves it once the refreshed list has rendered.
+        restoreFocusAfterCloseRef.current = true;
       },
       onError: () => showToast(t("closeTripError")),
       onSettled: () => {
@@ -754,6 +788,7 @@ export function CartScreen() {
           </div>
           <p className={styles.emptyText}>{t("empty")}</p>
           <button
+            ref={addButtonRef}
             type="button"
             className={styles.addButton}
             onClick={(event) => openSearch(event.currentTarget)}
