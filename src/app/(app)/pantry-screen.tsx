@@ -443,8 +443,23 @@ export function PantryScreen({
         </div>
       ))}
 
+      {/* `toast.seq` keys the *child*, never the region itself. This `<p>` is
+          mounted once for the life of the screen and never again — the same
+          reasoning `cart-screen.tsx`'s own live region documents: a
+          `role="status"` node that appears together with its content is not
+          reliably announced, since assistive tech has to already be watching
+          the node before the text arrives. What a stable region does *not*
+          fix on its own is React skipping an in-place text update when the
+          new string is identical to the old one — naming the product in
+          `toast.sr` closes that for the common case, but not for two
+          consecutive `ranOutError` toasts, which carry no product name and
+          are byte-identical. A changed `key` forces React to unmount the old
+          child and mount a fresh one instead of patching text in place — a
+          real node replacement inside the already-live region, which
+          assistive tech observes as a mutation regardless of whether the
+          text itself repeats. */}
       <p className={styles.srOnly} role="status">
-        {toast?.sr ?? ""}
+        <span key={toast?.seq ?? "empty"}>{toast?.sr ?? ""}</span>
       </p>
 
       {toast === null ? null : (
