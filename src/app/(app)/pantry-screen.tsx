@@ -162,10 +162,12 @@ export function PantryScreen() {
         }
         // The cart may have gained or changed a line — S3 catches up on its
         // own poll regardless, but invalidating means it is not stale the
-        // moment someone switches tabs to look.
-        if (result.outcome !== "gone") {
-          void queryClient.invalidateQueries(cartFilter);
-        }
+        // moment someone switches tabs to look. Unconditional, `gone`
+        // included: `gone` commonly means a partner's own tap won the same
+        // race and already ensured the cart row a moment before this one
+        // read the pantry row as already deleted — that row is exactly the
+        // thing worth not showing stale.
+        void queryClient.invalidateQueries(cartFilter);
       },
       onError: (_error, _variables, context) => {
         if (context?.snapshot) {
@@ -180,7 +182,17 @@ export function PantryScreen() {
       },
       onSettled: (_data, _error, variables) => {
         markPending(variables.id, false);
-        void queryClient.invalidateQueries(pantryFilter);
+        // Deferred until every outstanding «Кончилось» has settled, not
+        // fired per mutation: with two rows in flight, an earlier settle's
+        // refetch would land while the later one is still pending — the
+        // server list it fetches still includes that row, and applying it
+        // wholesale would resurrect a row this screen already optimistically
+        // removed, out from under a request still on the wire. The
+        // `pantryMutating` option above mutes the *passive* refetch triggers
+        // for the same reason, but does not reach this explicit call.
+        if (pendingRef.current.size === 0) {
+          void queryClient.invalidateQueries(pantryFilter);
+        }
       },
     }),
   );

@@ -31,6 +31,17 @@ type PurchasesTab = "cart" | "pantry";
  * wording ("Local state, default «Корзина»"). Nothing here is persisted
  * across a reload — the pantry is a secondary view, not a screen worth a
  * bookmark of its own in the MVP.
+ *
+ * **Toggle buttons, deliberately not an ARIA tablist.** `role="tab"` +
+ * `aria-selected` advertises the full WAI-ARIA tabs pattern to assistive
+ * tech — roving-tabindex arrow-key navigation between the two controls, and
+ * an `aria-controls` link from each tab to an identified `tabpanel` — none of
+ * which this control implements; the two screens below are plain content,
+ * not `role="tabpanel"` regions with ids to point at. Two labelled toggle
+ * buttons in a `role="group"` need none of that: a screen reader still
+ * announces the group's label and each button's pressed state, and Tab-order
+ * navigation (which the browser already gives a `<button>` for free) is the
+ * only navigation contract a group makes, unlike a tablist.
  */
 export function PurchasesScreen() {
   const t = useTranslations("purchases");
@@ -40,13 +51,12 @@ export function PurchasesScreen() {
     <div className={styles.wrap}>
       <div
         className={styles.segment}
-        role="tablist"
+        role="group"
         aria-label={t("segmentAria")}
       >
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "cart"}
+          aria-pressed={tab === "cart"}
           className={cx(
             styles.segmentButton,
             tab === "cart" && styles.segmentButtonActive,
@@ -57,8 +67,7 @@ export function PurchasesScreen() {
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "pantry"}
+          aria-pressed={tab === "pantry"}
           className={cx(
             styles.segmentButton,
             tab === "pantry" && styles.segmentButtonActive,
