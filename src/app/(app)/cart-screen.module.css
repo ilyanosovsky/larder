@@ -441,8 +441,8 @@
 }
 
 /* ── Bottom action bar ──
-   A fixed bar above the tab bar rather than the catalog's FAB: task 3.2 adds
-   «Завершить закупку» beside this button, and two floating pills would not
+   A fixed bar above the tab bar rather than the catalog's FAB: task 3.2 put
+   «Завершить закупку» beside «+ Добавить», and two floating pills would not
    read as one decision. */
 
 .actionBar {
@@ -482,6 +482,40 @@
 
 .empty .addButton {
   flex: none;
+}
+
+/* «Завершить закупку (N)» — outlined, not filled: «+ Добавить» is the
+   screen's standing action, and the two must not compete for the same
+   emphasis while both are on the bar. */
+.closeTripButton {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-ink) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-4);
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  text-align: center;
+  cursor: pointer;
+}
+
+/* `aria-disabled`, never `disabled` (see `cart-screen.tsx`), so the refused
+   state — our own request in flight, offline, or a tick of ours not yet
+   landed — is styled off the ARIA attribute rather than off `:disabled`. */
+.closeTripButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.closeTripButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* The permanently-mounted live region behind the toast. Not `display: none`
