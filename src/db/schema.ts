@@ -355,6 +355,54 @@ export const cartItems = pgTable(
 );
 
 /**
+ * "What's at home" (VISION §3.2, §5) — presence only, no quantities, no
+ * expiry dates. A deliberate scope cut: full stock-level tracking demands
+ * upkeep discipline, and VISION's own reasoning is that such systems get
+ * abandoned. A row's mere existence is the entire fact this table records.
+ *
+ * Populated by «Завершить закупку» (task 3.2) moving bought cart lines here;
+ * emptied one row at a time by «Кончилось» (`pantry.ranOut`), which deletes
+ * the row and sends the product back to the cart. There is no update
+ * endpoint — a pantry fact is either present or it is gone, never edited.
+ *
+ * `productId` is `restrict`, the same reasoning as `cart_items.product_id`
+ * (VISION §3.1): a pantry fact that still names a product must not survive
+ * that product's deletion silently pointing at nothing.
+ *
+ * **The unique index is on `productId` alone, no `householdId`** — exactly
+ * the reasoning `cart_items`' partial unique index documents: a product row
+ * belongs to exactly one household, so uniqueness per product is already at
+ * least as strict as uniqueness per (household, product), never weaker. One
+ * pantry row per product is the whole invariant here: «дома есть» either
+ * holds for a product or it doesn't, so a second row for the same product
+ * would only be a duplicate of the same fact, not a second fact worth
+ * keeping. Unlike `cart_items`' index, this one is not partial — a pantry row
+ * has no `tripId`-style "still active" qualifier to scope it by.
+ */
+export const pantryItems = pgTable(
+  "pantry_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("pantry_items_productId_uidx").on(table.productId),
+    index("pantry_items_householdId_idx").on(table.householdId),
+  ],
+);
+
+/**
  * A household's kitchen equipment and headcount (VISION §3.3, §5): the
  * "kitchen profile" a recipe is checked against and the assistant reads for
  * "adapt this to what we have". Set from S2 onboarding (skippable) and

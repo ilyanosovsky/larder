@@ -28,8 +28,9 @@
 }
 
 /* ── Toolbar: what this list is, and «Обновить» ──
-   Task 3.1 replaces the title/count pair with the «Корзина | Кладовая»
-   segment control; the refresh control stays. */
+   Task 3.1 added the «Корзина | Кладовая» segment control above this screen
+   (`purchases-screen.module.css`) rather than folding it in here — see that
+   component's doc comment. This toolbar is unchanged. */
 
 .toolbar {
   display: flex;

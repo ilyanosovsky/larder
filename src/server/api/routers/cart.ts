@@ -190,7 +190,15 @@ export type CartListItemOutput = z.infer<typeof cartListItemOutput>;
 export type AddCartItemOutput = z.infer<typeof addCartItemOutput>;
 export type ReceiveOrderOutput = z.infer<typeof receiveOrderOutput>;
 
-const cartItemColumns = {
+/**
+ * The row shape, the unit/output degraders and the locking helpers below are
+ * exported (not just used locally) so `pantry.ranOut` — which ends in the
+ * exact same "lock the product's active row, decide, write" shape `cart.add`
+ * uses — reuses this router's own tested implementation instead of a second,
+ * inevitably-drifting copy. Nothing about their behavior changes for cart's
+ * own use; this is `export` added to existing functions, not new logic.
+ */
+export const cartItemColumns = {
   id: cartItems.id,
   productId: cartItems.productId,
   qty: cartItems.qty,
@@ -204,7 +212,7 @@ const cartItemColumns = {
   updatedAt: cartItems.updatedAt,
 };
 
-interface CartItemRow {
+export interface CartItemRow {
   id: string;
   productId: string;
   qty: number;
@@ -219,7 +227,7 @@ interface CartItemRow {
 }
 
 /** The unit stored on a row, or the safest default if it is somehow not one. */
-function toUnit(value: string): Unit {
+export function toUnit(value: string): Unit {
   // Every write goes through `unitSchema`, so this only fires for a row edited
   // outside the app. Degrading to «шт» keeps the whole cart rendering instead
   // of failing output validation over one bad line.
@@ -236,7 +244,7 @@ function toOrderedVia(value: string | null): OrderedVia | null {
   return parsed.success ? parsed.data : null;
 }
 
-function toCartItemOutput(row: CartItemRow): CartItemOutput {
+export function toCartItemOutput(row: CartItemRow): CartItemOutput {
   return {
     id: row.id,
     productId: row.productId,
@@ -263,7 +271,7 @@ function toCartItemOutput(row: CartItemRow): CartItemOutput {
  * A product with no active line locks nothing — there is no row to lock — so
  * the insert below still has to survive losing that race.
  */
-function lockActiveItem(
+export function lockActiveItem(
   tx: Transaction,
   householdId: string,
   productId: string,
@@ -282,7 +290,7 @@ function lockActiveItem(
     .for("update");
 }
 
-interface NewCartItem {
+export interface NewCartItem {
   householdId: string;
   productId: string;
   qty: number;
@@ -301,7 +309,7 @@ interface NewCartItem {
  * reach the winner's row. Rolling back to the savepoint puts the transaction
  * back in a usable state, which is what lets the caller re-read and merge.
  */
-async function insertActiveItem(
+export async function insertActiveItem(
   tx: Transaction,
   values: NewCartItem,
 ): Promise<CartItemRow | null> {
@@ -333,7 +341,7 @@ async function insertActiveItem(
  * NULL` is the other half — a line carried off by a closed trip is purchase
  * history, and history is not editable from the cart screen.
  */
-function activeItemScope(id: string, householdId: string) {
+export function activeItemScope(id: string, householdId: string) {
   return and(
     eq(cartItems.id, id),
     eq(cartItems.householdId, householdId),

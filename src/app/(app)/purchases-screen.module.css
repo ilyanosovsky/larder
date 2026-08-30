@@ -1,0 +1,112 @@
+/* S3's segment control (DESIGN_BRIEF §4): «Корзина | Кладовая», Paper Ledger —
+   hairline-bordered, mono uppercase labels, the active side reading as an
+   ink-filled tab rather than an accent pill (this sits above both S3 and S5's
+   own accent-coloured controls, so it needed a register of its own). */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.segment {
+  display: flex;
+  margin-bottom: var(--s-4);
+  border: var(--bd-hair) solid var(--rule-2);
+}
+
+.segmentButton {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.segmentButton + .segmentButton {
+  border-left: var(--bd-hair) solid var(--rule-2);
+}
+
+.segmentButton:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: -2px;
+}
+
+.segmentButtonActive {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ── «Кончилось» fly-over (DESIGN_BRIEF S5; §6: "the single place with
+   pronounced motion") ──
+   A short-lived icon+name chip, planted at the tapped row's own position
+   (`left`/`top`, set inline from `flyToCartDelta`) and translated by
+   `--fly-dx`/`--fly-dy` toward the «Корзина» segment button — decorative
+   only, `aria-hidden`, and never in the way of a tap (`pointer-events: none`).
+   `position: fixed` is safe here: nothing between this element and the
+   viewport sets a `transform`/`filter`/`contain` that would give it a
+   containing block other than the viewport. */
+
+.flyGhost {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  box-shadow: var(--shadow-dialog);
+  padding: var(--s-2) var(--s-3);
+  pointer-events: none;
+  animation: pantry-fly-to-cart 360ms var(--ease-out) forwards;
+}
+
+.flyGhostIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.flyGhostName {
+  overflow: hidden;
+  max-width: 140px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes pantry-fly-to-cart {
+  from {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--fly-dx), var(--fly-dy)) scale(0.4);
+    opacity: 0;
+  }
+}
+
+/* Belt-and-suspenders: `PurchasesScreen` already skips creating a flight at
+   all under `prefers-reduced-motion` (`prefersReducedMotion()` in
+   `pantry-screen.tsx`, checked before `onRanOutStart` is ever called), so
+   this rule should never have anything to do. It stays as a second layer for
+   an environment where the JS check somehow did not fire — freezing the
+   animation rather than letting it play regardless of that setting. */
+@media (prefers-reduced-motion: reduce) {
+  .flyGhost {
+    animation: none;
+    opacity: 0;
+  }
+}
