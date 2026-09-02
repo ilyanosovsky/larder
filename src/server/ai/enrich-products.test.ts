@@ -87,7 +87,6 @@ function replyWithItems(
 const BILLED = computeCostUsd({
   promptTokens: USAGE.prompt_tokens,
   completionTokens: USAGE.completion_tokens,
-  totalTokens: USAGE.total_tokens,
   cachedPromptTokens: 0,
 });
 

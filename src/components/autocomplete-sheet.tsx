@@ -82,7 +82,10 @@ export function AutocompleteSheet({
   open,
   onClose,
   onAdded,
+  onPickUnbound,
   restoreFocusTo,
+  variant = "quantity",
+  title,
 }: {
   open: boolean;
   onClose: () => void;
@@ -92,10 +95,34 @@ export function AutocompleteSheet({
    * two taps in one tick can submit twice (see `busyRef`). Rejections are
    * caught and shown as the generic sheet error, but a caller is expected to
    * handle its own failures.
+   *
+   * In `variant="product"` it fires the moment a **catalog** row is picked,
+   * with `qty: 1` and the product's own default unit — there is no quantity
+   * step to dial them in, and the ingredient row keeps its own numbers.
    */
   onAdded: (selection: ProductSelection) => void | Promise<void>;
+  /**
+   * `variant="product"` only: a name that resolves to nothing the household
+   * owns yet — a reference staple, or something typed into «Создать „…“».
+   *
+   * Nothing is written. The ingredient row renders it as «новый», and the
+   * save path creates the product (DESIGN_BRIEF S8.3: «новые продукты
+   * помечены „новый“ — при сохранении будут созданы в каталоге»). Creating
+   * it here would mint catalog rows for a recipe the user then abandons, and
+   * would spend an AI call per tap on the way.
+   */
+  onPickUnbound?: (name: string) => void;
   /** The control that opened the sheet — see `useSheetOpener()`. */
   restoreFocusTo?: RefObject<HTMLElement | null>;
+  /**
+   * `"quantity"` (the default, S4's «Добавление продукта») ends on the
+   * stepper and hands back an amount. `"product"` (S8.3's ingredient rebind)
+   * ends on the pick: the row already has a quantity, and the only question
+   * is which product it means.
+   */
+  variant?: "quantity" | "product";
+  /** Overrides the sheet's heading; the namespace belongs to the caller. */
+  title?: string;
 }) {
   const t = useTranslations("autocomplete");
   const tCommon = useTranslations("common");
@@ -255,16 +282,28 @@ export function AutocompleteSheet({
       // says so, rather than `source`: `productId === null` is the search
       // contract's own definition of "a reference entry, not created yet".
       if (hit.productId !== null) {
-        enterQuantity(
-          {
-            id: hit.productId,
-            name: hit.name,
-            icon: hit.icon,
-            categoryId: hit.categoryId,
-            defaultUnit: hit.unit,
-          },
-          { created: false, aiFailed: false },
-        );
+        const product = {
+          id: hit.productId,
+          name: hit.name,
+          icon: hit.icon,
+          categoryId: hit.categoryId,
+          defaultUnit: hit.unit,
+        };
+
+        if (variant === "product") {
+          await onAdded({ product, qty: 1, unit: product.defaultUnit });
+          return;
+        }
+
+        enterQuantity(product, { created: false, aiFailed: false });
+        return;
+      }
+
+      if (variant === "product") {
+        // A reference entry is not a catalog row yet, and S8.3 creates
+        // nothing before «Сохранить блюдо» — the save path resolves this same
+        // name from the same reference list, for free, and binds it.
+        onPickUnbound?.(hit.name);
         return;
       }
 
@@ -291,6 +330,14 @@ export function AutocompleteSheet({
     if (name.length === 0 || busyRef.current) {
       return;
     }
+
+    if (variant === "product") {
+      // No `product.create`, no AI call, no `ai_jobs` row: the ingredient row
+      // takes the name and wears «новый» until the dish is saved.
+      onPickUnbound?.(name);
+      return;
+    }
+
     busyRef.current = true;
 
     setError(null);
@@ -331,7 +378,7 @@ export function AutocompleteSheet({
     <BottomSheet
       open={open}
       onClose={onClose}
-      title={t("title")}
+      title={title ?? t("title")}
       closeLabel={tCommon("close")}
       restoreFocusTo={restoreFocusTo}
     >

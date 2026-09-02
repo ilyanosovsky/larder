@@ -26,7 +26,7 @@ import messages from "./ru.json";
  * so a deleted entry would put the literal «dish.conflict» on screen and pass
  * every other gate.
  */
-function translator(namespace: "dish" | "dishes") {
+function translator(namespace: "dish" | "dishes" | "dishForm") {
   return createTranslator({ locale: "ru", messages, namespace });
 }
 
@@ -176,6 +176,26 @@ describe("the keys the dish screens call by name", () => {
     const rendered = translator("dish")(key);
 
     expect(rendered).not.toBe(`dish.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  const DISH_FORM_KEYS = Object.keys(
+    messages.dishForm,
+  ) as (keyof typeof messages.dishForm)[];
+
+  it.each(DISH_FORM_KEYS)("dishForm.%s resolves to real copy", (key) => {
+    // Swept off the dictionary itself rather than a hand-kept list: the S8.3
+    // form renders more than sixty strings, and a list that has to be updated
+    // by hand is a list that silently stops covering the newest key.
+    const rendered = translator("dishForm")(key, {
+      count: 1,
+      name: "Мука",
+      tag: "выпечка",
+      unit: "печений",
+      position: 1,
+    });
+
+    expect(rendered).not.toBe(`dishForm.${key}`);
     expect(rendered.trim().length).toBeGreaterThan(0);
   });
 
