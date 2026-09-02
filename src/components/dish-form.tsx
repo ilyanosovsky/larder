@@ -21,7 +21,7 @@ import {
   type DraftStep,
   type RecipeDraft,
 } from "@/lib/recipes/draft";
-import { parseMinutesInput } from "@/lib/recipes/form-fields";
+import { parseMinutesInput, tagAddOutcome } from "@/lib/recipes/form-fields";
 import { parsePortions } from "@/lib/recipes/portions";
 import { moveItem, stepDropIndex } from "@/lib/recipes/reorder";
 import { MAX_TAG_LENGTH, normalizeTags } from "@/lib/recipes/tags";
@@ -512,24 +512,16 @@ export function DishForm({
   }
 
   function addTag(raw: string) {
-    const next = normalizeTags([...tags, raw]);
-
-    // `normalizeTags` truncates at `MAX_TAGS` — `recipeDraftSchema` depends on
-    // it — so a 13th tag simply does not appear in the result. Clearing the
-    // field on top of that would take the typed word away with no explanation,
-    // which is the one case here worth a word.
-    const rejectedByCap =
-      next.length === tags.length &&
-      !tags.includes(normalizeTags([raw])[0] ?? "");
-
-    if (rejectedByCap) {
+    // Only a full list keeps the typed word and gets a message: a duplicate is
+    // already a chip right above the field, and a blank is not an attempt.
+    if (tagAddOutcome(tags, raw) === "full") {
       setTagNotice(t("tagsFull"));
       announce(t("tagsFull"));
       return;
     }
 
     setTagNotice(null);
-    setTags(next);
+    setTags(normalizeTags([...tags, raw]));
     setTagDraft("");
   }
 

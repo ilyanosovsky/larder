@@ -6,7 +6,9 @@ import {
   parseMinutesInput,
   parseQtyInput,
   secondsFromMinutes,
+  tagAddOutcome,
 } from "@/lib/recipes/form-fields";
+import { MAX_TAGS } from "@/lib/recipes/tags";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 
 describe("parseQtyInput", () => {
@@ -112,5 +114,37 @@ describe("minutes and seconds", () => {
   it("converts back to the seconds the column stores", () => {
     expect(secondsFromMinutes(9)).toBe(540);
     expect(secondsFromMinutes(null)).toBeNull();
+  });
+});
+
+describe("tagAddOutcome", () => {
+  const full = Array.from({ length: MAX_TAGS }, (_, index) => `тег${index}`);
+
+  it("adds a new tag to a list with room", () => {
+    expect(tagAddOutcome(["выпечка"], "духовка")).toBe("added");
+  });
+
+  it("reports a full list, which is the only case worth a message", () => {
+    expect(full).toHaveLength(MAX_TAGS);
+    expect(tagAddOutcome(full, "ещё")).toBe("full");
+  });
+
+  it("never reports a full list for an empty field", () => {
+    // The bug this function exists to make testable: a blank input leaves the
+    // array the same length, which from the outside looks exactly like the cap
+    // refusing — and the form said «Больше 12 тегов не поместится» for it.
+    expect(tagAddOutcome(full, "")).toBe("blank");
+    expect(tagAddOutcome(full, "   ")).toBe("blank");
+    expect(tagAddOutcome([], "")).toBe("blank");
+  });
+
+  it("calls a repeat a duplicate, not a cap — the chip is already on screen", () => {
+    expect(tagAddOutcome(["выпечка"], "выпечка")).toBe("duplicate");
+    // Normalized the same way the chips are, so «Выпечка» is not a new tag.
+    expect(tagAddOutcome(["выпечка"], " Выпечка ")).toBe("duplicate");
+  });
+
+  it("prefers «duplicate» over «full» for a tag the list already has", () => {
+    expect(tagAddOutcome(full, full[0] ?? "")).toBe("duplicate");
   });
 });

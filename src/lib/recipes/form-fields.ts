@@ -1,3 +1,4 @@
+import { MAX_TAGS, normalizeTags } from "@/lib/recipes/tags";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 
 /**
@@ -111,4 +112,36 @@ export function minutesFromSeconds(seconds: number | null): string {
 /** Minutes back to the seconds the column stores. */
 export function secondsFromMinutes(minutes: number | null): number | null {
   return minutes === null ? null : minutes * 60;
+}
+
+/** What tapping «Добавить» on the tag field actually did. */
+export type TagAddOutcome = "added" | "blank" | "duplicate" | "full";
+
+/**
+ * Whether a typed tag joins the list, and if not, why.
+ *
+ * `normalizeTags` truncates at `MAX_TAGS` and drops blanks and duplicates —
+ * `recipeDraftSchema.tags.max(MAX_TAGS)` depends on that — so from the outside
+ * all three refusals look identical: the array comes back the same length.
+ * Only `"full"` is worth telling the user about, and only `"full"` must keep
+ * the typed word in the field; a duplicate is already visible as a chip right
+ * above the input, and a blank is not an attempt at anything.
+ *
+ * A function rather than a condition inline in the form, because there is no
+ * DOM test harness in this repo: a branch left in a `.tsx` is unreachable from
+ * vitest, and the first version of this one reported a full list for an empty
+ * field.
+ */
+export function tagAddOutcome(
+  tags: readonly string[],
+  raw: string,
+): TagAddOutcome {
+  const normalized = normalizeTags([raw])[0];
+  if (normalized === undefined) {
+    return "blank";
+  }
+  if (tags.includes(normalized)) {
+    return "duplicate";
+  }
+  return tags.length >= MAX_TAGS ? "full" : "added";
 }
