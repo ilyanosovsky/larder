@@ -189,8 +189,8 @@ describe("matchIngredients — the reference catalog", () => {
   });
 
   it("gives up when no department can hold the reference entry", () => {
-    // The `categoryId === null` fall-through: a household with no departments
-    // at all cannot receive a product, so the row stays unbound.
+    // A household with no departments at all cannot receive a product, so the
+    // ranker drops every reference entry and the row stays unbound.
     expect(
       matchIngredients({
         names: ["Помидоры"],
@@ -199,6 +199,22 @@ describe("matchIngredients — the reference catalog", () => {
         references: [reference("Помидоры", ["томаты"])],
       }).map(shape),
     ).toEqual(["none:Помидоры"]);
+  });
+
+  it("leaves an ambiguous name unbound rather than taking the first staple", () => {
+    // Both entries answer to «масло» through an alias, so the ranker refuses
+    // the tie — and nothing downstream may resolve it by array order. This is
+    // the case a `findReferenceProduct` fallback would have silently bound.
+    expect(
+      match(
+        ["масло"],
+        [],
+        [
+          reference("Масло сливочное", ["масло"]),
+          reference("Масло оливковое", ["масло"]),
+        ],
+      ).map(shape),
+    ).toEqual(["none:масло"]);
   });
 });
 

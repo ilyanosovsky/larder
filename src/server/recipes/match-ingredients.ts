@@ -3,10 +3,7 @@ import {
   REFERENCE_PRODUCTS,
   type ReferenceProduct,
 } from "@/server/catalog/reference-products";
-import {
-  resolveCategoryIdForSlug,
-  type HouseholdCategory,
-} from "@/server/catalog/resolve-category";
+import type { HouseholdCategory } from "@/server/catalog/resolve-category";
 import {
   acceptsIngredientTier,
   bestCatalogMatch,
@@ -97,10 +94,13 @@ export function isUsableProductName(name: string): boolean {
  * 2. `bestCatalogMatch` through `acceptsIngredientTier` — prefix and
  *    word-prefix, on names and aliases, over catalog *and* reference entries.
  *    Substrings are refused, and so is a tie (see `bestCatalogMatch`).
- * 3. The same reference entry, now as something to *create*. Reached where
- *    step 2 declined to answer, either because nothing ranked or because two
- *    rows tied — `searchCatalog`'s ranking drops a built-in the household
- *    already owns, and step 1b has by then ruled that case out.
+ * **There is deliberately no fourth attempt.** An earlier draft fell back to
+ * `findReferenceProduct` once ranking declined, on the grounds that the ranker
+ * drops a built-in the household already owns — but step 1b answers that case
+ * now, and better. What would be left is the case where `bestCatalogMatch`
+ * refused a *tie*, and resolving it by taking whichever staple the reference
+ * array happens to list first is exactly the arbitrary bind the tie rule
+ * exists to prevent. An ambiguous name stays unbound and a human chooses.
  */
 export function matchIngredients({
   names,
@@ -160,13 +160,6 @@ function matchOne(
           ref: best.hit.ref,
           categoryId: best.hit.categoryId,
         };
-  }
-
-  if (ref) {
-    const categoryId = resolveCategoryIdForSlug(ref.categorySlug, categories);
-    if (categoryId !== null) {
-      return { kind: "reference", ref, categoryId };
-    }
   }
 
   return { kind: "none", name };
