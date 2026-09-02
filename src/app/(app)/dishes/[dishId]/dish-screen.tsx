@@ -140,13 +140,19 @@ export function DishScreen({ dishId }: { dishId: string }) {
    * the superseded row. The honest move is to refresh what is on screen and
    * say so — after which the banner (or its absence) already reflects whatever
    * the partner did, and there may be nothing left to retry.
+   *
+   * **Awaited, and that is the point.** `onSettled` releases the mutex, and
+   * TanStack awaits a promise returned from `onError` before running it — so
+   * awaiting the refetch here is what stops an immediate second tap from
+   * sending the very same stale token again. The success paths need no such
+   * await: they seed the cache with the version the server just returned.
    */
-  function describeWriteFailure(error: unknown, fallback: string): string {
-    if (!isConflictError(error)) {
-      return fallback;
-    }
-    invalidateDish();
-    return t("conflict");
+  async function refreshAfterConflict() {
+    await Promise.all([
+      queryClient.invalidateQueries(dishFilter),
+      queryClient.invalidateQueries(trpc.dish.list.queryFilter()),
+      queryClient.invalidateQueries(trpc.dish.listArchived.queryFilter()),
+    ]);
   }
 
   const archive = useMutation(
@@ -161,16 +167,16 @@ export function DishScreen({ dishId }: { dishId: string }) {
         announce(t("archivedAnnounce"));
         invalidateDish();
       },
-      onError: (error) => {
-        const message = describeWriteFailure(error, t("archiveError"));
+      onError: async (error) => {
         if (isConflictError(error)) {
           // The refreshed card is the answer; leaving the scrim up would hide
           // the very thing the user needs to look at.
           setSheet(null);
-          setBannerError(message);
-        } else {
-          setSheetError(message);
+          setBannerError(t("conflict"));
+          await refreshAfterConflict();
+          return;
         }
+        setSheetError(t("archiveError"));
       },
       onSettled: () => {
         pendingRef.current = false;
@@ -190,8 +196,14 @@ export function DishScreen({ dishId }: { dishId: string }) {
         announce(t("undoDone"));
         invalidateDish();
       },
-      onError: (error) =>
-        setBannerError(describeWriteFailure(error, t("undoError"))),
+      onError: async (error) => {
+        if (isConflictError(error)) {
+          setBannerError(t("conflict"));
+          await refreshAfterConflict();
+          return;
+        }
+        setBannerError(t("undoError"));
+      },
       onSettled: () => {
         pendingRef.current = false;
       },
@@ -337,6 +349,17 @@ export function DishScreen({ dishId }: { dishId: string }) {
         </p>
       ) : null}
 
+      {/* Outside the archived block on purpose: an archive refused with
+          CONFLICT leaves the dish *unarchived*, so a slot that only existed
+          alongside the banner would swallow the one message explaining why
+          nothing happened. Rendered near the top, in the error treatment —
+          not at the far bottom of the page in the muted «скоро» hint style. */}
+      {bannerError === null ? null : (
+        <p className={styles.error} role="alert">
+          {bannerError}
+        </p>
+      )}
+
       {detail.archivedAt === null ? null : (
         <>
           {/* Deliberately not `role="status"`: a live region that mounts
@@ -355,18 +378,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
               {unarchive.isPending ? t("undoPending") : t("undo")}
             </button>
           </div>
-          {/* Beside the control that failed, in the error treatment — not at
-              the far bottom of the page in the muted «скоро» hint style. A
-              sibling rather than a child, because nesting a live region
-              inside another is unreliable. */}
-          {bannerError === null ? null : (
-            <p className={styles.error} role="alert">
-              {bannerError}
-            </p>
-          )}
-          {online ? null : (
-            <p className={styles.offline}>{t("offline")}</p>
-          )}
+          {online ? null : <p className={styles.offline}>{t("offline")}</p>}
         </>
       )}
 

@@ -96,17 +96,24 @@ export function DishArchiveSection() {
           trpc.dish.get.queryFilter({ id: variables.id }),
         );
       },
-      onError: (error) => {
+      onError: async (error) => {
         // A stale `expectedVersion` — somebody else already restored or
         // re-archived this dish — is not «попробуй ещё раз»: the same token
         // would fail the same way. Refreshing the list is the answer, and
         // often removes the row the user was pressing.
+        //
+        // **Awaited, so the row stays pending until the refreshed list has
+        // landed.** `onSettled` clears the pending id, and TanStack awaits a
+        // promise returned from `onError` before running it — without the
+        // await, an immediate second tap would send the same stale token.
         if (isConflictError(error)) {
-          void queryClient.invalidateQueries(
-            trpc.dish.listArchived.queryFilter(),
-          );
-          void queryClient.invalidateQueries(trpc.dish.list.queryFilter());
           setFailure(t("dishArchiveConflict"));
+          await Promise.all([
+            queryClient.invalidateQueries(
+              trpc.dish.listArchived.queryFilter(),
+            ),
+            queryClient.invalidateQueries(trpc.dish.list.queryFilter()),
+          ]);
           return;
         }
         setFailure(t("dishArchiveError"));
