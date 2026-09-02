@@ -47,6 +47,16 @@ describe("parseQtyInput", () => {
     expect(parseQtyInput("Infinity")).toBeNull();
     expect(parseQtyInput("NaN")).toBeNull();
   });
+
+  it("never returns an inherited object key as a quantity", () => {
+    // The fraction table is a `Map` for this reason: bracket access on an
+    // object literal resolves `Object.prototype`, so these would have come
+    // back as *functions* past a `number | null` return type — and the
+    // quantity field is free text, so they are typeable.
+    for (const word of ["toString", "constructor", "valueOf", "__proto__"]) {
+      expect(parseQtyInput(word)).toBeNull();
+    }
+  });
 });
 
 describe("formatQtyInput", () => {
