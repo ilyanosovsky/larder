@@ -39,6 +39,20 @@ const FRACTION_TOLERANCE = 0.005;
 const NO_QUANTITY = "—";
 
 /**
+ * The bounds task 4.5's slider drags between: never below one portion, and
+ * always able to reach `base` itself plus room to double it — a household
+ * cooking «Шакшука» (`base = 2`) still gets a slider that goes past 4, not one
+ * that caps out exactly where it started.
+ *
+ * `Math.max(12, base * 2)` rather than a flat ceiling: a batch recipe already
+ * stated for 12 (a cookie tray) is not artificially capped at its own base,
+ * and a two-portion recipe is not stuck offering only up to 4.
+ */
+export function portionsRange(base: number): { min: number; max: number } {
+  return { min: 1, max: Math.max(12, base * 2) };
+}
+
+/**
  * The stated quantity, rescaled from `base` portions to `portions`.
  *
  * `portions === base` returns the caller's own value untouched, before any

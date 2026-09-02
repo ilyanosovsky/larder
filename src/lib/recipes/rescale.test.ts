@@ -2,7 +2,34 @@ import { describe, expect, it } from "vitest";
 
 import { MIN_QTY } from "@/server/cart/merge";
 
-import { formatRecipeQty, rescaleQty } from "./rescale";
+import { formatRecipeQty, portionsRange, rescaleQty } from "./rescale";
+
+describe("portionsRange", () => {
+  it("never goes below one portion", () => {
+    expect(portionsRange(8).min).toBe(1);
+    expect(portionsRange(1).min).toBe(1);
+  });
+
+  it("doubles the base when that is more than the 12-portion floor", () => {
+    expect(portionsRange(8)).toEqual({ min: 1, max: 16 });
+    expect(portionsRange(20)).toEqual({ min: 1, max: 40 });
+  });
+
+  it("floors the max at 12 for a small base", () => {
+    // Шакшука's own base (2): doubling it would cap the slider at 4, well
+    // short of a household that actually wants to cook for a crowd.
+    expect(portionsRange(2)).toEqual({ min: 1, max: 12 });
+    expect(portionsRange(6)).toEqual({ min: 1, max: 12 });
+  });
+
+  it("always contains the base itself", () => {
+    for (const base of [1, 2, 8, 12, 30]) {
+      const { min, max } = portionsRange(base);
+      expect(base).toBeGreaterThanOrEqual(min);
+      expect(base).toBeLessThanOrEqual(max);
+    }
+  });
+});
 
 describe("rescaleQty", () => {
   it("leaves a missing quantity missing", () => {

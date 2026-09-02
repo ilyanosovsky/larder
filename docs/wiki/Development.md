@@ -815,6 +815,29 @@ pnpm db:seed --dishes
 
 Inserts DESIGN_BRIEF §5's «NYC Cookies» (all three ingredient states, the 9–11 min timer) and «Шакшука» into the first household, binding ingredients to catalog products by `normalized_name` where one already exists and leaving the rest unbound — the honest state 4.1 ships. Idempotent by `normalized_title`, so a second run is a no-op. **It refuses to run unless `DATABASE_URL`'s hostname is loopback**, the same footgun `drizzle.config.ts` documents. Without the flag `pnpm db:seed` stays the no-op it has always been.
 
+### Portions and equipment check (S7, task 4.5)
+
+**Zero schema change, zero router change.** `rescale.ts`, `portions.ts` and `timer.ts` all shipped in 4.1 (S7 already routed every quantity through `rescaleQty` at the identity `portions === portionsBase`), and `kitchenProfile.get` already existed (task 1.4). Task 4.5 turns that constant into state and adds one comparison: `src/server/recipes/coerce-equipment.ts` (`coerceEquipmentSlug`, `coerceEquipmentList`) and `src/server/recipes/equipment-check.ts` (`missingEquipment`) — both pure, both new.
+
+**The slider.** `PortionsSlider` (`src/components/portions-slider.tsx`) is presentational, like `QtyStepper`: every string arrives translated. `dish-screen.tsx` keeps a `portionsOverride: number | null` seeded `null`, **not** an effect syncing off `dish.data` — the bug class this repo has already paid for once (superjson `Date`s defeat structural sharing, so an effect keyed on the server object would fight a background refetch). While `portionsOverride` is `null` the screen shows `portionsBase`; a fresh mount of the route (any real "open" of a dish) starts it `null` again, which is the whole of "reset to `portionsBase` on every open, never persisted." `rescale.ts` gained one export, `portionsRange(base) → { min: 1, max: Math.max(12, base * 2) }` — always wide enough to reach double the base, floored at a 12-portion slider even for a two-portion recipe («Шакшука»).
+
+**One computed value feeds three places.** `ingredientsForMessage({ portionsBase: portions, portionsMin: null, yieldUnit })` (portions.ts, unchanged) is called once per render with the **live** slider value in place of the stored `portionsBase`; its `t(...)` result is «на 8 порций» / «на 8 печений» and is reused for both the ingredients section header and the slider's own `aria-valuetext` — the two can never word the same number differently because they are the same string. **The ingredient list itself stays a non-live region** (blueprint §4.6): `aria-valuetext` lives on the `<input type="range">` alone, so a screen reader announces one sentence per drag tick, not ten rescaled rows.
+
+**The equipment banner** (`src/components/equipment-banner.tsx`) is a strict function of four inputs — `recipe.equipment` (coerced), the household's `kitchenProfile.get` result, and the two loading/never-set states in between:
+
+| `required.length` | `profileEquipment` | Renders |
+| --- | --- | --- |
+| `0` | (any) | nothing — most dishes have no `equipment` at all |
+| `> 0` | `undefined` (query in flight) | nothing — never a flash of «профиль не заполнен» a moment before it turns out otherwise |
+| `> 0` | `null` (never saved) | «Профиль кухни не заполнен.» + a link to `/settings` |
+| `> 0` | `string[]` | «Нужно: <label> ✓/✗ · …» for every required slug, green when all ✓, amber plus the `aria-disabled` «Адаптировать (ИИ)» button (task 4.6 wires it up) when at least one is ✗ |
+
+`missingEquipment(required, profile)` runs the profile array through `coerceEquipmentList` (never `required`, which already arrives as `EquipmentSlug[]`), so a household that typed «мультиварка» into the profile's free-form field instead of checking a box still satisfies `multicooker` — the same reasoning `resolveEquipmentEntry` (`src/lib/equipment-entry.ts`) applies on the *checklist's* side of that same gap. Labels come from the S12 checklist's own `kitchenProfile.equipment.<slug>` messages (`dish-screen.tsx` builds the record with the identical `Object.fromEntries(EQUIPMENT_PRESETS.map(...))` shape `kitchen-profile-form.tsx` uses), so the banner and the checklist can never word an appliance differently.
+
+**The «скоро» tap has its own live region, not the screen's.** `dish-screen.tsx`'s doc comment calls its `hint` state "the screen's one announcement slot" for the four already-disabled actions (В меню недели / Ингредиенты в корзину / Готовить / Редактировать); wiring a fifth action through it would have been a lie about what that slot means. `EquipmentBanner` owns a second, scoped `role="status"` region instead — spoken only (`«Адаптировать (ИИ)» — скоро`), because the button next to it is already visibly `aria-disabled` and a static caption already explains why.
+
+**Manually verified**, all four banner states, against the seeded NYC Cookies (`equipment: ["oven"]`) after editing the kitchen profile in Settings: covered (oven checked), missing (oven unchecked, mixer/microwave only — «скоро» announces on tap), profile never saved (`kitchen_profiles` empty), and nothing rendered for a recipe with `equipment: []` (Шакшука, temporarily). Slider: dragging 8→16 doubled every quantity live («Мука» 285 г → 570 г, «Соль» ¾ ч.л. → 1½ ч.л.); dragging back to 8 restored exactly «285 г», not a rounded neighbour; the ± buttons disable at `portionsRange(8)`'s bounds (1 and 16).
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.

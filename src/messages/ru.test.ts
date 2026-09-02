@@ -26,7 +26,7 @@ import messages from "./ru.json";
  * so a deleted entry would put the literal «dish.conflict» on screen and pass
  * every other gate.
  */
-function translator(namespace: "dish" | "dishes") {
+function translator(namespace: "dish" | "dishes" | "dishPortions") {
   return createTranslator({ locale: "ru", messages, namespace });
 }
 
@@ -57,17 +57,25 @@ describe("portion ranges", () => {
 describe("the ingredients header", () => {
   const t = translator("dish");
 
-  /** Exactly what `dish-screen.tsx` does — the branch is in the module. */
-  function header(recipe: {
-    portionsBase: number;
-    portionsMin: number | null;
-    yieldUnit: string | null;
-  }): string {
-    const message = ingredientsForMessage(recipe);
+  /**
+   * Exactly what `dish-screen.tsx` does — the branch is in the module.
+   * `count` defaults to the recipe's own `portionsBase`, matching every call
+   * below that does not name a different one: an unmoved slider is the
+   * common case these first tests pin.
+   */
+  function header(
+    recipe: {
+      portionsBase: number;
+      portionsMin: number | null;
+      yieldUnit: string | null;
+    },
+    count: number = recipe.portionsBase,
+  ): string {
+    const message = ingredientsForMessage(recipe, count);
     return t(message.key, message.values);
   }
 
-  it("keeps the yield noun for a ranged yield", () => {
+  it("keeps the yield noun for a ranged yield, unmoved", () => {
     // The regression: «7–8 печений» in the portions row and «на 8 порций»
     // over the list it describes.
     expect(
@@ -82,6 +90,32 @@ describe("the ingredients header", () => {
     expect(
       header({ portionsBase: 2, portionsMin: null, yieldUnit: null }),
     ).toBe("на 2 порции");
+  });
+
+  describe("task 4.5's slider driving a count other than portionsBase", () => {
+    const nycCookies = {
+      portionsBase: 8,
+      portionsMin: 7,
+      yieldUnit: "печений",
+    };
+
+    it("keeps the stored noun only at the exact count it was recorded for", () => {
+      expect(header(nycCookies, 8)).toBe("на 8 печений");
+    });
+
+    it("degrades to declined «порции» for every other count — no «печений» at 1 or 3", () => {
+      expect(header(nycCookies, 1)).toBe("на 1 порцию");
+      expect(header(nycCookies, 3)).toBe("на 3 порции");
+      expect(header(nycCookies, 6)).toBe("на 6 порций");
+    });
+
+    it("a recipe with no yieldUnit was already declined at every count", () => {
+      const shakshuka = { portionsBase: 2, portionsMin: null, yieldUnit: null };
+
+      expect(header(shakshuka, 1)).toBe("на 1 порцию");
+      expect(header(shakshuka, 2)).toBe("на 2 порции");
+      expect(header(shakshuka, 6)).toBe("на 6 порций");
+    });
   });
 });
 
@@ -172,6 +206,18 @@ describe("the keys the dish screens call by name", () => {
     "dishArchiveOffline",
   ] as const;
 
+  /** Every entry here is a literal in `PortionsSlider` / `EquipmentBanner`'s
+   *  props, composed inside `dish-screen.tsx` — task 4.5. */
+  const DISH_PORTIONS_KEYS = [
+    "decreaseAria",
+    "increaseAria",
+    "equipmentNeed",
+    "adaptButton",
+    "adaptHint",
+    "profileMissing",
+    "profileMissingLink",
+  ] as const;
+
   it.each(DISH_KEYS)("dish.%s resolves to real copy", (key) => {
     const rendered = translator("dish")(key);
 
@@ -188,5 +234,54 @@ describe("the keys the dish screens call by name", () => {
 
     expect(rendered).not.toBe(`settings.${key}`);
     expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(DISH_PORTIONS_KEYS)(
+    "dishPortions.%s resolves to real copy",
+    (key) => {
+      const rendered = translator("dishPortions")(key);
+
+      expect(rendered).not.toBe(`dishPortions.${key}`);
+      expect(rendered.trim().length).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe("the equipment banner's «скоро» hint", () => {
+  /**
+   * `EquipmentBanner` never composes this itself (it is presentational, like
+   * `QtyStepper`) — `dish-screen.tsx` builds it from two namespaces:
+   * `dish.soonHint`, the same "«{action}» — скоро" template every other
+   * not-yet-wired button on S7 uses, filled with `dishPortions.adaptButton`.
+   */
+  it("reuses dish.soonHint rather than a second copy of the pattern", () => {
+    const dish = translator("dish");
+    const portions = translator("dishPortions");
+
+    expect(dish("soonHint", { action: portions("adaptButton") })).toBe(
+      "«Адаптировать (ИИ)» — скоро",
+    );
+  });
+});
+
+describe("the equipment banner's missing-appliances sentence", () => {
+  /**
+   * `dishPortions.equipmentMissing` takes a `{list}` parameter, so it does
+   * not belong in `DISH_PORTIONS_KEYS`'s param-free existence sweep above —
+   * same reasoning as `dish.portionsRange`/`portionsRangeUnit` getting their
+   * own `describe` block instead. `EquipmentBanner` builds `list` itself
+   * (the missing labels, comma-joined) and hands it to a formatter
+   * `dish-screen.tsx` composes from this exact key — see
+   * `equipment-banner.tsx`'s doc comment on the `missingText` prop.
+   */
+  it("stays invariant regardless of how many appliances are missing", () => {
+    const portions = translator("dishPortions");
+
+    expect(portions("equipmentMissing", { list: "Миксер" })).toBe(
+      "Не хватает: Миксер",
+    );
+    expect(
+      portions("equipmentMissing", { list: "Миксер, Аэрогриль" }),
+    ).toBe("Не хватает: Миксер, Аэрогриль");
   });
 });
