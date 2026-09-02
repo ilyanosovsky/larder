@@ -127,9 +127,11 @@ export async function enrichProducts({
     return failure("No categories to choose from", empty, null);
   }
 
-  // A name with no letters and no digits is a bad parse, never a product;
-  // the save path drops such rows too, and this is the second gate so the
-  // module cannot be made to pay for one from another caller.
+  // A blank name is never sent: it would cost a line of prompt and could only
+  // come back as an answer nothing can be paired to. The stricter judgement —
+  // «—» and «(см. шаг 3)» are bad parses, not ingredients — belongs to the
+  // caller (`isUsableProductName`), which also has to decide whether to create
+  // a product at all; this is only the gate that keeps the prompt honest.
   const asked = names
     .filter((name) => normalizeProductName(name).length > 0)
     .slice(0, MAX_ENRICH_NAMES);
@@ -228,17 +230,26 @@ export async function enrichProducts({
       });
     }
 
-    const values = names.map(
-      (name) => byName.get(normalizeProductName(name)) ?? null,
-    );
-    const missing = values.filter((value) => value === null).length;
+    // Only the names that were actually sent may take a value. Past the cap
+    // (or for a name with no text) the model was never asked, so an item it
+    // volunteered anyway must not slip past the caller's fallback — that is
+    // the whole meaning of the cap.
+    const askedKeys = new Set(asked.map((name) => normalizeProductName(name)));
+    const values = names.map((name) => {
+      const key = normalizeProductName(name);
+      return askedKeys.has(key) ? (byName.get(key) ?? null) : null;
+    });
+
+    const answered = [...askedKeys].filter((key) => byName.has(key)).length;
 
     return {
       values,
+      // Measured against what was **asked**, not against `names`: a name held
+      // back by the cap is a decision of ours, not a failure of the model's.
       error:
-        missing === 0
+        answered === askedKeys.size
           ? null
-          : `Model answered ${names.length - missing}/${names.length} names (${rejected} rejected)`,
+          : `Model answered ${answered}/${askedKeys.size} names (${rejected} rejected)`,
       usage,
       costUsd: usage === null ? 0 : computeCostUsd(usage),
     };

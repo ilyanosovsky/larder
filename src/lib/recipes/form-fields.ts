@@ -31,7 +31,7 @@ export function parseQtyInput(text: string): number | null {
     return null;
   }
 
-  const fraction = FRACTIONS[cleaned];
+  const fraction = FRACTIONS.get(cleaned);
   if (fraction !== undefined) {
     return fraction;
   }
@@ -44,14 +44,21 @@ export function parseQtyInput(text: string): number | null {
   return value;
 }
 
-/** The vulgar fractions `formatRecipeQty` renders, read back the same way. */
-const FRACTIONS: Record<string, number> = {
-  "½": 0.5,
-  "⅓": 1 / 3,
-  "⅔": 2 / 3,
-  "¼": 0.25,
-  "¾": 0.75,
-};
+/**
+ * The vulgar fractions `formatRecipeQty` renders, read back the same way.
+ *
+ * A `Map`, not an object literal: bracket access on a plain object also
+ * resolves `Object.prototype`, so `parseQtyInput("toString")` — a word someone
+ * can genuinely type into a free-text quantity field — would come back as a
+ * *function*, past a `number | null` return type TypeScript still believes.
+ */
+const FRACTIONS = new Map<string, number>([
+  ["½", 0.5],
+  ["⅓", 1 / 3],
+  ["⅔", 2 / 3],
+  ["¼", 0.25],
+  ["¾", 0.75],
+]);
 
 /**
  * A stored quantity as the input should show it: «285», «0.5», empty for

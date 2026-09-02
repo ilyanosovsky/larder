@@ -33,11 +33,11 @@ type SheetView = "menu" | "confirm";
  * S7 «Карточка блюда» (DESIGN_BRIEF S7, VISION §3.3) — the read-only view of
  * one dish: photo, title, tags, portions, ingredients and steps.
  *
- * **The remaining unshipped actions are `aria-disabled` and say «скоро».** «В меню
- * недели» is task 5.1, «Ингредиенты в корзину» is 5.2 and «Готовить» is 4.7
- * («Редактировать» is a real link since 4.2) — and `main` deploys to
- * production on every merge,
- * so a button that navigated nowhere would be worse than one that is honest.
+ * **The actions whose feature has not shipped are `aria-disabled` and say
+ * «скоро»:** «В меню недели» is task 5.1, «Ингредиенты в корзину» is 5.2 and
+ * «Готовить» is 4.7. («Редактировать» is a real link since task 4.2.) `main`
+ * deploys to production on every merge, so a button that navigated nowhere
+ * would be worse than one that is honest.
  * `aria-disabled` rather than `disabled` throughout: a disabled control cannot
  * be focused, so a keyboard user would never learn the option exists, and the
  * hint would have nowhere to land.

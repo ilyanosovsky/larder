@@ -152,6 +152,12 @@ export function StepEditRow({
             );
             // An upper bound with no lower bound is not a range — it is a
             // countdown S9 could not start, and `recipeDraftSchema` refuses it.
+            // The text goes with the value: a max field still showing «11»
+            // over a draft that no longer holds one would keep lying, and
+            // typing a lower bound back in does not re-parse it.
+            if (timerSec === null) {
+              setTimerMaxText("");
+            }
             patch({
               timerSec,
               timerMaxSec: timerSec === null ? null : value.timerMaxSec,

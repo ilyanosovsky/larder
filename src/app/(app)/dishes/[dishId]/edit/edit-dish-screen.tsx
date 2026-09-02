@@ -74,7 +74,11 @@ export function EditDishScreen({ dishId }: { dishId: string }) {
         target={{ mode: "edit", dishId, version: seed.version }}
         latest={
           dish.data
-            ? { draft: draftFromDetail(dish.data), version: dish.data.version }
+            ? {
+                draft: draftFromDetail(dish.data),
+                version: dish.data.version,
+                productLabels: productLabels(dish.data),
+              }
             : null
         }
         productLabels={productLabels(seed)}

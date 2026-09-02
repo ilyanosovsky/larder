@@ -527,6 +527,14 @@ function loadCategories(db: Database, householdId: string) {
  *    match and one enrichment slot.
  * 3. `matchIngredients` — the household's own catalog, then the built-in
  *    reference list. Both are free and deterministic.
+ *
+ *    The catalog is read here rather than reused from `assertProductsOwned`,
+ *    which deliberately asks a different question: that one is a scoped
+ *    `id IN (…)` set-size check on the handful of ids a client actually sent,
+ *    and it must run on every save. Loading the whole catalog up front to
+ *    serve both would put a full table read on a save where every row is
+ *    already bound — the common case for an edit. One extra read on a save
+ *    that has unbound rows is the cheaper half of that trade.
  * 4. Whatever is left goes into **one** batched `enrichProducts` call, behind
  *    the rate limiter and with its own `ai_jobs` row. A refusal or a failure
  *    does not fail the save: the products are created with fallbacks and

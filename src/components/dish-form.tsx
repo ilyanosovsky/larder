@@ -116,9 +116,14 @@ export function DishForm({
   /**
    * The newest server aggregate, when the screen is watching one. Used only
    * to raise the «Блюдо изменили — обновить?» banner: the form never adopts
-   * it on its own.
+   * it on its own. `productLabels` travels with it so an adopted row shows
+   * the product it is bound to rather than a bare fallback.
    */
-  latest?: { draft: RecipeDraft; version: number } | null;
+  latest?: {
+    draft: RecipeDraft;
+    version: number;
+    productLabels?: Readonly<Record<string, BoundProduct>>;
+  } | null;
   /** Names and icons for the products the rows are already bound to. */
   productLabels?: Readonly<Record<string, BoundProduct>>;
   /** Task 4.3 drops its uploader here; 4.2 only clears an existing photo. */
@@ -176,6 +181,10 @@ export function DishForm({
   const savedLinkRef = useRef<HTMLAnchorElement>(null);
   /** Set while a row is being deleted, consumed by the focus rescue below. */
   const focusAfterRemoveRef = useRef<string | null>(null);
+  /** Where focus lands when the row deleted was the last one of its list. */
+  const addIngredientRef = useRef<HTMLButtonElement>(null);
+  const addStepRef = useRef<HTMLButtonElement>(null);
+  const focusFallbackRef = useRef<HTMLButtonElement | null>(null);
 
   const serverMovedOn =
     target.mode === "edit" && (latest?.version ?? 0) > expectedVersion;
@@ -206,6 +215,11 @@ export function DishForm({
     setPhoto({ url: latest.draft.photoUrl, key: latest.draft.photoKey });
     setIngredients(keyRows(latest.draft.ingredients));
     setSteps(keyRows(latest.draft.steps));
+    // Merged, not replaced: an id this form bound during the session is still
+    // worth a name, and a stale entry is only an unused map key. Without this
+    // a row the partner bound would adopt with the «продукт» fallback and a
+    // 🛒 — indistinguishable from a product we could not name.
+    setLabels((current) => ({ ...current, ...latest.productLabels }));
     setExpectedVersion(latest.version);
     setChangedElsewhere(false);
     setError(null);
@@ -216,14 +230,20 @@ export function DishForm({
   // rescues focus and never steals it from wherever the user moved next.
   useEffect(() => {
     const target = focusAfterRemoveRef.current;
-    if (target === null) {
+    const fallback = focusFallbackRef.current;
+    if (target === null && fallback === null) {
       return;
     }
     focusAfterRemoveRef.current = null;
+    focusFallbackRef.current = null;
     if (document.activeElement !== document.body) {
       return;
     }
-    document.getElementById(target)?.focus();
+    const successor = target === null ? null : document.getElementById(target);
+    // The successor's own delete button, or — when the row deleted was the
+    // last one — the «+ …» button that adds another. Never `<body>`, where a
+    // keyboard user's next Tab would start again from the top of the page.
+    (successor ?? fallback)?.focus();
   }, [ingredients, steps]);
 
   useEffect(() => {
@@ -247,6 +267,7 @@ export function DishForm({
     );
     focusAfterRemoveRef.current =
       next === null ? null : ingredientRemoveId(next);
+    focusFallbackRef.current = addIngredientRef.current;
     setIngredients((rows) => rows.filter((row) => row.key !== key));
   }
 
@@ -256,6 +277,7 @@ export function DishForm({
       key,
     );
     focusAfterRemoveRef.current = next === null ? null : stepRemoveId(next);
+    focusFallbackRef.current = addStepRef.current;
     setSteps((rows) => rows.filter((row) => row.key !== key));
   }
 
@@ -661,6 +683,7 @@ export function DishForm({
         ))}
       </ul>
       <button
+        ref={addIngredientRef}
         type="button"
         className={styles.secondaryButton}
         onClick={addIngredient}
@@ -699,6 +722,7 @@ export function DishForm({
         ))}
       </ul>
       <button
+        ref={addStepRef}
         type="button"
         className={styles.secondaryButton}
         onClick={addStep}

@@ -344,6 +344,12 @@ describe("enrichProducts — what is never sent", () => {
       `Продукт ${MAX_ENRICH_NAMES}`,
     );
     expect(result.values).toHaveLength(names.length);
+    // The fixture answers for every name, including the ones past the cap
+    // that were never sent. They must still fall back: an item the model
+    // volunteered for a question nobody asked is not an answer.
+    expect(result.values.slice(MAX_ENRICH_NAMES)).toEqual([null, null, null]);
+    expect(result.values.slice(0, MAX_ENRICH_NAMES)).not.toContain(null);
+    expect(result.error).toBeNull();
   });
 });
 

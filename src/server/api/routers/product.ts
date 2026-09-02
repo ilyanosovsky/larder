@@ -209,8 +209,8 @@ export async function findExistingProduct(
   // `Pick<…, "select">` rather than the whole `Database`: `dish.create` calls
   // this from inside its transaction to recover from a 23505, and a drizzle
   // transaction is not assignable to `PostgresJsDatabase` (it has no
-  // `$client`). The probe has to be *this* function rather than a second
-  // hand-written one — see the doc comment below.
+  // `$client`). It has to be *this* function rather than a second hand-written
+  // probe, for the reason the doc comment above gives.
   db: Pick<Database, "select">,
   householdId: string,
   name: string,
