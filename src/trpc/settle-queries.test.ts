@@ -110,6 +110,35 @@ describe("settleQueries", () => {
     expect(statuses).toStrictEqual(["first:success", "second:success"]);
   });
 
+  it("stops at the round ceiling instead of chasing a chain forever", async () => {
+    const client = makeQueryClient();
+    const gates = [0, 1, 2, 3].map(() => deferred<string[]>());
+
+    // Four prefetches, each starting only once the previous one has landed —
+    // one more link than `MAX_SETTLE_ROUNDS` allows for. The ceiling is a
+    // bounded stop, not a hang: the render gives up waiting and the fourth
+    // query, still pending, is simply not dehydrated (the client fetches it).
+    function start(index: number) {
+      void client.prefetchQuery({
+        queryKey: [`link-${index}`],
+        queryFn: () => gates[index]!.promise,
+      });
+      setTimeout(() => gates[index]!.resolve([`${index}`]), 5);
+      if (index < 3) {
+        void gates[index]!.promise.then(() => start(index + 1));
+      }
+    }
+    start(0);
+
+    await expect(settleQueries(client)).resolves.toBeUndefined();
+
+    const keys = dehydrate(client)
+      .queries.map((query) => String(query.queryKey[0]))
+      .sort();
+    expect(keys).toStrictEqual(["link-0", "link-1", "link-2"]);
+    expect(client.getQueryState(["link-3"])?.status).toBe("pending");
+  });
+
   it("does not await a paused query", async () => {
     const client = makeQueryClient();
 

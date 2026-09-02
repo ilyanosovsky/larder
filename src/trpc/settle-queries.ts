@@ -16,6 +16,13 @@ import {
  * after every await, including the last one, so hitting this ceiling is a
  * decision to stop waiting, not an accident of loop shape. What is still in
  * flight then is simply not dehydrated and the client fetches it.
+ *
+ * Deliberately a ceiling rather than "loop until nothing is fetching": this
+ * runs inside the render of every prefetching page, and an unbounded wait on
+ * a cache anything else may keep re-populating trades a lost prefetch — one
+ * extra client fetch, no mismatch — for a request that never answers. A chain
+ * long enough to hit it is pinned by a test, so the stop is visible behaviour
+ * rather than a silent truncation.
  */
 const MAX_SETTLE_ROUNDS = 3;
 
