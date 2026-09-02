@@ -804,7 +804,7 @@ function IngredientRow({
   );
 }
 
-function DishSkeleton({ label }: { label: string }) {
+export function DishSkeleton({ label }: { label: string }) {
   return (
     <div className={styles.screen} role="status" aria-label={label}>
       <div className={styles.skeletonPhoto} />

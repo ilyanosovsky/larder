@@ -1142,7 +1142,7 @@ export function CartScreen() {
  * row blocks in the paper's own greys, so the first paint is the page rather
  * than a spinner on an empty screen.
  */
-function CartSkeleton({ label }: { label: string }) {
+export function CartSkeleton({ label }: { label: string }) {
   return (
     <div role="status" aria-label={label}>
       {SKELETON_SECTIONS.map((widths, sectionIndex) => (
