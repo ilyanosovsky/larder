@@ -88,15 +88,16 @@ export function isUsableProductName(name: string): boolean {
  * 1. `findExactMatch` over the household's own catalog — its normalized name
  *    or one of its aliases, equal to the normalized query. An exact hit on a
  *    row the household already curated beats everything, ambiguity included.
- * 1b. The same question asked through the reference list: if the name *is* a
+ * 2. The same question asked through the reference list: if the name *is* a
  *    built-in staple and the household owns that staple under another
  *    spelling, bind their row. See `ownedUnderAnotherSpelling`.
- * 2. `bestCatalogMatch` through `acceptsIngredientTier` — prefix and
+ * 3. `bestCatalogMatch` through `acceptsIngredientTier` — prefix and
  *    word-prefix, on names and aliases, over catalog *and* reference entries.
  *    Substrings are refused, and so is a tie (see `bestCatalogMatch`).
+ *
  * **There is deliberately no fourth attempt.** An earlier draft fell back to
  * `findReferenceProduct` once ranking declined, on the grounds that the ranker
- * drops a built-in the household already owns — but step 1b answers that case
+ * drops a built-in the household already owns — but step 2 answers that case
  * now, and better. What would be left is the case where `bestCatalogMatch`
  * refused a *tie*, and resolving it by taking whichever staple the reference
  * array happens to list first is exactly the arbitrary bind the tie rule
@@ -126,21 +127,19 @@ function matchOne(
     return { kind: "catalog", product: owned };
   }
 
-  // The built-in entry this name *is*, if any — looked up once and used twice.
-  const ref = findReferenceProduct(name, references);
-
   // Before any ranking: the household may already own this exact staple under
   // a spelling the query never mentions — «Томаты» for a recipe's «Помидоры»,
-  // «Картошка» for «Картофель». `rankCatalog` drops such a reference entry (it
-  // would be a duplicate of a row the household has), and without this the
-  // name falls through to whatever *else* ranks — «Помидоры черри» at the
-  // prefix tier — or, at step 3, to minting a second row for one product whose
-  // aliases name the first. The unique index covers `normalized_name` only, so
+  // «Картошка» for «Картофель». `rankCatalog` drops such a built-in (it would
+  // be a duplicate of a row the household has), so without this the name falls
+  // through to whatever *else* ranks — «Помидоры черри» at the prefix tier —
+  // and a save would then mint a second row for one product, each naming the
+  // other in its aliases. The unique index covers `normalized_name` only, so
   // nothing downstream would stop it. An exact staple the household owns beats
   // a prefix match on a different product, which is the rule the ranker itself
   // already encodes for everything it can see.
+  const entry = findReferenceProduct(name, references);
   const ownedStaple =
-    ref === null ? null : ownedUnderAnotherSpelling(ref, products);
+    entry === null ? null : ownedUnderAnotherSpelling(entry, products);
   if (ownedStaple) {
     return { kind: "catalog", product: ownedStaple };
   }
