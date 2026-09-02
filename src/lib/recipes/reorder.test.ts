@@ -153,5 +153,10 @@ describe("stepDropIndex", () => {
   it("survives a source index that is not a real row", () => {
     expect(stepDropIndex(1000, rects, Number.NaN)).toBe(2);
     expect(stepDropIndex(1000, rects, 99)).toBe(2);
+    // The assertion that actually reaches the guard. Below the last midpoint
+    // both branches of `gap > source` return the same number whatever `from`
+    // is, so a pointer *mid-list* is the only place a raw NaN source shows:
+    // `gap > NaN` is false, and the row would drop a slot too low.
+    expect(stepDropIndex(70, rects, Number.NaN)).toBe(1);
   });
 });

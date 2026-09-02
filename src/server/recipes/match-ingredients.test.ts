@@ -183,7 +183,8 @@ describe("matchIngredients — the reference catalog", () => {
     // «Картошка» owned, «Картофель» asked for. The unique index is on
     // `normalized_name`, so a second row would insert cleanly and the catalog
     // would carry one potato twice — with each row naming the other in its
-    // aliases. 103 such pairs exist in the shipped reference catalog.
+    // aliases. The catalog ships 85 alternate spellings across 72 of its 189
+    // entries, so there is no shortage of ways to hit this.
     const owned = product("Картошка");
     expect(
       match(["Картофель"], [owned], [reference("Картофель", ["картошка"])]).map(
@@ -215,20 +216,59 @@ describe("matchIngredients — the reference catalog", () => {
     ).toEqual(["none:Помидоры"]);
   });
 
-  it("leaves an ambiguous name unbound rather than taking the first staple", () => {
-    // Both entries answer to «масло» through an alias, so the ranker refuses
-    // the tie — and nothing downstream may resolve it by array order. This is
-    // the case a `findReferenceProduct` fallback would have silently bound.
+  it("leaves an ambiguous name unbound — against the real catalog", () => {
+    // «масло» is a prefix of «Масло сливочное», «Масло оливковое» and «Масло
+    // подсолнечное», so ranking refuses the tie, and it is the name of none of
+    // them, so the exact tier finds nothing either. It stays unbound and a
+    // human chooses — asserted against the shipped `REFERENCE_PRODUCTS`, not a
+    // fixture, because the whole question is what the real data does.
     expect(
-      match(
-        ["масло"],
-        [],
-        [
-          reference("Масло сливочное", ["масло"]),
-          reference("Масло оливковое", ["масло"]),
-        ],
-      ).map(shape),
+      matchIngredients({
+        names: ["масло"],
+        products: [],
+        categories: CATEGORIES,
+      }).map(shape),
     ).toEqual(["none:масло"]);
+  });
+});
+
+describe("matchIngredients — the shipped reference catalog", () => {
+  /** What a first household sees: nothing bought yet, the seven departments. */
+  function staple(name: string) {
+    const [result] = matchIngredients({
+      names: [name],
+      products: [],
+      categories: CATEGORIES,
+    });
+    return result?.kind === "reference"
+      ? result.ref.name
+      : (result?.kind ?? "");
+  }
+
+  it("binds the everyday words that the ranker alone cannot", () => {
+    // Each of these is a prefix of two or more entries — so `bestCatalogMatch`
+    // declines the tie — while being the exact name or alias of one of them.
+    // Before the exact tier existed every one cost a billed enrichment call
+    // and minted a bare row that then hid the curated staple from
+    // autocomplete.
+    expect(staple("сыр")).toBe("Сыр твёрдый");
+    expect(staple("сахар")).toBe("Сахар белый");
+    expect(staple("чай")).toBe("Чай чёрный");
+    expect(staple("капуста")).toBe("Капуста белокочанная");
+    expect(staple("колбаса")).toBe("Колбаса варёная");
+    expect(staple("помидор")).toBe("Помидоры");
+    // «томат» is not even the best-ranked: «Томатная паста» and «Томаты в
+    // собственном соку» both beat «Помидоры» on prefix. The exact alias wins.
+    expect(staple("томат")).toBe("Помидоры");
+  });
+
+  it("still answers the unambiguous names through the ranker", () => {
+    expect(staple("мука")).toBe("Мука");
+    expect(staple("Мука")).toBe("Мука");
+  });
+
+  it("says none for a word the catalog does not ship", () => {
+    expect(staple("буррата")).toBe("none");
   });
 });
 

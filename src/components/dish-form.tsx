@@ -24,7 +24,7 @@ import {
 import { parseMinutesInput, tagAddOutcome } from "@/lib/recipes/form-fields";
 import { parsePortions } from "@/lib/recipes/portions";
 import { moveItem, stepDropIndex } from "@/lib/recipes/reorder";
-import { MAX_TAG_LENGTH, normalizeTags } from "@/lib/recipes/tags";
+import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTags } from "@/lib/recipes/tags";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError } from "@/lib/trpc-errors";
 import {
@@ -180,7 +180,9 @@ export function DishForm({
     seq: number;
   } | null>(null);
   const announceSeq = useRef(0);
-  const [tagNotice, setTagNotice] = useState<string | null>(null);
+  /** Read synchronously by `announce`, which effects call outside a render. */
+  const rebindingRef = useRef<string | null>(null);
+  const pendingAnnounceRef = useRef<string | null>(null);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
   const [rebinding, setRebinding] = useState<string | null>(null);
   const [saved, setSaved] = useState<{
@@ -239,30 +241,63 @@ export function DishForm({
     setError(null);
   }
 
+  /**
+   * `BottomSheet` renders `aria-modal="true"` inline, without a portal, so
+   * while the rebind sheet is open everything outside it — this region
+   * included — is pruned from the accessibility tree. A message written there
+   * is never spoken, and because the region's `<span>` is keyed on `seq`, the
+   * sheet closing is not itself a DOM mutation, so it would never be replayed.
+   * Ambient messages raised behind the sheet are therefore held and re-issued
+   * on close, with a fresh `seq`.
+   */
   function announce(text: string) {
+    if (rebindingRef.current !== null) {
+      pendingAnnounceRef.current = text;
+      return;
+    }
     announceSeq.current += 1;
     setAnnouncement({ text, seq: announceSeq.current });
   }
+
+  // **Declared first on purpose.** Effects run in order, so tracking the
+  // sheet's state here means the two ambient effects below already see the
+  // current value through `rebindingRef` in the same commit.
+  useEffect(() => {
+    rebindingRef.current = rebinding;
+    if (rebinding !== null) {
+      return;
+    }
+    const held = pendingAnnounceRef.current;
+    if (held !== null) {
+      pendingAnnounceRef.current = null;
+      announce(held);
+    }
+  }, [rebinding]);
 
   // Nothing else tells a screen-reader user the server moved on: the banner is
   // raised by a background `dish.get` refetch (focus/reconnect), with no action
   // of theirs to explain it. The `changedElsewhere` trigger is deliberately
   // absent from the dependencies — that path already speaks through the
   // `role="alert"` error below, and announcing both would say it twice.
+  //
+  // Scoped to the editing branch: on the saved panel there is no banner to
+  // explain and nothing left to refresh.
   useEffect(() => {
-    if (serverMovedOn) {
+    if (serverMovedOn && saved === null) {
       announce(t("changedElsewhere"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverMovedOn]);
+  }, [serverMovedOn, saved]);
 
-  // Losing the connection is likewise something that happens *to* the form.
+  // Losing the connection is likewise something that happens *to* the form —
+  // but only while there is still a save to lose. Announcing «блюдо не
+  // сохранится» over the panel confirming it was saved is worse than silence.
   useEffect(() => {
-    if (!online) {
+    if (!online && saved === null) {
       announce(t("offline"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online]);
+  }, [online, saved]);
 
   // Focus never lands on `<body>`: the successor's own delete button is where
   // a keyboard user was heading anyway. Guarded on `activeElement` so it
@@ -467,18 +502,29 @@ export function DishForm({
               draft: parsed.data,
             });
 
-      await Promise.all([
-        // The whole `dish` path, not just `list` + `get`: an archived dish is
-        // still editable, and `listArchived` renders the title this save may
-        // have just rewritten and hands «Вернуть» the `version` it just spent.
-        queryClient.invalidateQueries(trpc.dish.pathFilter()),
-        // A save can mint catalog rows, so the sheet's cached searches are
-        // stale — the same reason `product.create` invalidates them.
-        queryClient.invalidateQueries({
-          ...trpc.product.pathFilter(),
-          refetchType: "none",
-        }),
-      ]);
+      // **Not awaited, and not inside the mutex.** `invalidateQueries` awaits
+      // the refetch it triggers, and a refetch that pauses (the device drops
+      // offline mid-flight, `networkMode: "online"`) never settles until the
+      // browser is back and focused — which would hold `savingRef`, leave the
+      // button on «Сохраняем…» and swallow every further tap for the whole
+      // outage, for a write the server has already committed. `dish-screen`'s
+      // `invalidateDish()` follows the same rule.
+      //
+      // The whole `dish` path, not just `list` + `get`: an archived dish is
+      // still editable, and `listArchived` renders the title this save may
+      // have just rewritten and hands «Вернуть» the `version` it just spent.
+      void queryClient.invalidateQueries(trpc.dish.pathFilter());
+      // A save can mint catalog rows, so the sheet's cached searches are
+      // stale — the same reason `product.create` invalidates them.
+      void queryClient.invalidateQueries({
+        ...trpc.product.pathFilter(),
+        refetchType: "none",
+      });
+
+      // The version this form just authored. Without it the refetch above
+      // raises `latest.version` past `expectedVersion` and the form tells the
+      // user someone else changed the dish — over its own «Блюдо сохранено».
+      setExpectedVersion(result.dish.version);
 
       const created = result.createdProducts.length;
       setSaved({ dishId: result.dish.id, created, aiFailed: result.aiFailed });
@@ -498,7 +544,10 @@ export function DishForm({
         setChangedElsewhere(true);
         setError(t("conflict"));
         if (target.mode === "edit") {
-          await queryClient.invalidateQueries(
+          // Not awaited either, and for the same reason: the banner is already
+          // on screen, and the fresh aggregate only decides what «Обновить»
+          // adopts when the user taps it.
+          void queryClient.invalidateQueries(
             trpc.dish.get.queryFilter({ id: target.dishId }),
           );
         }
@@ -514,13 +563,14 @@ export function DishForm({
   function addTag(raw: string) {
     // Only a full list keeps the typed word and gets a message: a duplicate is
     // already a chip right above the field, and a blank is not an attempt.
+    // The visible notice is *derived* below rather than stored, so removing a
+    // chip clears it on its own; the announcement stays one-shot, because a
+    // live region that re-speaks on every keystroke is unusable.
     if (tagAddOutcome(tags, raw) === "full") {
-      setTagNotice(t("tagsFull"));
       announce(t("tagsFull"));
       return;
     }
 
-    setTagNotice(null);
     setTags(normalizeTags([...tags, raw]));
     setTagDraft("");
   }
@@ -571,12 +621,18 @@ export function DishForm({
 
       {serverMovedOn || changedElsewhere ? (
         <div className={styles.banner}>
-          {/* The live region above says this; the visible copy is for eyes. */}
-          <span aria-hidden="true">{t("changedElsewhere")}</span>
+          {/* Not `aria-hidden`: the live region speaks this once, but the
+              banner stays on screen long after — and the next announcement
+              (offline, the tag cap) overwrites that slot. Left in the
+              accessibility tree it is the button's own static explanation,
+              and since it is not inside a live region it is never re-spoken
+              on change, so there is no double read. */}
+          <span id={`${fieldId}-conflict`}>{t("changedElsewhere")}</span>
           <button
             type="button"
             className={styles.inlineButton}
             onClick={adopt}
+            aria-describedby={`${fieldId}-conflict`}
             aria-disabled={latest ? undefined : true}
           >
             {t("refresh")}
@@ -731,13 +787,16 @@ export function DishForm({
           {t("addTag")}
         </button>
       </div>
-      {tagNotice === null ? null : (
-        // Beside the field that produced it, not in the error box after the
-        // steps section; `aria-hidden` because `announce()` already said it.
+      {tags.length >= MAX_TAGS && tagDraft.trim().length > 0 ? (
+        // Derived, not stored: a stored notice outlives the condition — it
+        // stayed on screen after a chip was removed, and after «Обновить»
+        // replaced the whole tag list. Beside the field that produced it, not
+        // in the error box after the steps section; `aria-hidden` because
+        // `announce()` already said it.
         <p className={styles.warning} aria-hidden="true">
-          {tagNotice}
+          {t("tagsFull")}
         </p>
-      )}
+      ) : null}
 
       <h2 className={styles.sectionTitle}>{t("ingredientsTitle")}</h2>
       <ul className={styles.rowList}>

@@ -168,13 +168,16 @@ describe("enrichProducts — the happy path", () => {
       categories: CATEGORIES,
     });
 
+    // The whole «Отделы:» block, compared as a list rather than probed for
+    // substrings: a `toContain` per department says nothing about what *else*
+    // is in there, and a hardcoded foreign row would sail past it. This is
+    // also what makes «only this household's departments» a real claim.
     const content = String(calls[0]?.messages[1]?.content);
-    expect(content).toContain("Отделы:");
-    for (const category of CATEGORIES) {
-      expect(content).toContain(`${category.id} — ${category.name}`);
-    }
-    // Only this household's departments — never one it does not own.
-    expect(content).not.toContain("cat-elsewhere");
+    const departments = content.split("Отделы:")[1]?.trim().split("\n") ?? [];
+
+    expect(departments).toEqual(
+      CATEGORIES.map((category) => `${category.id} — ${category.name}`),
+    );
   });
 });
 

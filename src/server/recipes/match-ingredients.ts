@@ -3,7 +3,10 @@ import {
   REFERENCE_PRODUCTS,
   type ReferenceProduct,
 } from "@/server/catalog/reference-products";
-import type { HouseholdCategory } from "@/server/catalog/resolve-category";
+import {
+  resolveCategoryIdForSlug,
+  type HouseholdCategory,
+} from "@/server/catalog/resolve-category";
 import {
   acceptsIngredientTier,
   bestCatalogMatch,
@@ -95,13 +98,17 @@ export function isUsableProductName(name: string): boolean {
  *    word-prefix, on names and aliases, over catalog *and* reference entries.
  *    Substrings are refused, and so is a tie (see `bestCatalogMatch`).
  *
- * **There is deliberately no fourth attempt.** An earlier draft fell back to
- * `findReferenceProduct` once ranking declined, on the grounds that the ranker
- * drops a built-in the household already owns — but step 2 answers that case
- * now, and better. What would be left is the case where `bestCatalogMatch`
- * refused a *tie*, and resolving it by taking whichever staple the reference
- * array happens to list first is exactly the arbitrary bind the tie rule
- * exists to prevent. An ambiguous name stays unbound and a human chooses.
+ * 4. `findReferenceProduct` — is this word simply the *name* of a staple we
+ *    ship? A different question from step 3's «which is closest?», and one
+ *    the ranker cannot answer: «сыр» is a prefix of both «Сыр твёрдый» and
+ *    «Сыр плавленый», so ranking declines the tie — while «сыр» is the alias
+ *    of «Сыр твёрдый» outright. This step cannot make an arbitrary choice,
+ *    because no normalized spelling appears on two entries (pinned in
+ *    `reference-products.test.ts`).
+ *
+ * **A tie is still refused where nothing names it exactly.** «масло» is a
+ * prefix of three different fats and the name of none of them, so it reaches
+ * step 4, finds nothing, and stays unbound for a human to resolve.
  */
 export function matchIngredients({
   names,
@@ -159,6 +166,26 @@ function matchOne(
           ref: best.hit.ref,
           categoryId: best.hit.categoryId,
         };
+  }
+
+  // The ranker answers «which of these is closest?» and refuses to guess when
+  // two are equally close. This asks a different question — «is this word the
+  // name of a staple we ship?» — and it is unique by construction, so it can
+  // never resolve a tie by array order (`reference-products.test.ts` pins that
+  // no spelling appears on two entries).
+  //
+  // It is what a whole family of everyday words depends on. «сыр» ranks as a
+  // prefix of «Сыр твёрдый» *and* «Сыр плавленый», so the ranker declines —
+  // but «сыр» is itself the alias of «Сыр твёрдый», which is exactly what a
+  // recipe means by it. Same for «сахар», «чай», «капуста», «колбаса»,
+  // «помидор», «томат». Without this each of them costs a billed enrichment
+  // call and mints a bare row named with the user's own wording, which then
+  // permanently hides the curated staple from autocomplete.
+  if (entry) {
+    const categoryId = resolveCategoryIdForSlug(entry.categorySlug, categories);
+    if (categoryId !== null) {
+      return { kind: "reference", ref: entry, categoryId };
+    }
   }
 
   return { kind: "none", name };
