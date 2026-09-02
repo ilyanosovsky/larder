@@ -151,6 +151,55 @@ describe("matchIngredients — the reference catalog", () => {
       match(["мук"], [product("Мука")], [reference("Мука")]).map(shape),
     ).toEqual(["catalog:Мука"]);
   });
+
+  it("reaches the reference list when the ranker dropped an owned spelling", () => {
+    // The tier that only step 3 can answer, and the one the shipped catalog
+    // actually produces: a household owning «Томаты» makes `rankCatalog` drop
+    // the built-in «Помидоры» as a spelling it already has, so tier 2 declines
+    // — and «Помидоры» must still resolve rather than cost an AI call.
+    const owned = product("Томаты");
+    expect(
+      match(["Помидоры"], [owned], [reference("Помидоры", ["томаты"])]).map(
+        shape,
+      ),
+    ).toEqual(["catalog:Томаты"]);
+  });
+
+  it("binds the household's own row rather than minting the staple twice", () => {
+    // «Картошка» owned, «Картофель» asked for. The unique index is on
+    // `normalized_name`, so a second row would insert cleanly and the catalog
+    // would carry one potato twice — with each row naming the other in its
+    // aliases. 103 such pairs exist in the shipped reference catalog.
+    const owned = product("Картошка");
+    expect(
+      match(
+        ["Картофель"],
+        [owned],
+        [reference("Картофель", ["картошка"])],
+      ).map(shape),
+    ).toEqual(["catalog:Картошка"]);
+  });
+
+  it("still mints a staple the household does not own in any spelling", () => {
+    expect(
+      match(["Картофель"], [product("Мука")], [
+        reference("Картофель", ["картошка"]),
+      ]).map(shape),
+    ).toEqual(["reference:Картофель"]);
+  });
+
+  it("gives up when no department can hold the reference entry", () => {
+    // The `categoryId === null` fall-through: a household with no departments
+    // at all cannot receive a product, so the row stays unbound.
+    expect(
+      matchIngredients({
+        names: ["Помидоры"],
+        products: [],
+        categories: [],
+        references: [reference("Помидоры", ["томаты"])],
+      }).map(shape),
+    ).toEqual(["none:Помидоры"]);
+  });
 });
 
 describe("matchIngredients — names that are not products", () => {
@@ -165,8 +214,19 @@ describe("matchIngredients — names that are not products", () => {
 
   it("keeps a name with a digit in it — «Молоко 3.2%» is a real product", () => {
     expect(isUsableProductName("Молоко 3.2%")).toBe(true);
+    expect(isUsableProductName("Мука ц/з")).toBe(true);
     expect(isUsableProductName("Соль")).toBe(true);
     expect(isUsableProductName("   ")).toBe(false);
+    expect(isUsableProductName("•")).toBe(false);
+    expect(isUsableProductName("-")).toBe(false);
+  });
+
+  it("accepts a bracketed cross-reference — the rule is letters, not sense", () => {
+    // Pinned so the docs cannot drift back into claiming otherwise: the guard
+    // is «has a letter or a digit», and this has both. Judging whether a name
+    // reads like a product is a different rule, and a stricter one would start
+    // refusing real ingredients.
+    expect(isUsableProductName("(см. шаг 3)")).toBe(true);
   });
 });
 

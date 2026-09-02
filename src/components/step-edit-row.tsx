@@ -83,14 +83,19 @@ export function StepEditRow({
           {index + 1}
         </span>
 
-        <button
-          type="button"
+        {/* A span, not a button: `pointerdown` and `setPointerCapture` work on
+            any element, while a button would sit in the tab order with an
+            actionable label and do nothing on Enter or Space — Enter fires
+            `click`, never `pointerdown`. The keyboard path is ↑/↓ beside it,
+            so the handle is pointer-only by design and says so to assistive
+            tech rather than pretending otherwise. */}
+        <span
           className={styles.dragHandle}
           onPointerDown={onDragStart}
-          aria-label={t("dragAria", { position: index + 1 })}
+          aria-hidden="true"
         >
           ≡
-        </button>
+        </span>
 
         <button
           type="button"

@@ -62,18 +62,20 @@ export interface MatchIngredientsArgs {
 /**
  * Whether a name can become a product at all.
  *
- * A row whose name is «—», «...» or «(см. шаг 3)» is a bad parse, not an
- * ingredient. Creating a product from it would put a permanent,
+ * A row whose name is «—», «...», «-» or «•» is punctuation a parse left
+ * behind, not an ingredient. Creating a product from it would put a permanent,
  * `RESTRICT`-referenced piece of garbage in the household catalog — on the
  * app's main surface — and spend an AI call finding it an emoji. Such a row is
  * saved unbound instead, which is exactly the honest «новый» state the schema
  * already has a column for.
  *
- * Deliberately a "has a letter or a digit" test rather than a spelling
- * judgement: «Соль» and «Мука ц/з» are both fine, and a stricter rule would
- * start refusing real ingredients. No `\p{L}` — the ES2017 target cannot
- * compile Unicode property escapes (`enrich-product.ts` documents the same
- * constraint).
+ * **The rule is "has a letter or a digit", and nothing more.** It is not a
+ * judgement about whether the name reads like a product: «(см. шаг 3)» has
+ * letters and digits and therefore passes, and so it should — a stricter rule
+ * would start refusing «Мука ц/з», «Молоко 3.2%» and «Соль (крупная)», and a
+ * wrongly-refused ingredient is a silently unbound row nobody can explain. No
+ * `\p{L}` either: the ES2017 target cannot compile Unicode property escapes
+ * (`enrich-product.ts` documents the same constraint).
  */
 export function isUsableProductName(name: string): boolean {
   return /[a-zа-я0-9]/.test(normalizeProductName(name));
@@ -89,14 +91,16 @@ export function isUsableProductName(name: string): boolean {
  * 1. `findExactMatch` over the household's own catalog — its normalized name
  *    or one of its aliases, equal to the normalized query. An exact hit on a
  *    row the household already curated beats everything, ambiguity included.
+ * 1b. The same question asked through the reference list: if the name *is* a
+ *    built-in staple and the household owns that staple under another
+ *    spelling, bind their row. See `ownedUnderAnotherSpelling`.
  * 2. `bestCatalogMatch` through `acceptsIngredientTier` — prefix and
  *    word-prefix, on names and aliases, over catalog *and* reference entries.
  *    Substrings are refused, and so is a tie (see `bestCatalogMatch`).
- * 3. `findReferenceProduct` — the built-ins by exact name/alias. Reached only
- *    where step 2 declined to answer, which is why it is worth its own line:
- *    `searchCatalog`'s ranking drops a reference entry the household already
- *    owns under another spelling, and this is the last chance to notice the
- *    name is a staple rather than something new to invent.
+ * 3. The same reference entry, now as something to *create*. Reached where
+ *    step 2 declined to answer, either because nothing ranked or because two
+ *    rows tied — `searchCatalog`'s ranking drops a built-in the household
+ *    already owns, and step 1b has by then ruled that case out.
  */
 export function matchIngredients({
   names,
@@ -122,6 +126,24 @@ function matchOne(
     return { kind: "catalog", product: owned };
   }
 
+  // The built-in entry this name *is*, if any — looked up once and used twice.
+  const ref = findReferenceProduct(name, references);
+
+  // Before any ranking: the household may already own this exact staple under
+  // a spelling the query never mentions — «Томаты» for a recipe's «Помидоры»,
+  // «Картошка» for «Картофель». `rankCatalog` drops such a reference entry (it
+  // would be a duplicate of a row the household has), and without this the
+  // name falls through to whatever *else* ranks — «Помидоры черри» at the
+  // prefix tier — or, at step 3, to minting a second row for one product whose
+  // aliases name the first. The unique index covers `normalized_name` only, so
+  // nothing downstream would stop it. An exact staple the household owns beats
+  // a prefix match on a different product, which is the rule the ranker itself
+  // already encodes for everything it can see.
+  const ownedStaple = ref === null ? null : ownedUnderAnotherSpelling(ref, products);
+  if (ownedStaple) {
+    return { kind: "catalog", product: ownedStaple };
+  }
+
   const best = bestCatalogMatch({
     query: name,
     products,
@@ -139,7 +161,6 @@ function matchOne(
         };
   }
 
-  const ref = findReferenceProduct(name, references);
   if (ref) {
     const categoryId = resolveCategoryIdForSlug(ref.categorySlug, categories);
     if (categoryId !== null) {
@@ -148,4 +169,28 @@ function matchOne(
   }
 
   return { kind: "none", name };
+}
+
+/**
+ * The household's own row for a reference entry, found through the entry's
+ * name or any of its aliases — the same collision test `searchCatalog` runs
+ * before it offers a built-in staple beside a row the household already has.
+ */
+function ownedUnderAnotherSpelling(
+  ref: ReferenceProduct,
+  products: readonly CatalogProduct[],
+): CatalogProduct | null {
+  const byName = findExactMatch(ref.name, products);
+  if (byName) {
+    return byName;
+  }
+
+  for (const alias of ref.aliases) {
+    const byAlias = findExactMatch(alias, products);
+    if (byAlias) {
+      return byAlias;
+    }
+  }
+
+  return null;
 }

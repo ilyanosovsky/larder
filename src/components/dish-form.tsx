@@ -167,6 +167,20 @@ export function DishForm({
   }));
 
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The form's one announcement slot (F4/F8). A live region that mounts
+   * *together with* its text is not reliably announced — the rule
+   * `cart-screen.tsx`, `pantry-screen.tsx` and `dish-screen.tsx` all document
+   * — so the region below is permanent and empty until something writes to
+   * it, with the inner `<span>` keyed on a counter so two identical messages
+   * in a row are still a real DOM mutation.
+   */
+  const [announcement, setAnnouncement] = useState<{
+    text: string;
+    seq: number;
+  } | null>(null);
+  const announceSeq = useRef(0);
+  const [tagNotice, setTagNotice] = useState<string | null>(null);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
   const [rebinding, setRebinding] = useState<string | null>(null);
   const [saved, setSaved] = useState<{
@@ -224,6 +238,31 @@ export function DishForm({
     setChangedElsewhere(false);
     setError(null);
   }
+
+  function announce(text: string) {
+    announceSeq.current += 1;
+    setAnnouncement({ text, seq: announceSeq.current });
+  }
+
+  // Nothing else tells a screen-reader user the server moved on: the banner is
+  // raised by a background `dish.get` refetch (focus/reconnect), with no action
+  // of theirs to explain it. The `changedElsewhere` trigger is deliberately
+  // absent from the dependencies — that path already speaks through the
+  // `role="alert"` error below, and announcing both would say it twice.
+  useEffect(() => {
+    if (serverMovedOn) {
+      announce(t("changedElsewhere"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverMovedOn]);
+
+  // Losing the connection is likewise something that happens *to* the form.
+  useEffect(() => {
+    if (!online) {
+      announce(t("offline"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   // Focus never lands on `<body>`: the successor's own delete button is where
   // a keyboard user was heading anyway. Guarded on `activeElement` so it
@@ -356,7 +395,10 @@ export function DishForm({
       return { top: rect?.top ?? 0, height: rect?.height ?? 0 };
     });
 
-    moveStep(from, stepDropIndex(event.clientY, rects));
+    // `stepDropIndex` takes `from` because the gap the pointer sits in is
+    // measured on the list as drawn, while `moveItem` inserts into the list
+    // with the dragged row already lifted out.
+    moveStep(from, stepDropIndex(event.clientY, rects, from));
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -426,10 +468,10 @@ export function DishForm({
             });
 
       await Promise.all([
-        queryClient.invalidateQueries(trpc.dish.list.queryFilter()),
-        queryClient.invalidateQueries(
-          trpc.dish.get.queryFilter({ id: result.dish.id }),
-        ),
+        // The whole `dish` path, not just `list` + `get`: an archived dish is
+        // still editable, and `listArchived` renders the title this save may
+        // have just rewritten and hands «Вернуть» the `version` it just spent.
+        queryClient.invalidateQueries(trpc.dish.pathFilter()),
         // A save can mint catalog rows, so the sheet's cached searches are
         // stale — the same reason `product.create` invalidates them.
         queryClient.invalidateQueries({
@@ -438,11 +480,17 @@ export function DishForm({
         }),
       ]);
 
-      setSaved({
-        dishId: result.dish.id,
-        created: result.createdProducts.length,
-        aiFailed: result.aiFailed,
-      });
+      const created = result.createdProducts.length;
+      setSaved({ dishId: result.dish.id, created, aiFailed: result.aiFailed });
+      announce(
+        created === 0
+          ? t("savedTitle")
+          : `${t("savedTitle")}. ${
+              result.aiFailed
+                ? t("savedProductsCheck", { count: created })
+                : t("savedProducts", { count: created })
+            }`,
+      );
     } catch (caught) {
       if (isConflictError(caught)) {
         // Re-sending the same `expectedVersion` would fail identically
@@ -465,13 +513,40 @@ export function DishForm({
 
   function addTag(raw: string) {
     const next = normalizeTags([...tags, raw]);
+
+    // `normalizeTags` truncates at `MAX_TAGS` — `recipeDraftSchema` depends on
+    // it — so a 13th tag simply does not appear in the result. Clearing the
+    // field on top of that would take the typed word away with no explanation,
+    // which is the one case here worth a word.
+    const rejectedByCap =
+      next.length === tags.length && !tags.includes(normalizeTags([raw])[0] ?? "");
+
+    if (rejectedByCap) {
+      setTagNotice(t("tagsFull"));
+      announce(t("tagsFull"));
+      return;
+    }
+
+    setTagNotice(null);
     setTags(next);
     setTagDraft("");
   }
 
+  /**
+   * Permanent, and outside the saved/editing branch on purpose: a region that
+   * appears together with its text is not reliably announced, so it has to
+   * already exist when the save lands.
+   */
+  const liveRegion = (
+    <p className={styles.srOnly} role="status">
+      <span key={announcement?.seq ?? "empty"}>{announcement?.text ?? ""}</span>
+    </p>
+  );
+
   if (saved !== null) {
     return (
-      <div className={styles.savedPanel} role="status">
+      <div className={styles.savedPanel}>
+        {liveRegion}
         <p className={styles.savedTitle}>{t("savedTitle")}</p>
         {saved.created > 0 ? (
           <p className={styles.savedNote}>
@@ -495,13 +570,16 @@ export function DishForm({
 
   return (
     <div className={styles.form}>
+      {liveRegion}
+
       {initial.sourceType === "manual" ? null : (
         <p className={styles.aiCaption}>{t("aiCaption")}</p>
       )}
 
       {serverMovedOn || changedElsewhere ? (
         <div className={styles.banner}>
-          <span>{t("changedElsewhere")}</span>
+          {/* The live region above says this; the visible copy is for eyes. */}
+          <span aria-hidden="true">{t("changedElsewhere")}</span>
           <button
             type="button"
             className={styles.inlineButton}
@@ -660,6 +738,13 @@ export function DishForm({
           {t("addTag")}
         </button>
       </div>
+      {tagNotice === null ? null : (
+        // Beside the field that produced it, not in the error box after the
+        // steps section; `aria-hidden` because `announce()` already said it.
+        <p className={styles.warning} aria-hidden="true">
+          {tagNotice}
+        </p>
+      )}
 
       <h2 className={styles.sectionTitle}>{t("ingredientsTitle")}</h2>
       <ul className={styles.rowList}>
@@ -735,7 +820,11 @@ export function DishForm({
           {error}
         </p>
       )}
-      {online ? null : <p className={styles.warning}>{t("offline")}</p>}
+      {online ? null : (
+        <p className={styles.warning} aria-hidden="true">
+          {t("offline")}
+        </p>
+      )}
 
       <button
         type="button"

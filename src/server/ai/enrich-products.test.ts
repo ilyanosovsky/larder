@@ -153,6 +153,29 @@ describe("enrichProducts — the happy path", () => {
       json_schema: { name: "enriched_products", strict: true },
     });
   });
+
+  it("sends the household's departments, as id — name pairs", () => {
+    // The only thing that makes `categoryId` answerable at all: strict mode
+    // constrains the *shape* of that field, never its value, and every answer
+    // is checked against these very ids. Asserting the `id — name` pair, not
+    // just the id, is what catches a prompt that lists department names the
+    // model cannot echo back.
+    const { client, calls } = replyWithItems([]);
+
+    void enrichProducts({
+      client,
+      names: ["Буррата"],
+      categories: CATEGORIES,
+    });
+
+    const content = String(calls[0]?.messages[1]?.content);
+    expect(content).toContain("Отделы:");
+    for (const category of CATEGORIES) {
+      expect(content).toContain(`${category.id} — ${category.name}`);
+    }
+    // Only this household's departments — never one it does not own.
+    expect(content).not.toContain("cat-elsewhere");
+  });
 });
 
 describe("enrichProducts — per-name validation", () => {

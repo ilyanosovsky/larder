@@ -9,8 +9,9 @@ import { EditDishScreen } from "./edit-dish-screen";
  * S8.3 in edit mode — S7's «Редактировать» (DESIGN_BRIEF S7: «открывает форму
  * S8.3, предзаполненную данными блюда»).
  *
- * Two prefetches: the aggregate the form seeds from, and the departments the
- * rebind sheet's edit panel needs on its first tap.
+ * One prefetch: the aggregate the form seeds from. Not `category.list` — its
+ * only subscriber is `ProductEditForm`, which the rebind sheet cannot reach in
+ * `variant="product"` (both of its paths return before the quantity step).
  *
  * The route segment is validated before it becomes a query, exactly as
  * `/dishes/[dishId]` does: `dishIdInput` is `z.uuid()`, so a mis-shared URL
@@ -29,7 +30,6 @@ export default async function EditDishPage({
   }
 
   prefetch(trpc.dish.get.queryOptions({ id: dishId }));
-  prefetch(trpc.category.list.queryOptions());
 
   return (
     <HydrateClient>

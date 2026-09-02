@@ -91,7 +91,6 @@
 .chipButton:focus-visible,
 .rowRemove:focus-visible,
 .moveButton:focus-visible,
-.dragHandle:focus-visible,
 .tagChip:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 2px;
@@ -292,6 +291,12 @@
 }
 
 .dragHandle {
+  /* A `<span>` is a non-replaced inline element, where `min-width`/
+     `min-height` from the rule above simply do not apply — this is what keeps
+     the handle a real 44px target. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: grab;
   /* The handle owns the gesture: without this the browser scrolls the page
      out from under a drag on touch. */

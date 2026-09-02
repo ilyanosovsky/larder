@@ -824,7 +824,7 @@ Client-safe by construction: it imports `zod`, the unit canon and two pure serve
 
 **Exactly one `ai_jobs` row per save, or none.** One batched call for up to `MAX_ENRICH_NAMES` (20) names, `reasoning_effort: "low"`, per-name validation (an unknown `categoryId` or a non-emoji icon costs *that* name its icon, not the other nine theirs), and `costUsd` recorded on the failure branch too. Ten sequential enrichments would burn the function's duration budget and ten rate-limit slots on one tap of «Сохранить блюдо». Zero rows when every ingredient is bound or resolves from the reference catalog — the tests prove it with `unusableOpenai`, which throws if anything reaches for a client.
 
-**Rows that can never be products are skipped entirely.** `isUsableProductName` requires a letter or a digit after normalization, so «—» or «(см. шаг 3)» is neither enriched nor created; the row is saved unbound, which is the honest «новый» state the nullable `product_id` column already has.
+**Rows that can never be products are skipped entirely.** `isUsableProductName` requires a letter or a digit after normalization, so «—», «...» or «•» is neither enriched nor created; the row is saved unbound, which is the honest «новый» state the nullable `product_id` column already has. That is the *whole* rule — it is not a judgement about whether the name reads like a product, so «(см. шаг 3)» passes it. A stricter test would start refusing «Мука ц/з» and «Молоко 3.2%», and a wrongly-refused ingredient is a silently unbound row nobody can explain.
 
 #### Ingredient matching: which tiers may bind
 

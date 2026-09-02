@@ -51,34 +51,45 @@ export interface RowRect {
 }
 
 /**
- * The index a dragged step should land at, given where the pointer is and
- * where the rows are.
+ * The index a dragged step should land at, given where the pointer is, where
+ * the rows are, and which row is being dragged.
  *
  * The rule is "how many rows has the pointer passed the middle of": a row is
  * swapped only once the finger is properly past its midpoint, which is what
  * keeps a list from flickering back and forth under a hovering thumb.
  *
- * `rects` are the rows **in visual order**, including the dragged one, and the
- * result is the *final* index for `moveItem` — so dropping below the last row
- * yields `rects.length - 1` rather than `rects.length`, and dropping above the
- * first yields `0`.
+ * **The two index spaces are why `from` is a parameter.** Counting midpoints
+ * yields a *gap* index in `0..rects.length`, measured on the list as it looks
+ * now — with the dragged row still in it. `moveItem` removes the row first and
+ * inserts into the shortened list, so every gap below the dragged row is
+ * unchanged while every gap above it has shifted down by one. Converting here
+ * rather than at the call site keeps the whole decision in one tested pure
+ * function: without it, a drag downwards lands one slot too low and a release
+ * that never left the dragged row's own box still reorders the list.
+ *
+ * `rects` are the rows **in visual order**, including the dragged one.
  */
 export function stepDropIndex(
   pointerY: number,
   rects: readonly RowRect[],
+  from: number,
 ): number {
   if (rects.length === 0) {
     return 0;
   }
 
-  let passed = 0;
+  // The gap the pointer sits in, 0..rects.length — deliberately **not**
+  // clamped to `length - 1`: a release below the last row belongs in the gap
+  // past the end, and clamping it here would collapse it onto the gap above.
+  let gap = 0;
   for (const rect of rects) {
     if (pointerY >= rect.top + rect.height / 2) {
-      passed += 1;
+      gap += 1;
     }
   }
 
-  return clampIndex(passed, rects.length);
+  const source = clampIndex(from, rects.length);
+  return gap > source ? clampIndex(gap - 1, rects.length) : clampIndex(gap, rects.length);
 }
 
 function clampIndex(value: number, length: number): number {

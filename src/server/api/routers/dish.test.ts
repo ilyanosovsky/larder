@@ -1180,6 +1180,167 @@ describe("dish.create — resolving unbound ingredients", () => {
     expect(result.createdProducts).toEqual([]);
   });
 
+  it("binds a staple the household owns under another spelling, minting nothing", async () => {
+    // The reference catalog would happily hand back «Помидоры» here. The
+    // household already owns that product as «Томаты», and the unique index —
+    // `normalized_name` only — would not stop the second row.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [catalogRow({ name: "Томаты" })],
+      [categoryRow()],
+      [{ id: DISH_ID }],
+      [{ id: RECIPE_ID }],
+      [],
+      [],
+      ...detailResults(),
+    ]);
+
+    const result = await caller.dish.create({
+      draft: draft({
+        ingredients: [ingredient({ name: "Помидоры", productId: null })],
+      }),
+      originalDraft: null,
+      jobId: null,
+    });
+
+    expect(
+      stub.statements.some((s) => s.kind === "insert" && s.table === "products"),
+    ).toBe(false);
+    expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+    expect(stub.statements[5]?.values).toEqual([
+      expect.objectContaining({ name: "Помидоры", productId: PRODUCT_ID }),
+    ]);
+    expect(result.createdProducts).toEqual([]);
+  });
+
+  it("pairs each unknown name with its own enrichment, not with the row's index", async () => {
+    // A draft that mixes a reference hit with an unknown name is the only
+    // shape where `unknown[]`'s index space and `enrichment.values[]`'s can
+    // disagree: «Мука» resolves for free and is never sent, so «Буррата» is
+    // question 0 of the batch while being row 1 of the draft.
+    const { fake, calls } = enrichmentClient([
+      { name: "Буррата", icon: "🧀", categoryId: CATEGORY_ID, unit: "шт" },
+    ]);
+    const { caller, stub } = aiCallerWith(
+      [
+        ...RESOLVE_READS,
+        [{ minute: 0, day: 0 }],
+        [{ id: JOB_ID }],
+        [],
+        [referenceProductRow()],
+        [createdProductRow({ id: OTHER_PRODUCT_ID, name: "Буррата", icon: "🧀" })],
+        [{ id: DISH_ID }],
+        [{ id: RECIPE_ID }],
+        [],
+        [],
+        ...detailResults(),
+      ],
+      fake,
+    );
+
+    const result = await caller.dish.create({
+      draft: draft({
+        ingredients: [
+          ingredient({ name: "Мука", productId: null }),
+          ingredient({ name: "Буррата", productId: null }),
+        ],
+      }),
+      originalDraft: null,
+      jobId: null,
+    });
+
+    const prompt = String(calls[0]?.messages[1]?.content);
+    expect(prompt).toContain("Буррата");
+    expect(prompt).not.toContain("Мука");
+
+    const inserts = stub.statements
+      .filter((s) => s.kind === "insert" && s.table === "products")
+      .map((s) => s.values);
+    expect(inserts).toEqual([
+      expect.objectContaining({ name: "Мука", icon: "🌾" }),
+      expect.objectContaining({
+        name: "Буррата",
+        icon: "🧀",
+        defaultUnit: "шт",
+      }),
+    ]);
+    expect(result.aiFailed).toBe(false);
+  });
+
+  it("saves even when the OpenAI client cannot be built at all", async () => {
+    // `callerWith`'s context hands out `unusableOpenai`, which throws. That is
+    // the failure `enrichProducts` cannot catch for itself — a malformed
+    // OPENAI_API_KEY, say. A *missing* key never reaches here: `env()`
+    // validates the whole schema on its first call and `db()` calls it, so the
+    // request dies building its context.
+    const { caller, stub } = callerWith([
+      ...RESOLVE_READS,
+      [{ minute: 0, day: 0 }],
+      [{ id: JOB_ID }],
+      [],
+      [createdProductRow({ name: "Буррата", icon: "🛒" })],
+      [{ id: DISH_ID }],
+      [{ id: RECIPE_ID }],
+      [],
+      [],
+      ...detailResults(),
+    ]);
+
+    const result = await caller.dish.create({
+      draft: draft({
+        ingredients: [ingredient({ name: "Буррата", productId: null })],
+      }),
+      originalDraft: null,
+      jobId: null,
+    });
+
+    expect(result.dish.id).toBe(DISH_ID);
+    expect(result.aiFailed).toBe(true);
+    expect(
+      stub.statements.find(
+        (s) => s.kind === "insert" && s.table === "products",
+      )?.values,
+    ).toMatchObject({ name: "Буррата", icon: "🛒", defaultUnit: "шт" });
+
+    const failed = stub.statements.find(
+      (s) => s.kind === "update" && s.table === "ai_jobs",
+    );
+    const values = failed?.values as Record<string, unknown>;
+    expect(values.status).toBe("error");
+    // Nothing was billed — the call never left the process.
+    expect(values.costUsd).toBe("0.000000");
+  });
+
+  it("rethrows a non-unique insert error instead of masking it", async () => {
+    // Only a 23505 means "someone else got there first". Anything else is a
+    // real failure, and swallowing it would surface as the misleading
+    // «Product insert returned no row».
+    const fk = Object.assign(new Error("fk violation"), {
+      cause: { code: "23503" },
+    });
+    const { caller } = callerWith([...RESOLVE_READS, fk]);
+
+    await expect(
+      caller.dish.create({
+        draft: draft({ ingredients: [ingredient({ productId: null })] }),
+        originalDraft: null,
+        jobId: null,
+      }),
+    ).rejects.toThrow("fk violation");
+  });
+
+  it("is an INTERNAL_SERVER_ERROR when the recovery read finds nothing either", async () => {
+    const { caller } = callerWith([...RESOLVE_READS, uniqueViolation(), []]);
+
+    await expect(
+      caller.dish.create({
+        draft: draft({ ingredients: [ingredient({ productId: null })] }),
+        originalDraft: null,
+        jobId: null,
+      }),
+    ).rejects.toSatisfy(hasCode("INTERNAL_SERVER_ERROR"));
+  });
+
   it("neither enriches nor creates a row whose name could never be a product", async () => {
     const { caller, stub } = callerWith([
       [membershipRow],
