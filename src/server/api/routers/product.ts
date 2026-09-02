@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, gte, or, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { aiJobs, categories, products } from "@/db/schema";
@@ -9,7 +9,7 @@ import {
   type EnrichProductResult,
 } from "@/server/ai/enrich-product";
 import { formatCostUsd } from "@/server/ai/pricing";
-import { checkRateLimit, rateLimitWindows } from "@/server/ai/rate-limit";
+import { assertWithinRateLimit } from "@/server/ai/rate-limit-guard";
 import {
   createTRPCRouter,
   householdProcedure,
@@ -30,9 +30,15 @@ import { isUniqueViolation } from "@/server/db-errors";
 
 type Database = TRPCContext["db"];
 
-/** What a product gets when the AI could not help. Both are one tap to fix. */
-const FALLBACK_ICON = "🛒";
-const FALLBACK_UNIT: Unit = "шт";
+/**
+ * What a product gets when the AI could not help. Both are one tap to fix.
+ *
+ * Exported because `dish.create`/`dish.update` mint products too (task 4.2's
+ * batched enrichment), and one feature must not have two answers to "what
+ * does an un-enriched product look like".
+ */
+export const FALLBACK_ICON = "🛒";
+export const FALLBACK_UNIT: Unit = "шт";
 
 /** Shared by every input that names a product. Zod trims before validating. */
 const productNameField = z.string().trim().min(1).max(100);
@@ -124,7 +130,7 @@ export type ProductListItemOutput = z.infer<typeof productListItemOutput>;
 export type ProductSearchHitOutput = z.infer<typeof productSearchHitOutput>;
 export type CreateProductOutput = z.infer<typeof createProductOutput>;
 
-const productColumns = {
+export const productColumns = {
   id: products.id,
   name: products.name,
   icon: products.icon,
@@ -133,7 +139,7 @@ const productColumns = {
   aliases: products.aliases,
 };
 
-interface ProductRow {
+export interface ProductRow {
   id: string;
   name: string;
   icon: string;
@@ -151,7 +157,7 @@ function toUnit(value: string): Unit {
   return parsed.success ? parsed.data : FALLBACK_UNIT;
 }
 
-function toProductOutput(row: ProductRow): ProductOutput {
+export function toProductOutput(row: ProductRow): ProductOutput {
   return {
     id: row.id,
     name: row.name,
@@ -199,8 +205,13 @@ function loadCategories(
  * insert just collided with, and the conflict would surface as a 500. The
  * second probe covers aliases, so «томаты» finds «Помидоры».
  */
-async function findExistingProduct(
-  db: Database,
+export async function findExistingProduct(
+  // `Pick<…, "select">` rather than the whole `Database`: `dish.create` calls
+  // this from inside its transaction to recover from a 23505, and a drizzle
+  // transaction is not assignable to `PostgresJsDatabase` (it has no
+  // `$client`). It has to be *this* function rather than a second hand-written
+  // probe, for the reason the doc comment above gives.
+  db: Pick<Database, "select">,
   householdId: string,
   name: string,
 ): Promise<ProductOutput | null> {
@@ -281,47 +292,6 @@ async function insertProduct(
     code: "INTERNAL_SERVER_ERROR",
     message: "Product insert returned no row",
   });
-}
-
-/**
- * Refuses the call when this user has been asking for AI too often
- * (VISION §6.7).
- *
- * One indexed `count(*)` covers both windows: the day's rows are counted, and
- * the minute's are counted again with a `FILTER` over the same scan, so the
- * limiter costs one round trip rather than two. Counted in the database
- * because the app is serverless — see `src/server/ai/rate-limit.ts`.
- */
-async function assertWithinRateLimit(
-  db: Database,
-  userId: string,
-): Promise<void> {
-  const { minuteStart, dayStart } = rateLimitWindows(new Date());
-
-  const [counts] = await db
-    .select({
-      // The FILTER predicate is built with `gte`, not written inline as
-      // `${aiJobs.createdAt} >= ${minuteStart}`: a bare Date interpolated
-      // into a raw `sql` fragment is bound with no column type, and
-      // postgres.js rejects it at bind time. Going through `gte` reuses the
-      // column's own encoder, exactly like the `WHERE` below.
-      minute: sql<number>`(count(*) filter (where ${gte(aiJobs.createdAt, minuteStart)}))::int`,
-      day: sql<number>`(count(*))::int`,
-    })
-    .from(aiJobs)
-    .where(and(eq(aiJobs.userId, userId), gte(aiJobs.createdAt, dayStart)));
-
-  const decision = checkRateLimit({
-    recentMinuteCount: counts?.minute ?? 0,
-    recentDayCount: counts?.day ?? 0,
-  });
-
-  if (!decision.allowed) {
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: `AI rate limit reached (${decision.reason})`,
-    });
-  }
 }
 
 /**

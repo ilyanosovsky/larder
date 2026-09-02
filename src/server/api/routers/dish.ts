@@ -25,6 +25,10 @@ import {
 } from "@/server/api/trpc";
 import { productOutput } from "@/server/api/routers/product";
 import { normalizeDishTitle } from "@/server/dishes/normalize";
+import {
+  createPendingProducts,
+  resolveIngredientProducts,
+} from "@/server/dishes/resolve-products";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
 
 type Database = TRPCContext["db"];
@@ -126,17 +130,25 @@ export const createDishInput = z.object({
   jobId: z.uuid().nullable(),
 });
 
-export const createDishOutput = z.object({
+/**
+ * What both `create` and `update` answer — the same three facts, because the
+ * S8.3 form asks the same question either way: what did I just save, what did
+ * it cost the catalog, and does anything need a second look.
+ */
+export const saveDishOutput = z.object({
   dish: dishDetailOutput,
   /**
-   * Products minted from unbound ingredient rows, for the toast «Создано N
-   * новых продуктов». **Always empty in task 4.1**, which saves unbound rows
-   * as the honest «новый» state and creates nothing: resolution — reference
-   * catalog first, then one batched enrichment call — is task 4.2, and it
-   * fills these two fields without changing the shape S8.3 renders.
+   * Products minted from unbound ingredient rows, for the form's «Создано N
+   * новых продуктов». A reference-catalog hit and an AI-enriched name both
+   * land here — from the household's point of view they are the same event.
    */
   createdProducts: z.array(productOutput),
-  /** Batch enrichment degraded to fallbacks; `false` until task 4.2. */
+  /**
+   * At least one of those products was created with fallback values: the
+   * batched enrichment was refused by the rate limiter, failed outright, or
+   * skipped that name. The dish is saved either way — the form only says
+   * «проверь новые продукты».
+   */
   aiFailed: z.boolean(),
 });
 
@@ -423,6 +435,7 @@ function childRows(
   householdId: string,
   recipeId: string,
   draft: RecipeDraft,
+  bound: readonly (string | null)[],
 ): {
   ingredients: (typeof recipeIngredients.$inferInsert)[];
   steps: (typeof recipeSteps.$inferInsert)[];
@@ -431,7 +444,10 @@ function childRows(
     ingredients: draft.ingredients.map((row, index) => ({
       householdId,
       recipeId,
-      productId: row.productId,
+      // The resolved binding, not the one that came off the wire: the client
+      // may only ever say «this is product X» or «I don't know», and the
+      // second answer is the server's to fill in.
+      productId: bound[index] ?? null,
       rawText: row.rawText,
       name: row.name,
       qty: row.qty,
@@ -557,11 +573,13 @@ export const dishRouter = createTRPCRouter({
    * The order is the whole design (blueprint §3.7):
    *
    * 1. **Outside any transaction** — every client-sent `productId` is checked
-   *    against this household's catalog. From task 4.2 the unbound rows are
-   *    also resolved here, including one batched AI call: a 15–40 s OpenAI
-   *    round trip inside an open transaction would pin a pooled Railway
-   *    connection and row locks on a Vercel function.
-   * 2. **Inside one transaction** — the dish, the recipe, and both child
+   *    against this household's catalog, and the unbound rows are resolved
+   *    (`resolveIngredientProducts`): reference catalog first, then one
+   *    batched AI call. A 15–40 s OpenAI round trip inside an open
+   *    transaction would pin a pooled Railway connection and row locks on a
+   *    Vercel function.
+   * 2. **Inside one transaction** — the products those unbound rows need
+   *    (each in its own savepoint), then the dish, the recipe and both child
    *    tables, so a save is all or nothing.
    *
    * **This procedure is not idempotent, and `recipes_dishId_uidx` does not
@@ -587,14 +605,25 @@ export const dishRouter = createTRPCRouter({
    */
   create: householdProcedure
     .input(createDishInput)
-    .output(createDishOutput)
+    .output(saveDishOutput)
     .mutation(async ({ ctx, input }) => {
       const householdId = ctx.household.id;
       const draft = draftForSave(input.draft);
 
       await assertProductsOwned(ctx.db, householdId, draft);
 
-      const dishId = await ctx.db.transaction(async (tx) => {
+      const resolved = await resolveIngredientProducts(ctx, draft);
+      const bound = [...resolved.bound];
+
+      const saved = await ctx.db.transaction(async (tx) => {
+        const createdProducts = await createPendingProducts(
+          tx,
+          householdId,
+          ctx.user.id,
+          resolved.pending,
+          bound,
+        );
+
         const [dish] = await tx
           .insert(dishes)
           .values({
@@ -638,7 +667,7 @@ export const dishRouter = createTRPCRouter({
           });
         }
 
-        const children = childRows(householdId, recipe.id, draft);
+        const children = childRows(householdId, recipe.id, draft, bound);
 
         await tx.insert(recipeIngredients).values(children.ingredients);
 
@@ -666,10 +695,10 @@ export const dishRouter = createTRPCRouter({
             );
         }
 
-        return dish.id;
+        return { dishId: dish.id, createdProducts };
       });
 
-      const detail = await readDishDetail(ctx.db, householdId, dishId);
+      const detail = await readDishDetail(ctx.db, householdId, saved.dishId);
 
       if (!detail) {
         throw new TRPCError({
@@ -678,7 +707,11 @@ export const dishRouter = createTRPCRouter({
         });
       }
 
-      return { dish: detail, createdProducts: [], aiFailed: false };
+      return {
+        dish: detail,
+        createdProducts: saved.createdProducts,
+        aiFailed: resolved.aiFailed,
+      };
     }),
 
   /**
@@ -699,14 +732,42 @@ export const dishRouter = createTRPCRouter({
    */
   update: householdProcedure
     .input(updateDishInput)
-    .output(dishDetailOutput)
+    .output(saveDishOutput)
     .mutation(async ({ ctx, input }) => {
       const householdId = ctx.household.id;
       const draft = draftForSave(input.draft);
 
+      // The version is read **before** anything is resolved, so a stale
+      // editor is refused before it can spend an AI call and mint products
+      // for a save that was never going to land. The `FOR UPDATE` read inside
+      // the transaction below is still the real guard — this one only closes
+      // the common case cheaply; between the two, a partner's write turns
+      // into the same `CONFLICT`, one round trip later.
+      const [current] = await ctx.db
+        .select({ version: dishes.version })
+        .from(dishes)
+        .where(
+          and(eq(dishes.id, input.id), eq(dishes.householdId, householdId)),
+        )
+        .limit(1);
+
+      if (!current) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      if (current.version !== input.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The dish changed since it was opened",
+        });
+      }
+
       await assertProductsOwned(ctx.db, householdId, draft);
 
-      await ctx.db.transaction(async (tx) => {
+      const resolved = await resolveIngredientProducts(ctx, draft);
+      const bound = [...resolved.bound];
+
+      const createdProducts = await ctx.db.transaction(async (tx) => {
         const [locked] = await tx
           .select({ version: dishes.version })
           .from(dishes)
@@ -744,6 +805,14 @@ export const dishRouter = createTRPCRouter({
             message: "Dish has no recipe",
           });
         }
+
+        const created = await createPendingProducts(
+          tx,
+          householdId,
+          ctx.user.id,
+          resolved.pending,
+          bound,
+        );
 
         const [updated] = await tx
           .update(dishes)
@@ -811,13 +880,15 @@ export const dishRouter = createTRPCRouter({
             ),
           );
 
-        const children = childRows(householdId, recipe.id, draft);
+        const children = childRows(householdId, recipe.id, draft, bound);
 
         await tx.insert(recipeIngredients).values(children.ingredients);
 
         if (children.steps.length > 0) {
           await tx.insert(recipeSteps).values(children.steps);
         }
+
+        return created;
       });
 
       const detail = await readDishDetail(ctx.db, householdId, input.id);
@@ -829,7 +900,7 @@ export const dishRouter = createTRPCRouter({
         });
       }
 
-      return detail;
+      return { dish: detail, createdProducts, aiFailed: resolved.aiFailed };
     }),
 
   /**

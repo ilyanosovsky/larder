@@ -1,0 +1,433 @@
+/* S8.3 «Форма блюда» — Paper Ledger: square fields, hairline rules, one
+   ledger green. Mobile-first at 390px; the shell caps the content width. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-bottom: var(--s-8);
+}
+
+.aiCaption {
+  margin: 0;
+  border: var(--bd-hair) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--zebra);
+  padding: var(--s-2) var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.label {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.inlineLabel {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.fieldHint {
+  margin: var(--s-1) 0 0;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.input,
+.nameInput,
+.qtyInput,
+.unitSelect,
+.noteInput,
+.timerInput,
+.stepText {
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: var(--s-2) var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.stepText {
+  min-height: 72px;
+  line-height: var(--lead-body);
+  resize: vertical;
+}
+
+.input:focus-visible,
+.nameInput:focus-visible,
+.qtyInput:focus-visible,
+.unitSelect:focus-visible,
+.noteInput:focus-visible,
+.timerInput:focus-visible,
+.stepText:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.inlineButton:focus-visible,
+.bindButton:focus-visible,
+.chipButton:focus-visible,
+.rowRemove:focus-visible,
+.moveButton:focus-visible,
+.tagChip:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.twoUp {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.fieldset {
+  margin: 0;
+  border: var(--bd-hair) solid var(--rule);
+  padding: var(--s-3);
+}
+
+.equipmentGrid {
+  display: grid;
+  gap: var(--s-2);
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  margin-top: var(--s-2);
+}
+
+.checkbox {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.photoSlot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.photoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+
+.photo {
+  width: 96px;
+  height: 96px;
+  border: var(--bd-hair) solid var(--rule);
+  object-fit: cover;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  gap: var(--s-2);
+  padding: 0;
+  list-style: none;
+}
+
+.tagChip {
+  min-height: 32px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-2);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.tagRow {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.sectionTitle {
+  margin: var(--s-4) 0 0;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  font-weight: var(--w-semibold);
+}
+
+.rowList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  gap: var(--s-3);
+  padding: 0;
+  list-style: none;
+}
+
+.ingredientRow,
+.stepRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--paper);
+  padding: var(--s-3);
+}
+
+.stepDragging {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-line);
+}
+
+.ingredientTop,
+.stepHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.ingredientFields {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.qtyInput {
+  width: 80px;
+  flex: none;
+}
+
+.unitSelect {
+  width: 96px;
+  flex: none;
+}
+
+.noteInput {
+  min-width: 0;
+  flex: 1;
+}
+
+.nameInput {
+  min-width: 0;
+  flex: 1;
+}
+
+.ingredientFlags {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.bindButton,
+.chipButton {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0 var(--s-1);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.boundProduct {
+  display: inline-flex;
+  max-width: 120px;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.boundName {
+  overflow: hidden;
+  color: var(--mute);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowRemove,
+.moveButton,
+.dragHandle {
+  min-width: 44px;
+  min-height: 44px;
+  flex: none;
+  border: var(--bd-hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--mute);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+}
+
+.dragHandle {
+  /* A `<span>` is a non-replaced inline element, where `min-width`/
+     `min-height` from the rule above simply do not apply — this is what keeps
+     the handle a real 44px target. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  /* The handle owns the gesture: without this the browser scrolls the page
+     out from under a drag on touch. */
+  touch-action: none;
+}
+
+.moveButton[aria-disabled="true"],
+.dragHandle[aria-disabled="true"] {
+  color: var(--mute-2);
+}
+
+.stepNumber {
+  min-width: 24px;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+.timerFields {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.timerInput {
+  width: 72px;
+  flex: none;
+  text-align: center;
+}
+
+.timerDash,
+.timerUnit {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.primaryButton,
+.secondaryButton {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-4);
+  color: var(--paper);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  text-decoration: none;
+}
+
+.secondaryButton {
+  border-color: var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.saveButton {
+  margin-top: var(--s-4);
+}
+
+.primaryButton[aria-disabled="true"] {
+  background: var(--mute-2);
+  border-color: var(--mute-2);
+}
+
+.inlineButton {
+  min-height: 44px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent-ink);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-decoration: underline;
+}
+
+.error {
+  margin: 0;
+  border: var(--bd-hair) solid var(--red-rule);
+  background: var(--red-soft);
+  padding: var(--s-2) var(--s-3);
+  color: var(--red-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.warning {
+  margin: 0;
+  color: var(--amber-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.savedPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--paper);
+  padding: var(--s-5);
+}
+
+.savedTitle {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+}
+
+.savedNote {
+  margin: 0;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

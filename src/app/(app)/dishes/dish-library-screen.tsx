@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -315,6 +316,13 @@ export function DishLibraryScreen() {
           >
             {t("emptyAction")}
           </button>
+          {/* The one path out of the empty state that actually works today
+              (task 4.2). Photo import is 4.3, so «📷 С фото» above still says
+              «скоро» — and an empty library with no working action at all
+              would be a dead end. */}
+          <Link className={styles.emptySecondary} href="/dishes/new">
+            {t("emptyManual")}
+          </Link>
           {hint === null || !hint.visible ? null : (
             <p className={styles.hint} aria-hidden="true">
               {hint.text}
