@@ -1,0 +1,117 @@
+/* S7 «Порции: N» (DESIGN_BRIEF S7, mockup #1n): a thin ledger rule for a
+   track, a square thumb — nothing rounded, per the tokens' hard rule — and a
+   pair of 44px ± buttons the mockup itself does not draw but a thumb-only
+   drag cannot deliver on a narrow phone. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin-top: var(--s-4);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+}
+
+.label {
+  flex: none;
+  color: var(--mute);
+  font-size: var(--t-body);
+  white-space: nowrap;
+}
+
+.value {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-weight: var(--w-medium);
+}
+
+.control {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.stepButton {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stepButton:disabled {
+  color: var(--mute-2);
+  cursor: not-allowed;
+}
+
+.stepButton:focus-visible,
+.slider:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The native input's own box is the 44px touch target; the visual track
+   underneath it stays the ledger's thin 2px rule. */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--fill, 0%),
+    var(--rule) var(--fill, 0%),
+    var(--rule) 100%
+  );
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border: var(--bd-ink) solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.slider::-moz-range-track {
+  height: 2px;
+  background: var(--rule);
+}
+
+.slider::-moz-range-progress {
+  height: 2px;
+  background: var(--accent);
+}
+
+.slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: var(--bd-ink) solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  cursor: pointer;
+}

@@ -168,28 +168,9 @@
   text-transform: uppercase;
 }
 
-/* ── Portions rule ── */
-
-.portionsRow {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-2);
-  margin-top: var(--s-4);
-  border-bottom: var(--bd-hair) solid var(--rule);
-  padding-bottom: var(--s-3);
-}
-
-.portionsLabel {
-  color: var(--mute);
-  font-size: var(--t-body);
-}
-
-.portionsValue {
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--t-val);
-  font-weight: var(--w-medium);
-}
+/* ── Portions rule ──
+   The slider itself (`PortionsSlider`) and the equipment banner
+   (`EquipmentBanner`) ship their own CSS modules — task 4.5. */
 
 .adapted {
   margin-top: var(--s-3);

@@ -302,6 +302,16 @@
     "savedProductsCheck": "{count, plural, one {Создан # новый продукт — проверь его в каталоге} few {Создано # новых продукта — проверь их в каталоге} many {Создано # новых продуктов — проверь их в каталоге} other {Создано # новых продукта — проверь их в каталоге}}",
     "openDish": "Открыть блюдо"
   },
+  "dishPortions": {
+    "decreaseAria": "Меньше порций",
+    "increaseAria": "Больше порций",
+    "equipmentNeed": "Нужно:",
+    "equipmentMissing": "Не хватает: {list}",
+    "adaptButton": "Адаптировать (ИИ)",
+    "adaptHint": "Можно адаптировать рецепт под твою кухню.",
+    "profileMissing": "Профиль кухни не заполнен.",
+    "profileMissingLink": "Заполнить в настройках"
+  },
   "autocomplete": {
     "title": "Что купить?",
     "searchLabel": "Название продукта",
