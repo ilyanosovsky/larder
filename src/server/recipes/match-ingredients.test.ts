@@ -83,17 +83,17 @@ describe("matchIngredients — the household's own catalog", () => {
   });
 
   it("binds a word-prefix", () => {
-    expect(match(["сливочное"], [product("Масло сливочное")]).map(shape)).toEqual(
-      ["catalog:Масло сливочное"],
-    );
+    expect(
+      match(["сливочное"], [product("Масло сливочное")]).map(shape),
+    ).toEqual(["catalog:Масло сливочное"]);
   });
 
   it("refuses a bare substring", () => {
     // «ливочное» is inside «Масло сливочное» but starts no word in it. A
     // substring bind is invisible on the form and wrong in the cart.
-    expect(match(["ливочное"], [product("Масло сливочное")]).map(shape)).toEqual(
-      ["none:ливочное"],
-    );
+    expect(
+      match(["ливочное"], [product("Масло сливочное")]).map(shape),
+    ).toEqual(["none:ливочное"]);
   });
 
   it("does not read one butter as another", () => {

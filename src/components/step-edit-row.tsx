@@ -61,7 +61,9 @@ export function StepEditRow({
   return (
     <li
       ref={rowRef}
-      className={dragging ? `${styles.stepRow} ${styles.stepDragging}` : styles.stepRow}
+      className={
+        dragging ? `${styles.stepRow} ${styles.stepDragging}` : styles.stepRow
+      }
     >
       <div className={styles.stepHeader}>
         <span className={styles.stepNumber} aria-hidden="true">
@@ -136,7 +138,10 @@ export function StepEditRow({
             );
             // An upper bound with no lower bound is not a range — it is a
             // countdown S9 could not start, and `recipeDraftSchema` refuses it.
-            patch({ timerSec, timerMaxSec: timerSec === null ? null : value.timerMaxSec });
+            patch({
+              timerSec,
+              timerMaxSec: timerSec === null ? null : value.timerMaxSec,
+            });
           }}
           placeholder={t("timerPlaceholder")}
           autoComplete="off"

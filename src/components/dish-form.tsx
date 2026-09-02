@@ -27,7 +27,10 @@ import { moveItem, stepDropIndex } from "@/lib/recipes/reorder";
 import { MAX_TAG_LENGTH, normalizeTags } from "@/lib/recipes/tags";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError } from "@/lib/trpc-errors";
-import { EQUIPMENT_PRESETS, type EquipmentSlug } from "@/server/kitchen/equipment";
+import {
+  EQUIPMENT_PRESETS,
+  type EquipmentSlug,
+} from "@/server/kitchen/equipment";
 import { useTRPC } from "@/trpc/client";
 
 import { AutocompleteSheet } from "./autocomplete-sheet";
@@ -194,7 +197,9 @@ export function DishForm({
     setTitle(latest.draft.title);
     setPortionsText(portionsToText(latest.draft));
     setTotalTimeText(
-      latest.draft.totalTimeMin === null ? "" : String(latest.draft.totalTimeMin),
+      latest.draft.totalTimeMin === null
+        ? ""
+        : String(latest.draft.totalTimeMin),
     );
     setEquipment([...latest.draft.equipment]);
     setTags([...latest.draft.tags]);
@@ -693,7 +698,11 @@ export function DishForm({
           />
         ))}
       </ul>
-      <button type="button" className={styles.secondaryButton} onClick={addStep}>
+      <button
+        type="button"
+        className={styles.secondaryButton}
+        onClick={addStep}
+      >
         {t("addStep")}
       </button>
 
@@ -790,7 +799,9 @@ function blankStep(): DraftStep {
 }
 
 /** «8» or «7–8» — the one field `parsePortions` reads back. */
-function portionsToText(draft: Pick<RecipeDraft, "portionsBase" | "portionsMin">): string {
+function portionsToText(
+  draft: Pick<RecipeDraft, "portionsBase" | "portionsMin">,
+): string {
   return draft.portionsMin === null
     ? String(draft.portionsBase)
     : `${draft.portionsMin}–${draft.portionsBase}`;

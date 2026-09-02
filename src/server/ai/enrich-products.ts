@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 import { unitSchema, UNITS } from "@/lib/units";
-import {
-  isEmojiIcon,
-  type EnrichedProduct,
-} from "@/server/ai/enrich-product";
+import { isEmojiIcon, type EnrichedProduct } from "@/server/ai/enrich-product";
 import { toStrictJsonSchema, type AiChatClient } from "@/server/ai/openai";
 import {
   AI_MODEL,
@@ -78,7 +75,10 @@ export interface EnrichProductsArgs {
   /** Names to enrich, in the caller's own order. */
   readonly names: readonly string[];
   /** Only the ids and names go into the prompt — `enrichProduct`'s shape. */
-  readonly categories: readonly { readonly id: string; readonly name: string }[];
+  readonly categories: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
 }
 
 export interface EnrichProductsResult {
@@ -175,11 +175,7 @@ export async function enrichProducts({
       return failure("Model returned no choices", empty, usage);
     }
     if (choice.message.refusal) {
-      return failure(
-        `Model refused: ${choice.message.refusal}`,
-        empty,
-        usage,
-      );
+      return failure(`Model refused: ${choice.message.refusal}`, empty, usage);
     }
 
     const content = choice.message.content;

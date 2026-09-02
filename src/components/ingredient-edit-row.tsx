@@ -3,10 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useId, useRef, type KeyboardEvent } from "react";
 
-import {
-  formatQtyInput,
-  parseQtyInput,
-} from "@/lib/recipes/form-fields";
+import { formatQtyInput, parseQtyInput } from "@/lib/recipes/form-fields";
 import { RECIPE_UNITS, type RecipeUnit } from "@/lib/units";
 import type { DraftIngredient } from "@/lib/recipes/draft";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
@@ -137,7 +134,9 @@ export function IngredientEditRow({
           type="text"
           inputMode="decimal"
           value={formatQtyInput(value.qty)}
-          onChange={(event) => patch({ qty: parseQtyInput(event.target.value) })}
+          onChange={(event) =>
+            patch({ qty: parseQtyInput(event.target.value) })
+          }
           onKeyDown={onQtyKeyDown}
           placeholder={t("qtyPlaceholder")}
           autoComplete="off"

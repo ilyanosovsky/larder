@@ -65,9 +65,7 @@ export function formatQtyInput(qty: number | null): string {
   // `toFixed(3)` then trimmed: the column is `numeric(10, 3)`, so anything
   // finer is not stored, and «0.333» beats «0.3333333333333333» in a field
   // someone is about to edit.
-  return Number(qty.toFixed(3))
-    .toString()
-    .replace(/\.0+$/, "");
+  return Number(qty.toFixed(3)).toString().replace(/\.0+$/, "");
 }
 
 /**

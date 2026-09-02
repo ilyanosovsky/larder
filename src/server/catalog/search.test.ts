@@ -462,7 +462,12 @@ describe("bestCatalogMatch and the ingredient tiers", () => {
     // `bestCatalogMatch` shares the ranker; the sheet still shows every hit,
     // ties included, because a person is choosing there.
     expect(
-      names(search("масло", [product("Масло сливочное"), product("Масло оливковое")])),
+      names(
+        search("масло", [
+          product("Масло сливочное"),
+          product("Масло оливковое"),
+        ]),
+      ),
     ).toEqual(["Масло оливковое", "Масло сливочное"]);
   });
 });

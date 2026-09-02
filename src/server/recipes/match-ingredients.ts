@@ -132,7 +132,11 @@ function matchOne(
   if (best && acceptsIngredientTier(best.rank)) {
     return best.hit.source === "catalog"
       ? { kind: "catalog", product: best.hit.product }
-      : { kind: "reference", ref: best.hit.ref, categoryId: best.hit.categoryId };
+      : {
+          kind: "reference",
+          ref: best.hit.ref,
+          categoryId: best.hit.categoryId,
+        };
   }
 
   const ref = findReferenceProduct(name, references);

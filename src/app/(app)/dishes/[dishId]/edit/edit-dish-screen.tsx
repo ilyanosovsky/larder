@@ -84,9 +84,7 @@ export function EditDishScreen({ dishId }: { dishId: string }) {
 }
 
 /** What the rows are already bound to, so a bound row shows its product. */
-function productLabels(
-  detail: DishDetailOutput,
-): Record<string, BoundProduct> {
+function productLabels(detail: DishDetailOutput): Record<string, BoundProduct> {
   const labels: Record<string, BoundProduct> = {};
 
   for (const row of detail.ingredients) {

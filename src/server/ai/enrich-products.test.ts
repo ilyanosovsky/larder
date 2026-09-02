@@ -257,7 +257,9 @@ describe("enrichProducts — failure, and what it still records", () => {
   });
 
   it("never throws when the request itself fails, and bills nothing", async () => {
-    const { client } = fakeClient(() => Promise.reject(new Error("ECONNRESET")));
+    const { client } = fakeClient(() =>
+      Promise.reject(new Error("ECONNRESET")),
+    );
 
     const result = await enrichProducts({
       client,
