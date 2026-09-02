@@ -680,6 +680,131 @@ The S12 section (`kitchen-profile-section.tsx`) makes the equivalent guarantee a
 
 `src/components/app-header.tsx`, mounted in `AppShell`: household name on the left, the participants' avatars (image, or an initial-letter circle) on the right, the caller's own linking to `/settings` — DESIGN_BRIEF §2's "tapping your own avatar opens Settings". `(app)/layout.tsx` passes `householdName`/`userName`/`userImage`/`partners` down from the same session/household load the gate already does. Task 2.3 completed the header with the partner avatars and the sync mark — see [Cart screen](#cart-screen-s3-task-23).
 
+## Dishes and recipes
+
+The household's recipe library (VISION §3.3, DESIGN_BRIEF S6/S7) and the model phase 5's week menu and phase 6's assistant are both built on. Task 4.1 ships the schema, the `dish` router, S6 and the read-only S7; tasks 4.2–4.7 extend the same aggregate (the S8.3 form, photo/URL/text import, portion rescaling, AI adaptation, cooking mode) and append their own `###` subsections here.
+
+### The aggregate: four tables, one version token
+
+`dishes` ⟶ `recipes` (1:1, `unique(dish_id)`) ⟶ `recipe_ingredients` / `recipe_steps`. All four carry a plain `household_id` (the settled tenant-isolation rule), and every child table carries it in its own right — `DELETE FROM recipe_ingredients WHERE recipe_id = $1` has nowhere else to put the household predicate, and a predicate expressible only through a join is one refactor from vanishing.
+
+**`dishes.version integer` is the concurrency token, not `updated_at`.** Every write to the dish, its recipe, its ingredients or its steps bumps it by one, and `dish.update` refuses a save whose `expectedVersion` no longer matches (`CONFLICT` → «Блюдо изменили — обновить?»). An integer, because every router here writes `updatedAt: sql\`now()\`` at microsecond precision, postgres.js parses `timestamptz` down to a millisecond `Date`, and superjson round-trips that — a `WHERE updated_at = $clientDate` guard could silently never match and turn every legitimate save into a conflict. It doubles as the non-`Date` remount key `` `${id}:${version}` `` the S8.3 form uses in task 4.2, which is what stops a background refetch from wiping a half-typed recipe.
+
+**`recipes` has its own `id` primary key with `unique(dish_id)`, not `PRIMARY KEY (dish_id)`.** Children carry `recipe_id`; a child column named `dish_id` whose foreign key actually points at the `recipes` table would be a trap for every hand-written join and for phase 5. The unique index is where the 1:1 invariant has to live to survive a race — two taps on «Сохранить блюдо» in the same tick must not mint two recipes.
+
+**`normalized_title` is indexed but deliberately NOT unique** — the asymmetry with `products.normalized_name` is the point. A duplicate *product* is the bug the catalog exists to prevent; a second «Оладьи» (mum's and the other one) is a library decision the household is allowed to make. The column exists for lookup (task 6.1's assistant resolving «сделай нам лазанью»), not for a constraint. `normalizeDishTitle` (`src/server/dishes/normalize.ts`) is an **alias** of `normalizeProductName`, not a copy: two normalizations that drift apart are worse than one that is imperfect.
+
+### Archive, never delete
+
+`dishes.archived_at` plus `dish.archive` / `dish.unarchive`, and **no `dish.delete` at all**. Phase 5.1's `menu_items.dish_id` and 5.3's «повторить неделю» must not lose the dish a stored week names; a hard delete would either cascade that history away or start throwing 23503 at the user. `dish.list` filters `archived_at IS NULL`, `dish.listArchived` the opposite; the archive is reachable from S7's «…» menu (confirmation sheet, then a banner on the same screen with «Вернуть») and from Settings → «Архив блюд».
+
+Both endpoints take `expectedVersion` and guard on the archive state they expect to find, so a second «В архив» on an already-archived dish matches nothing rather than bumping the version again. When the write matches nothing, one extra scoped read tells `NOT_FOUND` («блюда больше нет») apart from `CONFLICT` («его изменили») — two answers a screen can act on differently.
+
+### `product_id` is `ON DELETE RESTRICT` — task 7.1 must pre-check
+
+`recipe_ingredients.product_id` is `restrict`, like `cart_items.product_id` and `pantry_items.product_id`. **Any future product-delete endpoint (task 7.1) must pre-check**
+
+```sql
+SELECT count(*) FROM recipe_ingredients WHERE product_id = $1 AND household_id = $2
+```
+
+and report «используется в N блюдах», or the delete fails with a raw 23503 the user cannot act on. `recipe_ingredients_productId_idx` exists for exactly that query, and for task 6.1's reverse lookup product → dishes.
+
+`product_id` is also **nullable**, and that is a first-class state, not a gap: an ingredient nothing in the catalog answers to yet is stored unbound and renders as itself. Task 4.2 adds the resolution step in front of the save transaction (reference catalog first, then one batched `enrichProducts` AI call, then savepointed product inserts); task 4.1's input schema already carries `productId` per row and verifies every non-null one against the caller's own catalog before any write.
+
+### The three ingredient states, and why they must look different
+
+`qty` and `unit` are nullable, and that nullability *is* the honesty rule (VISION §6.4). All three states are in DESIGN_BRIEF §5's own sample recipe, and S7 renders each differently:
+
+| stored                                        | S7                                                | meaning                            |
+| --------------------------------------------- | ------------------------------------------------- | ---------------------------------- |
+| `qty = null`, `needs_review = true`            | amber «уточнить» chip on `--null` / `--null-txt` | the parser failed — a human must look |
+| `qty = null`, `is_optional = true`             | neutral grey «опционально» chip                   | the recipe said so                 |
+| `qty = null`, `note = 'по вкусу'`              | plain text where the number would be, no chip     | a deliberate absence               |
+
+If they looked alike the amber chip would stop meaning anything, which is the only reason it is worth having (DESIGN_BRIEF §6: «пометки „уточнить“ жёлтые, не красные»).
+
+**`needs_review` is derived server-side and never carried.** `deriveNeedsReview` (`src/server/recipes/needs-review.ts`, pure, unit-tested against the exact NYC-Cookies list) is recomputed by `dish.create`/`dish.update` on every save, and the AI's structured output (task 4.3) has no such field at all — a model that forgets to flag cannot produce a silently confident recipe, and typing a quantity into S8.3 clears the chip without anything else having to remember to.
+
+### Units are data, not copy
+
+`recipe_ingredients.unit` stores one of `RECIPE_UNITS` as text and is re-validated on read, degrading to `null` for anything unrecognized — one row holding a retired measure must not fail a whole dish's output validation (the same rule `cart.ts`'s `FALLBACK_UNIT` encodes).
+
+**`RECIPE_UNITS` is a superset of the cart canon, not a second canon.** `src/lib/units.ts` keeps `UNITS` (the nine purchase units) untouched and adds `RECIPE_ONLY_UNITS = ["ч.л.", "ст.л.", "стакан", "щепотка"]` beside it. Widening `UNITS` itself would put «щепотка» into `QtyStepper`'s cart unit picker and let `decideCartAdd` merge a teaspoon into a kilogram. The bridge is `isPurchaseUnit(unit)`, phase 5.2's gate for turning an ingredient into a cart line.
+
+**A unit is a stored value rendered verbatim — it never enters `src/messages/ru.json`**, exactly as the cart already renders `UNITS`. Same for `recipes.yield_unit` («печений»): it is the source's own noun, imported data like `raw_text`, passed *into* an ICU message (`dish.portionsUnit`) as a parameter so the words around it still come from next-intl. What is *not* data: «7–8 порций» and «9–11 мин» are composed on the client from two integers each (`portions_min`/`portions_base`, `timer_sec`/`timer_max_sec`) — a stored Russian label would be a user-visible string living outside next-intl.
+
+`portions_base` is the **upper** end of a stated range («7–8 печений» → 8) and is the number every ingredient quantity is stated for; `portions_min` (7) is display only. Rescaling divides by `portions_base` (`rescaleQty`, `src/lib/recipes/rescale.ts`) and rounds with the cart's own `roundQty`, so phase 5.2 can sum a rescaled quantity straight into a cart row without a second rounding rule. `formatRecipeQty` renders «285 г», «¾ ч.л.», «1½» — and **never «0»**: a value that rounds below the storage floor renders «—», because «0 г» would claim the recipe asks for none of something.
+
+### `dish` router
+
+| Procedure           | Boundary             | Notes                                                                                                         |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `dish.list`         | `householdProcedure` | No input. `archived_at IS NULL`, `INNER JOIN recipes`, ingredient/needs-review counts aggregated in one grouped read, `ORDER BY created_at DESC, id DESC` |
+| `dish.listArchived` | `householdProcedure` | The opposite predicate, newest archive first — backs Settings → «Архив блюд»                                  |
+| `dish.get`          | `householdProcedure` | `{ id }` → the whole aggregate in three scoped selects; `NOT_FOUND` before any second query runs               |
+| `dish.create`       | `householdProcedure` | `{ draft, originalDraft, jobId }` → the saved aggregate                                                        |
+| `dish.update`       | `householdProcedure` | `{ id, expectedVersion, draft }` → the saved aggregate; `CONFLICT` on a stale token                            |
+| `dish.archive`      | `householdProcedure` | `{ id, expectedVersion }` → `{ id, version }`                                                                  |
+| `dish.unarchive`    | `householdProcedure` | The undo, and Settings' «Вернуть»                                                                              |
+
+**`inPantry` («· дома есть ✓») is a `LEFT JOIN pantry_items` inside `dish.get`, scoped by household on the join condition itself.** `pantry_items` is unique on `product_id`, so the join cannot fan out, and a client cross-reference against the `pantry.list` cache would be a second cache entry that can disagree with the ✓ on screen. An unbound ingredient matches nothing and reads as `false`.
+
+**`createDishOutput.createdProducts` / `aiFailed` are always empty/false in task 4.1** — it saves unbound rows as the honest «новый» state and creates no products. Task 4.2 fills them without changing the shape S8.3 renders.
+
+### The save path (and how 4.2+ extends it)
+
+`dish.create` and `dish.update` run in this order, and the order is the design:
+
+1. **Outside any transaction** — normalize the draft (`normalizeDraftForSave`), enforce `ingredients.min(1)` (deliberately *not* in `recipeDraftSchema`: a parse that found steps but no ingredient list must still reach the review form), and verify every client-sent `productId` against this household's catalog in one scoped `SELECT` with a set-size check.
+2. **Task 4.2 inserts its resolution step here, still outside the transaction** — reference catalog first (free), then one batched `enrichProducts` call for what is left. A 15–40 s OpenAI round trip inside an open transaction would pin a pooled Railway connection and row locks on a Vercel function.
+3. **Inside one transaction** — (update only) `SELECT version … FOR UPDATE` scoped by household → `NOT_FOUND` / `CONFLICT`; write `dishes` (`version = version + 1`, `updated_at = now()`, `normalized_title` derived here) and `recipes`; `DELETE` both child tables by `recipe_id AND household_id`; bulk `INSERT` them again with freshly minted `0..n-1` orders. **Full replace, not diff** — nothing holds a `recipe_ingredients.id` durably, so churning child ids costs nothing and buys a save path with no reorder-or-merge logic to get wrong.
+4. **After the commit** — the aggregate is re-read and returned. Outside the transaction on purpose: it carries its own `version`, so reading a state a partner has already moved on from is not a lie, while holding the write's locks through three more round trips would be a real cost.
+
+`recipes.original_draft` is written **only on create, only from an import** — it is the base task 4.6 diffs its adaptation against and reverts to, and an edit is exactly the thing a revert has to be able to go past. When `jobId` is set, the import job is marked consumed with `jsonb_set(coalesce(output_json, '{}'::jsonb), '{consumedDishId}', …)` scoped by household, so `/dishes/import/[jobId]` can redirect to the saved dish instead of re-rendering a draft the household already turned into a recipe. `coalesce` matters: `jsonb_set` on NULL returns NULL, which would erase the ledger entry rather than annotate it.
+
+**No `lockHousehold()` on the dish path, and the router says so in a doc comment.** That advisory lock exists for exactly one reason: `trip.close` walks cart → pantry while `pantry.ranOut` walks pantry → cart, and two at once is a lock-order cycle Postgres resolves by aborting one with 40P01. A dish save touches neither table, so there is no cycle to break, and taking the lock would serialize every «Сохранить блюдо» behind every shopping action.
+
+### `RecipeDraft` — one contract, six producers, one consumer
+
+`src/lib/recipes/draft.ts` holds `recipeDraftSchema` and its helpers (`emptyDraft`, `draftFromDetail`, `normalizeDraftForSave`). It is the single shape every producer feeds — vision parsing, JSON-LD, microdata, FireCrawl + AI, pasted text, the manual form, AI adaptation — and the one shape S8.3 consumes, whether it is creating, reviewing an import or editing.
+
+Client-safe by construction: it imports `zod`, the unit canon and two pure server modules that hold no database. **`src/db/schema.ts` takes `DISH_SOURCE_TYPES` from `draft.ts`, not the other way round** — the same pattern `src/lib/units.ts` sets, so an output schema never drags the schema module into a browser bundle. `.nullable()` everywhere, never `.optional()`: a draft with a missing key and a draft with an explicit `null` would be two shapes for one thing.
+
+`photoUrl` and `sourceUrl` are constrained to `http`/`https` explicitly. zod 4's `z.url()` accepts **any** scheme `new URL()` parses, `javascript:` and `data:` included — and an imported `photoUrl` ends up in an `<img src>`.
+
+### Screens
+
+| Route              | What it is                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `/dishes`          | S6 library — search, tag chips, two-column `DishCard` grid, skeleton tiles, empty state, «+ Блюдо» source sheet            |
+| `/dishes/[dishId]` | S7 card (read-only in 4.1) — photo, tags, source line, portions, ingredients, steps, actions, «…» → «В архив»              |
+| `/settings`        | gains an «Архив блюд» block reading `dish.listArchived`, one «Вернуть» per row                                             |
+
+**Search and tag filtering never leave the browser.** `dish.list` takes no input and returns the whole library, so one cache entry serves S6: every keystroke re-filters an array (`filterDishes` / `collectTags`, pure and tested), with no debounce and no request per character — and the library keeps working with a dead connection. Documented threshold for revisiting: ~200 dishes, at which point those functions become the pure half of a `dish.search` endpoint mirroring `product.search`. «все» is a UI state (`tag: null`), never a stored tag.
+
+**`cartSyncQueryOptions` is deliberately not applied here.** That preset's polling and focus-refetch exist because two people race over one shopping list at the shelf; a recipe library is not that, and a 45-second poll would burn requests for nobody. The default `staleTime` applies and the writes invalidate what they change.
+
+**Photos are plain `<img loading="lazy" decoding="async" referrerPolicy="no-referrer">` with an emoji placeholder on missing/error, not `next/image`.** Dish photos come from UploadThing and from arbitrary imported pages, so `next/image` would need a `remotePatterns` entry per host we have never seen and would spend Vercel's image-optimization quota on a picture the client already compressed to ~300 KB.
+
+**Controls whose feature has not shipped are `aria-disabled` and announce «скоро», never `disabled`.** In 4.1 that is the four source-sheet rows, S6's empty-state «📷 С фото», and S7's «В меню недели» / «Ингредиенты в корзину» / «Готовить» / «Редактировать». `main` deploys to production on every merge, so a button linking to a route that does not exist yet would be worse than one that is honest — and a truly `disabled` control cannot be focused, so a keyboard user would never learn the option exists. The hint renders inside the same container (inside the sheet's `aria-modal` subtree when a sheet is open), because a page-level toast is both hidden behind the scrim and pruned from the accessibility tree.
+
+### AI budget does not gate this
+
+`AI_MONTHLY_BUDGET_USD` caps **the assistant only** (task 6.1). Recipe import (4.3/4.4), the batched product enrichment inside a save (4.2) and the recipe adaptation (4.6) keep working at the cap: every one of them is a thing the user started and is waiting on, and losing a reviewed recipe to a quota is the wrong trade. They are still rate-limited per user like every other AI endpoint, and every call still writes its `ai_jobs` row with `costUsd`.
+
+### Migrations 0009 and 0010
+
+`0009` creates `dish_source_type` and the four tables; `0010` contains exactly `ALTER TYPE "public"."ai_job_type" ADD VALUE 'adapt_recipe';`. Two files, and the value ships in task 4.1 though task 4.6 is the first to write it, because `migrate.yml` and the Vercel deploy of the same commit run **in parallel** — shipping the value several PRs early removes the window where the function could go live before the type knows the word. `adapt_recipe` is **appended**, never inserted, so drizzle-kit emits a plain `ADD VALUE` rather than an `ADD VALUE … BEFORE` or a type recreate; only the plain form is backward-compatible with code already running. The rule that follows: never write or select a new enum value in the migration batch that adds it.
+
+### Seeding a demo library
+
+```bash
+pnpm db:seed --dishes
+```
+
+Inserts DESIGN_BRIEF §5's «NYC Cookies» (all three ingredient states, the 9–11 min timer) and «Шакшука» into the first household, binding ingredients to catalog products by `normalized_name` where one already exists and leaving the rest unbound — the honest state 4.1 ships. Idempotent by `normalized_title`, so a second run is a no-op. **It refuses to run unless `DATABASE_URL`'s hostname is loopback**, the same footgun `drizzle.config.ts` documents. Without the flag `pnpm db:seed` stays the no-op it has always been.
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.
