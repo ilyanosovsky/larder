@@ -99,6 +99,50 @@ describe("REFERENCE_PRODUCTS", () => {
     expect(duplicates).toEqual([]);
   });
 
+  it("gives every spelling to exactly one entry", () => {
+    // The invariant `matchIngredients`' exact reference tier rests on: it
+    // answers «is this word the name of a staple we ship?» by scanning names
+    // *and* aliases, and takes the first hit. That is only deterministic
+    // because no normalized spelling belongs to two entries — without this
+    // test, adding «сыр» as an alias of «Сыр плавленый» would silently change
+    // which cheese every recipe saying «сыр» resolves to, by array order.
+    const seen = new Map<string, string>();
+    const collisions: string[] = [];
+
+    for (const product of REFERENCE_PRODUCTS) {
+      for (const spelling of [product.name, ...product.aliases]) {
+        const key = normalize(spelling);
+        const owner = seen.get(key);
+        if (owner && owner !== product.name) {
+          collisions.push(
+            `"${spelling}" is claimed by "${owner}" and "${product.name}"`,
+          );
+        } else {
+          seen.set(key, product.name);
+        }
+      }
+    }
+
+    expect(collisions).toEqual([]);
+    // 189 names + 85 aliases, all distinct.
+    expect(seen.size).toBe(274);
+  });
+
+  it("carries 85 alternate spellings across 72 of its entries", () => {
+    // Pinned so prose that quotes these numbers — `match-ingredients.ts`, the
+    // wiki — fails loudly instead of drifting as the catalog grows.
+    const withAliases = REFERENCE_PRODUCTS.filter(
+      (product) => product.aliases.length > 0,
+    );
+    const aliases = REFERENCE_PRODUCTS.reduce(
+      (total, product) => total + product.aliases.length,
+      0,
+    );
+
+    expect(withAliases).toHaveLength(72);
+    expect(aliases).toBe(85);
+  });
+
   it("uses only valid category slugs", () => {
     for (const product of REFERENCE_PRODUCTS) {
       expect(

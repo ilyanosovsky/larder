@@ -1,0 +1,33 @@
+/* S8.3 create — the heading above the shared form. */
+
+.screen {
+  padding-bottom: var(--s-6);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.back {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-decoration: none;
+}
+
+.back:hover {
+  text-decoration: underline;
+}

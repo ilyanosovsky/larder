@@ -38,10 +38,11 @@ type SheetView = "menu" | "confirm";
  * S7 «Карточка блюда» (DESIGN_BRIEF S7, VISION §3.3) — the read-only view of
  * one dish: photo, title, tags, portions, ingredients and steps.
  *
- * **The four big actions are `aria-disabled` and say «скоро».** «В меню
- * недели» is task 5.1, «Ингредиенты в корзину» is 5.2, «Готовить» is 4.7 and
- * «Редактировать» is 4.2 — and `main` deploys to production on every merge,
- * so a button that navigated nowhere would be worse than one that is honest.
+ * **The actions whose feature has not shipped are `aria-disabled` and say
+ * «скоро»:** «В меню недели» is task 5.1, «Ингредиенты в корзину» is 5.2 and
+ * «Готовить» is 4.7. («Редактировать» is a real link since task 4.2.) `main`
+ * deploys to production on every merge, so a button that navigated nowhere
+ * would be worse than one that is honest.
  * `aria-disabled` rather than `disabled` throughout: a disabled control cannot
  * be focused, so a keyboard user would never learn the option exists, and the
  * hint would have nowhere to land.
@@ -582,14 +583,10 @@ export function DishScreen({ dishId }: { dishId: string }) {
         >
           {t("cook")}
         </button>
-        <button
-          type="button"
-          className={styles.linkAction}
-          aria-disabled="true"
-          onClick={() => announceSoon(t("edit"))}
-        >
+        {/* Task 4.2 shipped S8.3, so this one is a real link now. */}
+        <Link className={styles.linkAction} href={`/dishes/${dishId}/edit`}>
           {t("edit")}
-        </button>
+        </Link>
 
         {/* Feedback lands inside the actions block that produced it, not in a
             page-level toast — mounted for the screen's whole life, with a

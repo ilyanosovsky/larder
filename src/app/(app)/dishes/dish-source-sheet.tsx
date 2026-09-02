@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useRef, useState, type RefObject } from "react";
 
@@ -11,11 +12,11 @@ import styles from "./dish-library-screen.module.css";
  * «+ Блюдо» → the four ways to add one (DESIGN_BRIEF S6, in exactly this
  * order — photo first, because a screenshot is the main road).
  *
- * **Every row is `aria-disabled` in task 4.1 and announces «скоро».** The
- * routes behind them do not exist yet: `/dishes/new` is task 4.2 and
- * `/dishes/import` is 4.3/4.4. `main` auto-deploys to production, so every
- * merged PR has to be shippable — a row linking to a 404 would be worse than
- * a row that says honestly it is not ready.
+ * **«✍️ Вручную» is a real link since task 4.2; the three import rows are
+ * still `aria-disabled` and announce «скоро».** `/dishes/import` is task
+ * 4.3/4.4, and `main` auto-deploys to production, so every merged PR has to
+ * be shippable — a row linking to a 404 would be worse than a row that says
+ * honestly it is not ready.
  *
  * `aria-disabled` rather than `disabled`, the rule this codebase already
  * follows for pending controls: a truly disabled button cannot be focused,
@@ -59,14 +60,21 @@ export function DishSourceSheet({
   }
 
   const sources = [
-    { key: "photo", icon: "📷", label: t("sourcePhoto"), hint: t("sourcePhotoHint") },
-    { key: "url", icon: "🔗", label: t("sourceUrl"), hint: null },
-    { key: "text", icon: "📝", label: t("sourceText"), hint: null },
+    {
+      key: "photo",
+      icon: "📷",
+      label: t("sourcePhoto"),
+      hint: t("sourcePhotoHint"),
+      href: null,
+    },
+    { key: "url", icon: "🔗", label: t("sourceUrl"), hint: null, href: null },
+    { key: "text", icon: "📝", label: t("sourceText"), hint: null, href: null },
     {
       key: "manual",
       icon: "✍️",
       label: t("sourceManual"),
       hint: t("sourceManualHint"),
+      href: "/dishes/new",
     },
   ] as const;
 
@@ -79,14 +87,9 @@ export function DishSourceSheet({
       restoreFocusTo={restoreFocusTo}
     >
       <ul className={styles.sourceList}>
-        {sources.map((source) => (
-          <li key={source.key}>
-            <button
-              type="button"
-              className={styles.sourceRow}
-              aria-disabled="true"
-              onClick={() => announce(source.label)}
-            >
+        {sources.map((source) => {
+          const body = (
+            <>
               <span className={styles.sourceIcon} aria-hidden="true">
                 {source.icon}
               </span>
@@ -96,10 +99,31 @@ export function DishSourceSheet({
                   <span className={styles.sourceHint}>{source.hint}</span>
                 )}
               </span>
-              <span className={styles.sourceSoon}>{t("soon")}</span>
-            </button>
-          </li>
-        ))}
+              {source.href === null ? (
+                <span className={styles.sourceSoon}>{t("soon")}</span>
+              ) : null}
+            </>
+          );
+
+          return (
+            <li key={source.key}>
+              {source.href === null ? (
+                <button
+                  type="button"
+                  className={styles.sourceRow}
+                  aria-disabled="true"
+                  onClick={() => announce(source.label)}
+                >
+                  {body}
+                </button>
+              ) : (
+                <Link className={styles.sourceRow} href={source.href}>
+                  {body}
+                </Link>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       {/* Mounted for the sheet's whole life so assistive tech is already

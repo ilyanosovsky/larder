@@ -26,7 +26,9 @@ import messages from "./ru.json";
  * so a deleted entry would put the literal «dish.conflict» on screen and pass
  * every other gate.
  */
-function translator(namespace: "dish" | "dishes" | "dishPortions") {
+function translator(
+  namespace: "dish" | "dishes" | "dishForm" | "dishPortions",
+) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
 
@@ -225,6 +227,73 @@ describe("the keys the dish screens call by name", () => {
     expect(rendered.trim().length).toBeGreaterThan(0);
   });
 
+  const DISH_FORM_KEYS = Object.keys(
+    messages.dishForm,
+  ) as (keyof typeof messages.dishForm)[];
+
+  it.each(DISH_FORM_KEYS)("dishForm.%s resolves to real copy", (key) => {
+    // Swept off the dictionary itself rather than a hand-kept list: the S8.3
+    // form renders more than sixty strings, and a list that has to be updated
+    // by hand is a list that silently stops covering the newest key.
+    const rendered = translator("dishForm")(key, {
+      count: 1,
+      name: "Мука",
+      tag: "выпечка",
+      unit: "печений",
+      position: 1,
+    });
+
+    expect(rendered).not.toBe(`dishForm.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("declines the saved-products count across Russian plural categories", () => {
+    // The sweep above renders every key with `count: 1`, so it can only ever
+    // exercise the `one` arm — and ICU falls back to `other` silently, so a
+    // deleted `many` branch would ship «Создано 5 новых продукта» green.
+    // Exact strings, because `toContain("продуктов")` would not notice a
+    // swapped few/many pair either.
+    const t = translator("dishForm");
+
+    expect(t("savedProducts", { count: 1 })).toBe("Создан 1 новый продукт");
+    expect(t("savedProducts", { count: 2 })).toBe("Создано 2 новых продукта");
+    expect(t("savedProducts", { count: 5 })).toBe("Создано 5 новых продуктов");
+
+    expect(t("savedProductsCheck", { count: 1 })).toBe(
+      "Создан 1 новый продукт — проверь его в каталоге",
+    );
+    expect(t("savedProductsCheck", { count: 2 })).toBe(
+      "Создано 2 новых продукта — проверь их в каталоге",
+    );
+    expect(t("savedProductsCheck", { count: 5 })).toBe(
+      "Создано 5 новых продуктов — проверь их в каталоге",
+    );
+  });
+
+  it("renders every plural dishForm message through all three categories", () => {
+    // General, so a plural key added later is covered the way the existence
+    // sweep already covers a new key: each arm must be distinct copy, not the
+    // `other` fallback wearing another number.
+    const t = translator("dishForm");
+    const plurals = Object.entries(messages.dishForm).filter(([, value]) =>
+      value.includes(", plural,"),
+    );
+
+    expect(plurals.length).toBeGreaterThan(0);
+    for (const [key] of plurals) {
+      const rendered = [1, 2, 5].map((count) =>
+        t(key as keyof typeof messages.dishForm, { count }),
+      );
+      for (const line of rendered) {
+        expect(line.trim().length).toBeGreaterThan(0);
+      }
+      // «1 продукт» / «2 продукта» / «5 продуктов» — three different words.
+      expect(
+        new Set(rendered.map((line) => line.replace(/\d+/g, "#"))).size,
+      ).toBe(3);
+    }
+  });
+
   it.each(SETTINGS_KEYS)("settings.%s resolves to real copy", (key) => {
     const rendered = createTranslator({
       locale: "ru",
@@ -280,8 +349,8 @@ describe("the equipment banner's missing-appliances sentence", () => {
     expect(portions("equipmentMissing", { list: "Миксер" })).toBe(
       "Не хватает: Миксер",
     );
-    expect(
-      portions("equipmentMissing", { list: "Миксер, Аэрогриль" }),
-    ).toBe("Не хватает: Миксер, Аэрогриль");
+    expect(portions("equipmentMissing", { list: "Миксер, Аэрогриль" })).toBe(
+      "Не хватает: Миксер, Аэрогриль",
+    );
   });
 });

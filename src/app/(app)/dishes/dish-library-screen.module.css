@@ -201,6 +201,21 @@
   cursor: pointer;
 }
 
+.emptySecondary {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-decoration: underline;
+}
+
+.emptySecondary:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* Not-yet-wired controls stay focusable (`aria-disabled`, never `disabled`)
    and merely look quieter. */
 .emptyAction[aria-disabled="true"],
@@ -277,7 +292,9 @@
   border-radius: var(--radius);
   background: transparent;
   padding: var(--s-4) var(--s-1);
+  color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 

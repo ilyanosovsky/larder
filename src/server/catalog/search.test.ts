@@ -5,8 +5,11 @@ import { DEFAULT_CATEGORIES } from "@/server/catalog/default-categories";
 import type { ReferenceProduct } from "@/server/catalog/reference-products";
 import type { HouseholdCategory } from "@/server/catalog/resolve-category";
 import {
+  acceptsIngredientTier,
+  bestCatalogMatch,
   findExactMatch,
   findReferenceProduct,
+  INGREDIENT_MATCH_TIERS,
   searchCatalog,
   SEARCH_RESULT_LIMIT,
   type CatalogProduct,
@@ -365,5 +368,106 @@ describe("findReferenceProduct", () => {
 
   it("is null for an empty query", () => {
     expect(findReferenceProduct("")).toBeNull();
+  });
+});
+
+describe("bestCatalogMatch and the ingredient tiers", () => {
+  function best(
+    query: string,
+    products: readonly CatalogProduct[],
+    references: readonly ReferenceProduct[] = [],
+  ) {
+    return bestCatalogMatch({
+      query,
+      products,
+      categories: CATEGORIES,
+      references,
+    });
+  }
+
+  it("returns the top hit with the tier it reached", () => {
+    const match = best("молоко", [product("Молоко")]);
+
+    expect(match?.rank).toBe(0);
+    expect(match?.hit.source).toBe("catalog");
+    expect(acceptsIngredientTier(match?.rank ?? -1)).toBe(true);
+  });
+
+  it("is null when nothing matches at all", () => {
+    expect(best("буррата", [product("Молоко")])).toBeNull();
+  });
+
+  it("is null for an empty query", () => {
+    expect(best("  ", [product("Молоко")])).toBeNull();
+  });
+
+  it("refuses a tie rather than picking one of two equally good rows", () => {
+    // «масло» alone binds nothing. Both butters reach the prefix tier, and
+    // choosing between them by an incidental sort key would put a fat in the
+    // recipe that the recipe never mentioned — and buy it in phase 5.2.
+    expect(
+      best("масло", [product("Масло сливочное"), product("Масло оливковое")]),
+    ).toBeNull();
+  });
+
+  it("still answers when one row is strictly better than the tie", () => {
+    const match = best("масло", [
+      product("Масло"),
+      product("Масло сливочное"),
+      product("Масло оливковое"),
+    ]);
+
+    expect(match?.rank).toBe(0);
+    expect(names(match ? [match.hit] : [])).toEqual(["Масло"]);
+  });
+
+  it("does not read one butter as another", () => {
+    // The regression this whole threshold exists for: «Масло сливочное» must
+    // not land on «Масло оливковое» through any tier.
+    expect(best("Масло сливочное", [product("Масло оливковое")])).toBeNull();
+  });
+
+  it("ranks a bare substring, and the ingredient tiers refuse it", () => {
+    const match = best("сливочное", [product("Масло сливочное")]);
+
+    // The word-prefix tier: «сливочное» does start a word in that name.
+    expect(match?.rank).toBe(2);
+    expect(acceptsIngredientTier(2)).toBe(true);
+
+    const substring = best("ливочное", [product("Масло сливочное")]);
+    expect(substring?.rank).toBe(3);
+    expect(acceptsIngredientTier(3)).toBe(false);
+  });
+
+  it("accepts alias tiers up to word-prefix and refuses the alias substring", () => {
+    expect(acceptsIngredientTier(4)).toBe(true);
+    expect(acceptsIngredientTier(5)).toBe(true);
+    expect(acceptsIngredientTier(6)).toBe(true);
+    expect(acceptsIngredientTier(7)).toBe(false);
+    // A ceiling (`rank <= 6`) would admit tier 3 — the name substring. The
+    // allow-set is what keeps the two blocks separate.
+    expect([...INGREDIENT_MATCH_TIERS].sort((a, b) => a - b)).toEqual([
+      0, 1, 2, 4, 5, 6,
+    ]);
+  });
+
+  it("finds a reference entry the household does not own yet", () => {
+    const match = best("мука", [], [reference("Мука")]);
+
+    expect(match?.rank).toBe(0);
+    expect(match?.hit.source).toBe("reference");
+  });
+
+  it("leaves searchCatalog's own answers untouched", () => {
+    // `bestCatalogMatch` shares the ranker; the sheet still shows every hit,
+    // ties included, because a person is choosing there.
+    expect(
+      names(
+        search("масло", [
+          product("Масло сливочное"),
+          product("Масло оливковое"),
+        ]),
+      ),
+    ).toEqual(["Масло оливковое", "Масло сливочное"]);
   });
 });

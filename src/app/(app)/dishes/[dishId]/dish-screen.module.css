@@ -373,12 +373,20 @@
 }
 
 .linkAction {
+  /* «Редактировать» is an `<a>` since task 4.2. A blockified anchor would put
+     its text at the top of the 44px box, left-aligned and underlined, where
+     the button it replaced centred it — these four lines are what keep the
+     control looking and measuring exactly as it did. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 44px;
   border: 0;
   background: transparent;
   color: var(--accent-ink);
   font-family: var(--font-sans);
   font-size: var(--t-field);
+  text-decoration: none;
   cursor: pointer;
 }
 
