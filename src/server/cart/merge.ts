@@ -92,7 +92,16 @@ export type CartAddDecision =
   | { outcome: "boughtExists" }
   | { outcome: "restored"; qty: number; unit: Unit };
 
-function roundQty(value: number): number {
+/**
+ * Rounds to the scale `cart_items.qty` and `recipe_ingredients.qty` share.
+ *
+ * Exported because the recipe rescale (`src/lib/recipes/rescale.ts`) has to
+ * round the same way: the two columns are byte-identical `numeric(10, 3)` on
+ * purpose, so that phase 5.2 can sum a rescaled ingredient quantity straight
+ * into a cart row without a second rounding rule that could disagree with the
+ * row it writes.
+ */
+export function roundQty(value: number): number {
   const factor = 10 ** QTY_DECIMALS;
   return Math.round(value * factor) / factor;
 }

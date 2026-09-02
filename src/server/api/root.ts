@@ -1,5 +1,6 @@
 import { cartRouter } from "@/server/api/routers/cart";
 import { categoryRouter } from "@/server/api/routers/category";
+import { dishRouter } from "@/server/api/routers/dish";
 import { healthRouter } from "@/server/api/routers/health";
 import { householdRouter } from "@/server/api/routers/household";
 import { inviteRouter } from "@/server/api/routers/invite";
@@ -20,6 +21,7 @@ export const appRouter = createTRPCRouter({
   category: categoryRouter,
   product: productRouter,
   cart: cartRouter,
+  dish: dishRouter,
   pantry: pantryRouter,
   trip: tripRouter,
   kitchenProfile: kitchenProfileRouter,

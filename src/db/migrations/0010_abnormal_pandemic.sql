@@ -1,0 +1,1 @@
+ALTER TYPE "public"."ai_job_type" ADD VALUE 'adapt_recipe';
