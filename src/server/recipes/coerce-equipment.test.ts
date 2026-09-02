@@ -1,0 +1,70 @@
+import { describe, expect, it } from "vitest";
+
+import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
+
+import { coerceEquipmentList, coerceEquipmentSlug } from "./coerce-equipment";
+
+describe("coerceEquipmentSlug", () => {
+  it("maps the Russian words the brief lists", () => {
+    expect(coerceEquipmentSlug("духовка")).toBe("oven");
+    expect(coerceEquipmentSlug("микроволновка")).toBe("microwave");
+    expect(coerceEquipmentSlug("свч")).toBe("microwave");
+    expect(coerceEquipmentSlug("чайник")).toBe("kettle");
+    expect(coerceEquipmentSlug("индукционная плита")).toBe("induction_hob");
+    expect(coerceEquipmentSlug("плита")).toBe("induction_hob");
+    expect(coerceEquipmentSlug("блендер")).toBe("blender");
+    expect(coerceEquipmentSlug("тёрка")).toBe("grater");
+    expect(coerceEquipmentSlug("терка")).toBe("grater");
+    expect(coerceEquipmentSlug("чеснокодавилка")).toBe("garlic_press");
+    expect(coerceEquipmentSlug("пресс для чеснока")).toBe("garlic_press");
+    expect(coerceEquipmentSlug("мультиварка")).toBe("multicooker");
+    expect(coerceEquipmentSlug("миксер")).toBe("mixer");
+    expect(coerceEquipmentSlug("аэрогриль")).toBe("airfryer");
+    expect(coerceEquipmentSlug("кухонный комбайн")).toBe("food_processor");
+    expect(coerceEquipmentSlug("комбайн")).toBe("food_processor");
+  });
+
+  it("is ё/case/whitespace-insensitive", () => {
+    expect(coerceEquipmentSlug("ДУХОВКА")).toBe("oven");
+    expect(coerceEquipmentSlug("  духовка  ")).toBe("oven");
+    expect(coerceEquipmentSlug("духовка")).toBe(coerceEquipmentSlug("Духовка"));
+    expect(coerceEquipmentSlug("индукционная    плита")).toBe("induction_hob");
+  });
+
+  it("maps a slug to itself", () => {
+    for (const slug of EQUIPMENT_PRESETS) {
+      expect(coerceEquipmentSlug(slug)).toBe(slug);
+      expect(coerceEquipmentSlug(slug.toUpperCase())).toBe(slug);
+    }
+  });
+
+  it("drops anything it does not recognize", () => {
+    expect(coerceEquipmentSlug("соковыжималка")).toBeNull();
+    expect(coerceEquipmentSlug("")).toBeNull();
+    expect(coerceEquipmentSlug("   ")).toBeNull();
+  });
+});
+
+describe("coerceEquipmentList", () => {
+  it("drops unknowns, dedupes, and keeps order stable", () => {
+    expect(
+      coerceEquipmentList([
+        "духовка",
+        "соковыжималка",
+        "Духовка",
+        "миксер",
+        "ё-мультиварка-not-a-real-word",
+        "мультиварка",
+      ]),
+    ).toEqual(["oven", "mixer", "multicooker"]);
+  });
+
+  it("returns an empty list for an empty or all-unknown input", () => {
+    expect(coerceEquipmentList([])).toEqual([]);
+    expect(coerceEquipmentList(["соковыжималка", "щипцы"])).toEqual([]);
+  });
+
+  it("dedupes a slug and its Russian word as the same appliance", () => {
+    expect(coerceEquipmentList(["oven", "духовка", "Oven"])).toEqual(["oven"]);
+  });
+});

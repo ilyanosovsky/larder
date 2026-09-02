@@ -1,0 +1,87 @@
+/* S7 equipment plaque (DESIGN_BRIEF S7, mockup #1n): the same green family
+   the mockup's own «Нужно: духовка ✓» band uses for the covered state, the
+   design system's amber family for a missing appliance. */
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-3);
+  border: var(--bd-hair) solid;
+  padding: var(--s-3) var(--s-4);
+  font-size: var(--t-body);
+  line-height: var(--lead-body);
+}
+
+.covered {
+  border-color: var(--green-rule);
+  background: var(--green-soft);
+  color: var(--green-txt);
+}
+
+.missing {
+  border-color: var(--amber-rule);
+  background: var(--amber-soft);
+  color: var(--amber-txt);
+}
+
+.hint {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.adaptButton {
+  min-height: 36px;
+  flex: none;
+  border: var(--bd-hair) solid var(--amber-rule);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--amber-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.adaptButton[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.adaptButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Profile-never-set: informational, not a warning — the same muted, borderless
+   treatment `.offline` uses elsewhere on this screen, not the amber family. */
+.profileMissing {
+  margin-top: var(--s-3);
+  color: var(--mute);
+  font-size: var(--t-body);
+  line-height: var(--lead-body);
+}
+
+.link {
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+}
+
+.link:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

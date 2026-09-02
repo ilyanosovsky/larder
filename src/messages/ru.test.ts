@@ -26,7 +26,7 @@ import messages from "./ru.json";
  * so a deleted entry would put the literal «dish.conflict» on screen and pass
  * every other gate.
  */
-function translator(namespace: "dish" | "dishes") {
+function translator(namespace: "dish" | "dishes" | "dishPortions") {
   return createTranslator({ locale: "ru", messages, namespace });
 }
 
@@ -172,6 +172,18 @@ describe("the keys the dish screens call by name", () => {
     "dishArchiveOffline",
   ] as const;
 
+  /** Every entry here is a literal in `PortionsSlider` / `EquipmentBanner`'s
+   *  props, composed inside `dish-screen.tsx` — task 4.5. */
+  const DISH_PORTIONS_KEYS = [
+    "decreaseAria",
+    "increaseAria",
+    "equipmentNeed",
+    "adaptButton",
+    "adaptHint",
+    "profileMissing",
+    "profileMissingLink",
+  ] as const;
+
   it.each(DISH_KEYS)("dish.%s resolves to real copy", (key) => {
     const rendered = translator("dish")(key);
 
@@ -188,5 +200,32 @@ describe("the keys the dish screens call by name", () => {
 
     expect(rendered).not.toBe(`settings.${key}`);
     expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(DISH_PORTIONS_KEYS)(
+    "dishPortions.%s resolves to real copy",
+    (key) => {
+      const rendered = translator("dishPortions")(key);
+
+      expect(rendered).not.toBe(`dishPortions.${key}`);
+      expect(rendered.trim().length).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe("the equipment banner's «скоро» hint", () => {
+  /**
+   * `EquipmentBanner` never composes this itself (it is presentational, like
+   * `QtyStepper`) — `dish-screen.tsx` builds it from two namespaces:
+   * `dish.soonHint`, the same "«{action}» — скоро" template every other
+   * not-yet-wired button on S7 uses, filled with `dishPortions.adaptButton`.
+   */
+  it("reuses dish.soonHint rather than a second copy of the pattern", () => {
+    const dish = translator("dish");
+    const portions = translator("dishPortions");
+
+    expect(dish("soonHint", { action: portions("adaptButton") })).toBe(
+      "«Адаптировать (ИИ)» — скоро",
+    );
   });
 });

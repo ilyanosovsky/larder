@@ -6,14 +6,17 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/bottom-sheet";
+import { EquipmentBanner } from "@/components/equipment-banner";
 import { NeedsReviewChip } from "@/components/needs-review-chip";
+import { PortionsSlider } from "@/components/portions-slider";
 import { useSheetOpener } from "@/components/use-sheet-opener";
 import { cx } from "@/lib/cx";
+import { ingredientsForMessage } from "@/lib/recipes/portions";
 import {
-  ingredientsForMessage,
-  portionsDisplay,
-} from "@/lib/recipes/portions";
-import { formatRecipeQty, rescaleQty } from "@/lib/recipes/rescale";
+  formatRecipeQty,
+  portionsRange,
+  rescaleQty,
+} from "@/lib/recipes/rescale";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError, trpcErrorCode } from "@/lib/trpc-errors";
@@ -21,6 +24,8 @@ import type {
   DishDetailOutput,
   DishIngredientOutput,
 } from "@/server/api/routers/dish";
+import { EQUIPMENT_PRESETS, type EquipmentSlug } from "@/server/kitchen/equipment";
+import { coerceEquipmentList } from "@/server/recipes/coerce-equipment";
 import { isUnquantifiable } from "@/server/recipes/needs-review";
 import { useTRPC } from "@/trpc/client";
 
@@ -42,9 +47,9 @@ type SheetView = "menu" | "confirm";
  * hint would have nowhere to land.
  *
  * **Quantities go through `formatRecipeQty`, and through `rescaleQty` on the
- * way in.** The portion count is fixed at `portionsBase` here — the slider is
- * task 4.5 — so the rescale is an identity today; routing through it now
- * means 4.5 turns one constant into state instead of rewriting every row.
+ * way in.** `portions` (task 4.5's slider, `portionsOverride ?? portionsBase`)
+ * drives every row live; unmoved, it equals `portionsBase` and the rescale is
+ * the identity 4.1 shipped it as.
  *
  * **The three ingredient states must not look alike** (blueprint §4.6): the
  * amber «уточнить» chip means the parser failed, the neutral «опционально»
@@ -77,12 +82,29 @@ type SheetView = "menu" | "confirm";
 export function DishScreen({ dishId }: { dishId: string }) {
   const t = useTranslations("dish");
   const common = useTranslations("common");
+  const tp = useTranslations("dishPortions");
+  // Reuses the S12 checklist's own labels (`kitchen-profile-form.tsx` builds
+  // the identical record the same way) — the equipment banner and the
+  // profile's own checklist must never word an appliance differently.
+  const kp = useTranslations("kitchenProfile");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
   const [sheet, setSheet] = useState<SheetView | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
+  /**
+   * `null` until the slider is touched — task 4.5's own rule, distinct from
+   * the screen's other state: **not** an effect syncing off `dish.data`
+   * (which would fight a background refetch the moment `Date`-bearing fields
+   * defeat structural sharing), just a plain override that defaults to
+   * `detail.recipe.portionsBase` below for as long as it stays `null`. A
+   * fresh mount — a fresh open of this route — starts it `null` again, which
+   * is the whole of "reset to portionsBase on every open, never persisted".
+   */
+  const [portionsOverride, setPortionsOverride] = useState<number | null>(
+    null,
+  );
   /**
    * The screen's one announcement slot. `visible` separates the two things
    * that use it: a «скоро» tap has nothing else on screen to show for itself,
@@ -111,6 +133,13 @@ export function DishScreen({ dishId }: { dishId: string }) {
   const dishFilter = trpc.dish.get.queryFilter({ id: dishId });
   const dishKey = trpc.dish.get.queryKey({ id: dishId });
   const dish = useQuery(trpc.dish.get.queryOptions({ id: dishId }));
+  /**
+   * The equipment banner's other half. `[dishId]/page.tsx` prefetches this
+   * alongside `dish.get`, but the two are independent queries — `undefined`
+   * here (still loading) is a real, if brief, state `EquipmentBanner` renders
+   * as nothing rather than a wrong answer.
+   */
+  const kitchenProfile = useQuery(trpc.kitchenProfile.get.queryOptions());
 
   function invalidateDish() {
     void queryClient.invalidateQueries(dishFilter);
@@ -328,7 +357,33 @@ export function DishScreen({ dishId }: { dishId: string }) {
   }
 
   const detail = dish.data;
-  const portions = detail.recipe.portionsBase;
+  const base = detail.recipe.portionsBase;
+  const range = portionsRange(base);
+  // Clamped defensively: `portionsOverride` is only ever set from inside the
+  // slider's own [min, max], but `base` (and so `range`) can move under a
+  // background refetch after an edit elsewhere changes the recipe's yield.
+  const portions =
+    portionsOverride === null
+      ? base
+      : Math.min(range.max, Math.max(range.min, portionsOverride));
+  // «на 8 порций» / «на 8 печений» — the live count, never the stale
+  // `portionsMin` a range would otherwise pull in; shared between the
+  // ingredients header and the slider's own `aria-valuetext` so the two can
+  // never word the same number differently.
+  const ingredientsForMsg = ingredientsForMessage({
+    portionsBase: portions,
+    portionsMin: null,
+    yieldUnit: detail.recipe.yieldUnit,
+  });
+  const ingredientsFor = t(ingredientsForMsg.key, ingredientsForMsg.values);
+  const requiredEquipment = coerceEquipmentList(detail.recipe.equipment);
+  const equipmentLabels = Object.fromEntries(
+    EQUIPMENT_PRESETS.map((slug) => [slug, kp(`equipment.${slug}`)]),
+  ) as Record<EquipmentSlug, string>;
+  const profileEquipment =
+    kitchenProfile.data === undefined
+      ? undefined
+      : (kitchenProfile.data?.equipment ?? null);
 
   return (
     <section className={styles.screen}>
@@ -419,12 +474,16 @@ export function DishScreen({ dishId }: { dishId: string }) {
         )}
       </div>
 
-      <div className={styles.portionsRow}>
-        <span className={styles.portionsLabel}>{t("portionsLabel")}</span>
-        <span className={styles.portionsValue}>
-          {portionsText(detail, t)}
-        </span>
-      </div>
+      <PortionsSlider
+        portions={portions}
+        min={range.min}
+        max={range.max}
+        onChange={setPortionsOverride}
+        label={t("portionsLabel")}
+        valueText={ingredientsFor}
+        decreaseAria={tp("decreaseAria")}
+        increaseAria={tp("increaseAria")}
+      />
 
       {detail.recipe.adaptedNote === null ? null : (
         <p className={styles.adapted}>
@@ -433,11 +492,21 @@ export function DishScreen({ dishId }: { dishId: string }) {
         </p>
       )}
 
+      <EquipmentBanner
+        required={requiredEquipment}
+        profileEquipment={profileEquipment}
+        labels={equipmentLabels}
+        needLabel={tp("equipmentNeed")}
+        adaptLabel={tp("adaptButton")}
+        adaptHint={tp("adaptHint")}
+        adaptSoonText={t("soonHint", { action: tp("adaptButton") })}
+        profileMissingText={tp("profileMissing")}
+        settingsLinkLabel={tp("profileMissingLink")}
+      />
+
       <h2 className={styles.sectionHeader}>
         <span className={styles.sectionName}>{t("ingredientsTitle")}</span>
-        <span className={styles.sectionMeta}>
-          {ingredientsForText(detail, t)}
-        </span>
+        <span className={styles.sectionMeta}>{ingredientsFor}</span>
       </h2>
 
       {detail.ingredients.length === 0 ? (
@@ -449,7 +518,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
               <IngredientRow
                 row={row}
                 portions={portions}
-                base={detail.recipe.portionsBase}
+                base={base}
                 needsReviewLabel={t("needsReview")}
                 optionalLabel={t("optional")}
                 inPantryLabel={t("inPantry")}
@@ -624,40 +693,6 @@ const SOURCE_MESSAGE = {
 
 type Translate = ReturnType<typeof useTranslations<"dish">>;
 
-/** «8 порций» · «7–8 печений» — four ICU messages, one branch, tested pure. */
-function portionsText(detail: DishDetailOutput, t: Translate): string {
-  const display = portionsDisplay(detail.recipe);
-
-  if (display.kind === "range") {
-    return display.unit === null
-      ? t("portionsRange", { from: display.from, to: display.to })
-      : t("portionsRangeUnit", {
-          from: display.from,
-          to: display.to,
-          unit: display.unit,
-        });
-  }
-
-  return display.unit === null
-    ? t("portions", { count: display.count })
-    : t("portionsUnit", { count: display.count, unit: display.unit });
-}
-
-/**
- * «на 8 порций» / «на 8 печений» over the ingredient list (DESIGN_BRIEF S7).
- *
- * The choice of message is `ingredientsForMessage`'s
- * (`src/lib/recipes/portions.ts`, pure and tested) — deliberately not a
- * ternary here. A branch inside this component is unreachable from a node-only
- * test suite, and this is the branch that once put «7–8 печений» two lines
- * above «на 8 порций».
- */
-function ingredientsForText(detail: DishDetailOutput, t: Translate): string {
-  const message = ingredientsForMessage(detail.recipe);
-
-  return t(message.key, message.values);
-}
-
 /**
  * «9–11 мин» / «30 сек» from two integers, never from a stored Russian label.
  *
@@ -729,9 +764,8 @@ function IngredientRow({
   optionalLabel: string;
   inPantryLabel: string;
 }) {
-  // Identity while the portion count is fixed at `base` (the slider is task
-  // 4.5) — routed through the rescale now so 4.5 only has to make `portions`
-  // stateful.
+  // `portions` is the slider's own live value (task 4.5); unmoved it equals
+  // `base` and this is the identity 4.1 shipped.
   const qty = rescaleQty(row.qty, portions, base);
   // «Соль по вкусу»: the note *is* the amount, so it belongs in the amount
   // slot rather than as a qualifier after the name.
