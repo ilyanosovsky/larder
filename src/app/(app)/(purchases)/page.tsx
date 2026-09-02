@@ -1,10 +1,18 @@
 import { HydrateClient, prefetch, trpc } from "@/trpc/server";
 
-import { PurchasesScreen } from "./purchases-screen";
+import { PurchasesScreen } from "../purchases-screen";
 
 /**
  * The «Покупки» tab: the S3/S5 segment control over «Корзина» and «Кладовая»
  * (VISION §3.1, §3.2; task 3.1 added the pantry half and the control itself).
+ *
+ * **The `(purchases)` route group exists only to scope `loading.tsx`.** A
+ * `loading.tsx` is the Suspense fallback for every child slot of its segment,
+ * so a cart skeleton sitting directly under `(app)` would also be what
+ * `/menu` and `/assistant` show on a tab tap — and their client-reference
+ * manifests would carry the cart chunk. The group gives `/` its own boundary
+ * without touching the URL; the sibling tabs prefetch nothing and keep their
+ * pre-existing "no fallback, previous screen stays" behaviour.
  *
  * Four queries start during the RSC render, so they are already in the
  * client cache when it hydrates instead of arriving one waterfall later.

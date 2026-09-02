@@ -331,7 +331,7 @@ All of the actual branching lives in the two pure functions in `highlight-state.
 
 ### Cart screen (S3, task 2.3)
 
-`/` (`src/app/(app)/page.tsx` → `cart-screen.tsx`), the app's main screen. The page prefetches `cart.list` and `category.list` server-side and hydrates; everything else is client.
+`/` (`src/app/(app)/page.tsx` → `cart-screen.tsx`), the app's main screen. The page prefetches four queries server-side and hydrates them — `cart.list` and `pantry.list` (the two halves of the segment control), `category.list` (the «изменить продукт» form inside S4) and `household.current` (the row action sheet's «кто берёт» chips); everything else is client.
 
 **Composition.** Toolbar («Корзина», the item count, «Обновить») → one block per department → a fixed bottom action bar holding «+ Добавить». Sections come from `groupProductsByCategory` walking `cart.list`'s server-decided order (department `sortOrder`, then product name); the screen re-orders nothing else except `sortBoughtLast` **inside** each section, which is DESIGN_BRIEF S3's «строка зачёркивается и опускается вниз секции». Sorting the flat list first would move a bought row across a department boundary and split that department into two sections under the same walk.
 
@@ -445,7 +445,7 @@ VISION §6.3: a tap made in a basement supermarket must survive the phone being 
 **What is persisted** (`dehydrateOptions`, filtered by the real `trpc.cart.pathKey()` / `trpc.cart.list.queryKey()` rather than by hardcoded strings):
 
 - **`cart.*` mutations the router provably has not seen** — `isQueuedMutationState` decides, and it is the same test used to pick what gets resumed. Two states qualify: **paused** (with `networkMode: "online"` a mutation dispatched offline pauses _before_ its `mutationFn` runs, so it never left the device) and **retrying after an undelivered failure** (it left and came back unanswered, so the write did not happen). This is deliberately **wider** than TanStack's own `defaultShouldDehydrateMutation`, which persists paused mutations only — see the retry policy below for why a paused-only filter erases the queue.
-- **A successful `cart.list`** — a warm list on reopen when the server prefetch is slow or fails. `hydrate` skips a persisted query when the cache already holds newer data, so this can never overwrite the RSC prefetch: `HydrationBoundary` is a child of the provider, and child effects run first. `cartSyncQueryOptions` sets `gcTime` to the offline cache's own `maxAge` for this reason: the persister dehydrates whatever is in the cache at the time of a save, so under TanStack's 5-minute default, walking away from S3 garbage-collects the list, the `removed` event triggers a save, and the envelope loses it hours early. Scoped to this one query — making every `product.search` immortal would grow the cache with each keystroke.
+- **A successful `cart.list`** — a warm list on reopen when the server prefetch is slow or fails. It cannot overwrite the RSC prefetch, because that prefetch is dehydrated as `success` with a real `dataUpdatedAt` (see [the prefetch/hydration contract](#calling-it)): on a cold load the cache is still empty when `HydrationBoundary` runs — the persister's restore is async — so the RSC entry is hydrated during render, and the restore's own `hydrate()` then takes the already-in-cache branch and loses the `dataUpdatedAt` comparison against it. An envelope that _is_ newer than the server's answer still wins, which is the intended order. `cartSyncQueryOptions` sets `gcTime` to the offline cache's own `maxAge` for this reason: the persister dehydrates whatever is in the cache at the time of a save, so under TanStack's 5-minute default, walking away from S3 garbage-collects the list, the `removed` event triggers a save, and the envelope loses it hours early. Scoped to this one query — making every `product.search` immortal would grow the cache with each keystroke.
 
 **What is deliberately not persisted:**
 
@@ -932,7 +932,8 @@ tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The 
 | `src/app/api/trpc/[trpc]/route.ts` | The single HTTP endpoint (`fetchRequestHandler`)                                   |
 | `src/trpc/query-client.ts`         | `makeQueryClient()` — shared defaults, superjson dehydrate/hydrate                 |
 | `src/trpc/client.tsx`              | `TRPCReactProvider` (mounted in the root layout), `useTRPC()`, the links           |
-| `src/trpc/server.tsx`              | `caller`, `trpc` options proxy, `prefetch`, `HydrateClient` for server components  |
+| `src/trpc/server.tsx`              | `caller`, `trpc` options proxy, `prefetch`, `HydrateClient` (**awaits this request's prefetches, then dehydrates**) for server components |
+| `src/trpc/settle-queries.ts`       | `settleQueries()` / `dehydrateSettled()` — awaits the request-scoped cache's in-flight queries, then snapshots it |
 
 ### Adding a router
 
@@ -941,7 +942,7 @@ tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The 
 3. Mount it on `appRouter` in `src/server/api/root.ts` under its own namespace.
 4. Add colocated vitest coverage with `createCaller(<fabricated context>)` — no database, no network.
 
-Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the client type-imports `AppRouter`, and later screens will reuse those Zod schemas. Only `context.ts` and `src/trpc/server.tsx` are marked server-only.
+Keep `import "server-only"` out of `trpc.ts`, `root.ts` and the routers: the client type-imports `AppRouter`, and later screens will reuse those Zod schemas. Only `context.ts` and `src/trpc/server.tsx` are marked server-only. `src/trpc/settle-queries.ts` is not, deliberately — it is a pure function of a `QueryClient`, and a vitest file importing it must not drag in `server.tsx`'s import graph (`appRouter` → `env()` → `db()`).
 
 ### Public vs protected
 
@@ -993,9 +994,30 @@ Business rules that do not need a query at all (invite validity, accept decision
 
 - Client component: `const trpc = useTRPC(); useQuery(trpc.health.ping.queryOptions())`.
 - Server component, one value: `await caller.health.whoami()` from `@/trpc/server` — in-process, no HTTP.
-- Server component, prefetch for a client child: `prefetch(trpc.health.ping.queryOptions())` and wrap the child in `<HydrateClient>`.
+- Server component, prefetch for a client child: `prefetch(trpc.health.ping.queryOptions())` and wrap the child in `<HydrateClient>`. `prefetch` is fire-and-forget at the call site, so a page's queries run in parallel; `HydrateClient` is `async` and awaits them all before it dehydrates.
 
-`staleTime` defaults to 30 s. It must stay above zero, or every server-prefetched query is refetched the instant the client hydrates.
+**The prefetch/hydration contract.** The cache is never dehydrated with a _pending_ query. A pending query is serialized together with its in-flight promise, and `hydrate()` can resolve such a promise synchronously in the browser (it arrives as a React Flight chunk) but never during SSR — so the HTML would carry a screen's skeleton branch while the client's first render already carried the loaded one, which React reports as a hydration mismatch (fixed 2026-09-02, `fix/hydration-prefetch-race`). Two rules keep that from coming back: `HydrateClient` awaits every query still fetching in the request-scoped client (`settleQueries`), and `shouldDehydrateQuery` ships successes only. A prefetch that failed, or that somehow escaped the await, is therefore absent from the payload and the client fetches it — a skeleton on both sides, never a mismatch.
+
+The price is that a `HydrateClient` subtree does not render before its data: **it waits for every query prefetched on that page**, including ones nothing on screen needs yet. Prefetch only what the screen renders at first paint or first tap, and give the route a `loading.tsx` — that is what the person looks at while the wait happens.
+
+`staleTime` defaults to 30 s. It must stay above zero, or every server-prefetched query is refetched the instant the client hydrates. (It is not a promise that nothing refetches: the cart's `cartSyncQueryOptions` sets `refetchOnWindowFocus`/`refetchOnReconnect` to `"always"` precisely to bypass the staleness check — see [Cart sync](#cart-sync-task-22).)
+
+### `loading.tsx` (the pending state of a prefetching route)
+
+Since `HydrateClient` awaits, a route that prefetches has nothing to show until its data is there — and on a client-side navigation the tab tap would otherwise sit on the old screen with no feedback at all. Every one of the five prefetching routes therefore has its own `loading.tsx`, and each renders the **same skeleton component the screen itself renders** while a query is pending, under the same static chrome that sits above it in the real tree (toolbar, segment control, search field), so nothing shifts when the data lands:
+
+| Route file                                       | Fallback                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `src/app/(app)/(purchases)/loading.tsx`          | segment control + cart toolbar + `CartSkeleton` — S3, the tab `PurchasesScreen` opens on |
+| `src/app/(app)/dishes/loading.tsx`               | toolbar + search + tag row + `LibrarySkeleton` — S6's grid of tiles                |
+| `src/app/(app)/dishes/[dishId]/loading.tsx`      | `DishSkeleton` — S7's card, which is the whole screen                              |
+| `src/app/(app)/dishes/[dishId]/edit/loading.tsx` | S8.3's heading + a form-shaped shell                                               |
+| `src/app/(app)/settings/loading.tsx`             | S12's shell with each section's own «Загружаем …» line                             |
+| `src/app/(app)/dishes/new/loading.tsx`           | the same S8.3 shell — this route prefetches nothing, see below                      |
+
+The skeletons are exported from their screens for this (`cart-screen.tsx`, `dish-library-screen.tsx`, `dish-screen.tsx`) rather than copied. Nothing inside a fallback is focusable: buttons and inputs become spans and empty boxes in the same CSS-module classes, because a control that does nothing has no business taking a tab stop.
+
+**A `loading.tsx` covers its whole segment, so scope it.** The fallback belongs to every child slot of the segment it sits in — a file directly under `(app)` would be what `/menu` and `/assistant` show on a tab tap, and the cart chunk would be listed in their client-reference manifests. Hence the `(purchases)` route group: it gives `/` a boundary of its own without changing the URL, and the two placeholder tabs keep their pre-existing behaviour (no data to wait for, no fallback, the previous screen stays through the transition). For the same reason `/dishes/new` has a `loading.tsx` although it prefetches nothing — without one it would inherit S6's tile grid for the length of the RSC round trip. When adding a route under an existing segment, check what it inherits.
 
 ### Errors
 

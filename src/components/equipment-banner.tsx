@@ -20,10 +20,16 @@ import styles from "./equipment-banner.module.css";
  *    (ничего)» would be noise on every one of them.
  * 2. **The profile is still loading** (`profileEquipment === undefined`) —
  *    renders nothing rather than flashing «профиль не заполнен» for the
- *    instant before it turns out the household has one after all.
- *    `[dishId]/page.tsx` prefetches `kitchenProfile.get` alongside `dish.get`,
- *    but `prefetch()` is fire-and-forget, so the two can still resolve on the
- *    client a beat apart.
+ *    instant before it turns out the household has one after all. Not
+ *    reachable on a cold load whose prefetches both succeeded:
+ *    `[dishId]/page.tsx` prefetches `kitchenProfile.get` alongside `dish.get`
+ *    and `HydrateClient` awaits both, so the two normally arrive together.
+ *    Two producers remain. A `kitchenProfile.get` prefetch that errored on
+ *    the server is deliberately not dehydrated (`shouldDehydrateQuery` ships
+ *    successes only — see `src/trpc/server.tsx`), so the client fetches it
+ *    under an already-rendered dish; and a client-side invalidate after
+ *    saving the profile puts this query, and only this query, back in
+ *    flight.
  * 3. **No kitchen profile has ever been saved** (`profileEquipment === null`,
  *    distinct from an empty array) — there is nothing to compare against, so
  *    the banner says so and links to where one gets set, rather than

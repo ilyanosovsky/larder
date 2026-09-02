@@ -379,7 +379,7 @@ export function DishLibraryScreen() {
   );
 }
 
-function LibrarySkeleton({ label }: { label: string }) {
+export function LibrarySkeleton({ label }: { label: string }) {
   return (
     <div className={styles.grid} role="status" aria-label={label}>
       {Array.from({ length: SKELETON_TILES }, (_, index) => (

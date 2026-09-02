@@ -23,11 +23,18 @@ export function makeQueryClient(): QueryClient {
       },
       dehydrate: {
         serializeData: superjson.serialize,
-        // Also ship queries that are still in flight, so streamed RSC
-        // prefetches reach the client instead of restarting there.
-        shouldDehydrateQuery: (query) =>
-          defaultShouldDehydrateQuery(query) ||
-          query.state.status === "pending",
+        // Successes only — never a pending query. A pending query is
+        // dehydrated together with its in-flight promise, which `hydrate()`
+        // can resolve synchronously in the browser (it arrives as a React
+        // Flight chunk) but never during SSR: the HTML would hold a screen's
+        // skeleton branch while the client's first render already held the
+        // loaded one. `HydrateClient` awaits this request's prefetches
+        // (`settleQueries`) so they are `success` by the time this runs; this
+        // default is the backstop for anything that still slips through — it
+        // degrades to "the client fetches it", not to a hydration mismatch.
+        // Kept explicit rather than left to the library default: it is the
+        // regression pin.
+        shouldDehydrateQuery: defaultShouldDehydrateQuery,
       },
       hydrate: {
         deserializeData: superjson.deserialize,
