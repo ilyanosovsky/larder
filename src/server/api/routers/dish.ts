@@ -19,7 +19,10 @@ import {
   type RecipeDraft,
 } from "@/lib/recipes/draft";
 import { recipeUnitSchema, type Unit, type RecipeUnit } from "@/lib/units";
-import { enrichProducts } from "@/server/ai/enrich-products";
+import {
+  enrichProducts,
+  type EnrichProductsResult,
+} from "@/server/ai/enrich-products";
 import { formatCostUsd } from "@/server/ai/pricing";
 import { aiRateLimitDecision } from "@/server/ai/rate-limit-guard";
 import {
@@ -660,6 +663,9 @@ async function resolveIngredientProducts(
   return { bound, pending, aiFailed };
 }
 
+/** Longest name list `ai_jobs.input_ref` carries for one batched enrichment. */
+const INPUT_REF_MAX = 500;
+
 /**
  * The one paid step of a save: rate limit, `ai_jobs` row, batched call,
  * `ai_jobs` row closed with its cost. `null` means the call never happened.
@@ -674,7 +680,7 @@ async function enrichUnknownProducts(
   ctx: SaveContext,
   names: readonly string[],
   householdCategories: readonly HouseholdCategory[],
-): Promise<Awaited<ReturnType<typeof enrichProducts>> | null> {
+): Promise<EnrichProductsResult | null> {
   const decision = await aiRateLimitDecision(ctx.db, ctx.user.id);
 
   if (!decision.allowed) {
@@ -695,7 +701,7 @@ async function enrichUnknownProducts(
     })
     .returning({ id: aiJobs.id });
 
-  let result: Awaited<ReturnType<typeof enrichProducts>>;
+  let result: EnrichProductsResult;
   try {
     result = await enrichProducts({
       client: ctx.openai(),
@@ -738,9 +744,6 @@ async function enrichUnknownProducts(
 
   return result;
 }
-
-/** Longest name list `ai_jobs.input_ref` carries for one batched enrichment. */
-const INPUT_REF_MAX = 500;
 
 /**
  * Inserts one catalog product **inside a savepoint**, or reads back the row
@@ -811,12 +814,12 @@ async function createPendingProducts(
   tx: Transaction,
   householdId: string,
   userId: string,
-  resolved: ResolvedDraft,
+  pending: readonly PendingProduct[],
   bound: (string | null)[],
 ): Promise<ProductOutput[]> {
   const created: ProductOutput[] = [];
 
-  for (const item of resolved.pending) {
+  for (const item of pending) {
     const outcome = await insertCatalogProduct(tx, {
       householdId,
       createdBy: userId,
@@ -1025,7 +1028,7 @@ export const dishRouter = createTRPCRouter({
           tx,
           householdId,
           ctx.user.id,
-          resolved,
+          resolved.pending,
           bound,
         );
 
@@ -1215,7 +1218,7 @@ export const dishRouter = createTRPCRouter({
           tx,
           householdId,
           ctx.user.id,
-          resolved,
+          resolved.pending,
           bound,
         );
 

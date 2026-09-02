@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId, useRef, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { formatQtyInput, parseQtyInput } from "@/lib/recipes/form-fields";
 import { RECIPE_UNITS, type RecipeUnit } from "@/lib/units";
@@ -58,6 +58,19 @@ export function IngredientEditRow({
   const fieldId = useId();
   const qtyRef = useRef<HTMLInputElement>(null);
   const unitRef = useRef<HTMLSelectElement>(null);
+
+  /**
+   * The quantity field holds **text**, not the formatted number.
+   *
+   * A controlled input over `formatQtyInput(parseQtyInput(text))` cannot be
+   * typed into: «0.5» starts as «0», which is below `MIN_QTY` and therefore
+   * parses to `null`, which formats back to «» — the field would empty itself
+   * under the thumb before the decimal point was ever reached. The draft still
+   * gets the parsed value on every keystroke, so nothing downstream sees the
+   * text. Seeded once: the row remounts (a fresh list key) whenever the form
+   * re-seeds, so there is no second source of truth to keep in step.
+   */
+  const [qtyText, setQtyText] = useState(() => formatQtyInput(value.qty));
 
   const needsReview = deriveNeedsReview(value);
 
@@ -133,10 +146,11 @@ export function IngredientEditRow({
           className={styles.qtyInput}
           type="text"
           inputMode="decimal"
-          value={formatQtyInput(value.qty)}
-          onChange={(event) =>
-            patch({ qty: parseQtyInput(event.target.value) })
-          }
+          value={qtyText}
+          onChange={(event) => {
+            setQtyText(event.target.value);
+            patch({ qty: parseQtyInput(event.target.value) });
+          }}
           onKeyDown={onQtyKeyDown}
           placeholder={t("qtyPlaceholder")}
           autoComplete="off"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId, type PointerEvent as ReactPointerEvent } from "react";
+import { useId, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { DraftStep } from "@/lib/recipes/draft";
 import {
@@ -53,6 +53,19 @@ export function StepEditRow({
 }) {
   const t = useTranslations("dishForm");
   const fieldId = useId();
+
+  /**
+   * Both timer fields hold text for the same reason the quantity field does
+   * (see `ingredient-edit-row.tsx`): a controlled input over the parsed value
+   * rewrites what is being typed mid-keystroke. The draft still receives the
+   * parsed minutes on every change.
+   */
+  const [timerText, setTimerText] = useState(() =>
+    minutesFromSeconds(value.timerSec),
+  );
+  const [timerMaxText, setTimerMaxText] = useState(() =>
+    minutesFromSeconds(value.timerMaxSec),
+  );
 
   function patch(next: Partial<DraftStep>) {
     onChange({ ...value, ...next });
@@ -131,8 +144,9 @@ export function StepEditRow({
           className={styles.timerInput}
           type="text"
           inputMode="numeric"
-          value={minutesFromSeconds(value.timerSec)}
+          value={timerText}
           onChange={(event) => {
+            setTimerText(event.target.value);
             const timerSec = secondsFromMinutes(
               parseMinutesInput(event.target.value, MAX_TIMER_MIN),
             );
@@ -157,14 +171,15 @@ export function StepEditRow({
           className={styles.timerInput}
           type="text"
           inputMode="numeric"
-          value={minutesFromSeconds(value.timerMaxSec)}
-          onChange={(event) =>
+          value={timerMaxText}
+          onChange={(event) => {
+            setTimerMaxText(event.target.value);
             patch({
               timerMaxSec: secondsFromMinutes(
                 parseMinutesInput(event.target.value, MAX_TIMER_MIN),
               ),
-            })
-          }
+            });
+          }}
           placeholder={t("timerMaxPlaceholder")}
           autoComplete="off"
         />
