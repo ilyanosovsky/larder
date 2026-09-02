@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { pickNextFocusTarget } from "@/lib/pantry/next-focus-target";
+import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError } from "@/lib/trpc-errors";
 
 import { useTRPC } from "@/trpc/client";
@@ -46,7 +47,9 @@ export function DishArchiveSection() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [toast, setToast] = useState<{ text: string; seq: number } | null>(null);
+  const [toast, setToast] = useState<{ text: string; seq: number } | null>(
+    null,
+  );
   const [failure, setFailure] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -58,10 +61,20 @@ export function DishArchiveSection() {
   const rowButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   /** The landing spot when the list empties out; programmatic focus only. */
   const sectionRef = useRef<HTMLElement>(null);
-  /** Where to put focus once the refetch has redrawn the list, or `null`. */
-  const focusAfterRestoreRef = useRef<string | null | undefined>(undefined);
+  /**
+   * Pending focus rescues, by the dish being restored → where focus should
+   * land once that row is gone (`null` = nothing left, use the section).
+   *
+   * A map rather than one slot, and consumed only when its dish has actually
+   * left the list: two «Вернуть» taps in flight at once would otherwise
+   * overwrite each other's target, and *any* incidental refetch — the list
+   * carries `Date`s, so structural sharing never keeps its identity — would
+   * burn the token before the removal it was armed for.
+   */
+  const focusAfterRestoreRef = useRef<Map<string, string | null>>(new Map());
 
   const archived = useQuery(trpc.dish.listArchived.queryOptions());
+  const online = useIsOnline();
 
   function markPending(id: string, pending: boolean) {
     if (pending) {
@@ -80,6 +93,12 @@ export function DishArchiveSection() {
 
   const unarchive = useMutation(
     trpc.dish.unarchive.mutationOptions({
+      // Same rule as S7's twin, and the one the wiki states: `dish.*` is not
+      // in the persisted offline queue, so with the default `"online"` mode a
+      // tap made offline would *pause* before `mutationFn` ran — `onSettled`
+      // would never fire, the row would stay `aria-disabled` and inert for the
+      // whole outage, and the restore would die with the tab.
+      networkMode: "always",
       onSuccess: (_result, variables) => {
         toastSeq.current += 1;
         setToast({
@@ -109,18 +128,22 @@ export function DishArchiveSection() {
         if (isConflictError(error)) {
           setFailure(t("dishArchiveConflict"));
           await Promise.all([
-            queryClient.invalidateQueries(
-              trpc.dish.listArchived.queryFilter(),
-            ),
+            queryClient.invalidateQueries(trpc.dish.listArchived.queryFilter()),
             queryClient.invalidateQueries(trpc.dish.list.queryFilter()),
           ]);
           return;
         }
         setFailure(t("dishArchiveError"));
       },
-      onSettled: (_result, _error, variables) => {
+      onSettled: (_result, error, variables) => {
         markPending(variables.id, false);
         titles.current.delete(variables.id);
+        if (error) {
+          // The row is still there, so there is nothing to rescue focus from
+          // — and a token left armed would fire on some later refetch and
+          // move focus for no reason the user could connect to anything.
+          focusAfterRestoreRef.current.delete(variables.id);
+        }
       },
     }),
   );
@@ -143,18 +166,35 @@ export function DishArchiveSection() {
    * user has already Tabbed on, or the row somehow survived, nothing moves.
    */
   useEffect(() => {
-    const target = focusAfterRestoreRef.current;
+    const pending = focusAfterRestoreRef.current;
+    if (pending.size === 0 || archived.data === undefined) {
+      return;
+    }
+
+    const stillListed = new Set(archived.data.map((dish) => dish.id));
+    let target: string | null | undefined;
+
+    for (const [dishId, next] of pending) {
+      // A row still on screen has not been removed yet — leave its rescue
+      // armed rather than spending it on an unrelated refetch.
+      if (stillListed.has(dishId)) {
+        continue;
+      }
+      pending.delete(dishId);
+      target ??= next;
+    }
+
     if (target === undefined) {
       return;
     }
-    focusAfterRestoreRef.current = undefined;
 
     const active = document.activeElement;
     if (active !== null && active !== document.body) {
       return;
     }
 
-    const button = target === null ? undefined : rowButtonRefs.current.get(target);
+    const button =
+      target === null ? undefined : rowButtonRefs.current.get(target);
     (button ?? sectionRef.current)?.focus();
   }, [archived.data]);
 
@@ -176,9 +216,9 @@ export function DishArchiveSection() {
     // Chosen while the row is still mounted — "next"/"previous" are relative
     // to a row that is about to disappear, so the list has to be the one that
     // still contains it. `null` means "nothing left to land on".
-    focusAfterRestoreRef.current = pickNextFocusTarget(
-      archived.data ?? [],
+    focusAfterRestoreRef.current.set(
       dish.id,
+      pickNextFocusTarget(archived.data ?? [], dish.id),
     );
     unarchive.mutate({ id: dish.id, expectedVersion: dish.version });
   }
@@ -195,11 +235,13 @@ export function DishArchiveSection() {
     >
       <h2 className={styles.sectionTitle}>{t("dishArchiveTitle")}</h2>
 
-      {archived.isPending ? (
-        <p className={styles.pending} role="status">
-          {t("dishArchiveLoading")}
-        </p>
-      ) : archived.isError ? (
+      {/* Only when there is nothing cached to show. A *background* failure
+          leaves `data` in place and flips `status` to `"error"`, so an
+          unconditional swap would replace the list — including a row whose
+          «Вернуть» is mid-flight and holding focus — with a full-width error
+          box. S3, S5, S6 and S7 all render that case additively; so does the
+          strip below. */}
+      {archived.isError && archived.data === undefined ? (
         <div className={styles.error} role="alert">
           <p>{t("dishArchiveLoadFailed")}</p>
           <button
@@ -210,32 +252,53 @@ export function DishArchiveSection() {
             {t("dishArchiveRetry")}
           </button>
         </div>
-      ) : archived.data.length === 0 ? (
-        <p className={styles.pending}>{t("dishArchiveEmpty")}</p>
+      ) : archived.isPending ? (
+        <p className={styles.pending} role="status">
+          {t("dishArchiveLoading")}
+        </p>
       ) : (
-        <ul className={styles.dishArchiveList}>
-          {archived.data.map((dish) => (
-            <li key={dish.id} className={styles.dishArchiveRow}>
-              <span className={styles.dishArchiveName}>{dish.title}</span>
-              <button
-                type="button"
-                ref={(element) => registerRowButton(dish.id, element)}
-                className={styles.dishArchiveButton}
-                aria-disabled={pendingIds.has(dish.id) || undefined}
-                aria-label={t("dishArchiveRestoreAria", { title: dish.title })}
-                onClick={() => restore(dish)}
-              >
-                {t("dishArchiveRestore")}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {archived.isError ? (
+            <p className={styles.error} role="alert">
+              {t("dishArchiveLoadFailed")}
+            </p>
+          ) : null}
+          {archived.data.length === 0 ? (
+            <p className={styles.pending}>{t("dishArchiveEmpty")}</p>
+          ) : (
+            <ul className={styles.dishArchiveList}>
+              {archived.data.map((dish) => (
+                <li key={dish.id} className={styles.dishArchiveRow}>
+                  <span className={styles.dishArchiveName}>{dish.title}</span>
+                  <button
+                    type="button"
+                    ref={(element) => registerRowButton(dish.id, element)}
+                    className={styles.dishArchiveButton}
+                    aria-disabled={pendingIds.has(dish.id) || undefined}
+                    aria-label={t("dishArchiveRestoreAria", {
+                      title: dish.title,
+                    })}
+                    onClick={() => restore(dish)}
+                  >
+                    {t("dishArchiveRestore")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
 
       {failure === null ? null : (
         <p className={styles.error} role="alert">
           {failure}
         </p>
+      )}
+
+      {/* R1's other half: said before the tap, since the write would fail
+          immediately rather than wait for the connection. */}
+      {online ? null : (
+        <p className={styles.pending}>{t("dishArchiveOffline")}</p>
       )}
 
       {/* Mounted for the section's whole life, with a keyed child, so two

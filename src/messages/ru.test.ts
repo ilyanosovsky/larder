@@ -1,8 +1,8 @@
 import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
-import { ingredientsYieldUnit } from "@/lib/recipes/portions";
-import { timerDisplay } from "@/lib/recipes/timer";
+import { ingredientsForMessage } from "@/lib/recipes/portions";
+import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 
 import messages from "./ru.json";
 
@@ -11,9 +11,20 @@ import messages from "./ru.json";
  * strings only through next-intl), and an ICU message is code — a missing
  * plural branch is a bug the type system cannot see and a pure module cannot
  * catch, because the module hands next-intl numbers and next-intl picks the
- * word. These tests render the messages the dish screens compose from their
- * tested inputs, so the pairing of "what the helper decided" and "what the
- * user reads" is pinned end to end.
+ * word.
+ *
+ * **These tests render through the same functions the screens call**, not
+ * through a local copy of their branches: `ingredientsForMessage` and
+ * `timerMessage` return the key *and* its values, and `dish-screen.tsx` does
+ * nothing but `t(message.key, message.values)`. That is what makes the
+ * pairing real — vitest runs in `node` with no DOM harness, so a branch left
+ * inside the component would be unreachable from here and a flipped one would
+ * ship green.
+ *
+ * Missing keys need catching too: next-intl has no type augmentation in this
+ * repo and returns the key path (with a console error) rather than throwing,
+ * so a deleted entry would put the literal «dish.conflict» on screen and pass
+ * every other gate.
  */
 function translator(namespace: "dish" | "dishes") {
   return createTranslator({ locale: "ru", messages, namespace });
@@ -46,15 +57,14 @@ describe("portion ranges", () => {
 describe("the ingredients header", () => {
   const t = translator("dish");
 
+  /** Exactly what `dish-screen.tsx` does — the branch is in the module. */
   function header(recipe: {
     portionsBase: number;
     portionsMin: number | null;
     yieldUnit: string | null;
   }): string {
-    const unit = ingredientsYieldUnit(recipe);
-    return unit === null
-      ? t("ingredientsFor", { count: recipe.portionsBase })
-      : t("ingredientsForUnit", { count: recipe.portionsBase, unit });
+    const message = ingredientsForMessage(recipe);
+    return t(message.key, message.values);
   }
 
   it("keeps the yield noun for a ranged yield", () => {
@@ -78,19 +88,14 @@ describe("the ingredients header", () => {
 describe("step timers", () => {
   const t = translator("dish");
 
+  /** Exactly what `dish-screen.tsx` does — the branch is in the module. */
   function label(timerSec: number | null, timerMaxSec: number | null): string {
     const display = timerDisplay(timerSec, timerMaxSec);
     if (display === null) {
       return "";
     }
-    if (display.kind === "single") {
-      return display.unit === "sec"
-        ? t("timerSeconds", { seconds: display.value })
-        : t("timer", { minutes: display.value });
-    }
-    return display.unit === "sec"
-      ? t("timerSecondsRange", { from: display.from, to: display.to })
-      : t("timerRange", { from: display.from, to: display.to });
+    const message = timerMessage(display);
+    return t(message.key, message.values);
   }
 
   it("renders the design's own «9–11 мин»", () => {
@@ -102,5 +107,86 @@ describe("step timers", () => {
     expect(label(1, null)).toBe("1 сек");
     expect(label(20, 40)).toBe("20–40 сек");
     expect(label(60, null)).toBe("1 мин");
+  });
+});
+
+describe("the keys the dish screens call by name", () => {
+  /**
+   * A cheap existence sweep. Every entry here is spelled out as a literal in
+   * `dish-screen.tsx` or `dish-archive-section.tsx` (including the four
+   * `SOURCE_MESSAGE` entries, written as a literal map precisely so they stay
+   * greppable), and `t()` returns «namespace.key» instead of throwing when one
+   * is missing — so without this a deleted line in ru.json ships silently and
+   * the banner reads «dish.conflict» to the user.
+   */
+  const DISH_KEYS = [
+    "loading",
+    "loadFailed",
+    "notFound",
+    "retry",
+    "back",
+    "sourcePhoto",
+    "sourceUrl",
+    "sourceText",
+    "sourceManual",
+    "sourceLink",
+    "portionsLabel",
+    "adaptedTitle",
+    "ingredientsTitle",
+    "ingredientsEmpty",
+    "inPantry",
+    "needsReview",
+    "optional",
+    "stepsTitle",
+    "stepsEmpty",
+    "toMenu",
+    "toCart",
+    "cook",
+    "edit",
+    "moreAria",
+    "archive",
+    "archiveTitle",
+    "archiveHint",
+    "archiveConfirm",
+    "archiveConfirmPending",
+    "archiveError",
+    "archivedBanner",
+    "archivedAnnounce",
+    "undo",
+    "undoPending",
+    "undoDone",
+    "undoError",
+    "conflict",
+    "offline",
+  ] as const;
+
+  const SETTINGS_KEYS = [
+    "dishArchiveTitle",
+    "dishArchiveLoading",
+    "dishArchiveLoadFailed",
+    "dishArchiveRetry",
+    "dishArchiveEmpty",
+    "dishArchiveRestore",
+    "dishArchiveError",
+    "dishArchiveConflict",
+    "dishArchiveOffline",
+  ] as const;
+
+  it.each(DISH_KEYS)("dish.%s resolves to real copy", (key) => {
+    const rendered = translator("dish")(key);
+
+    expect(rendered).not.toBe(`dish.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(SETTINGS_KEYS)("settings.%s resolves to real copy", (key) => {
+    const rendered = createTranslator({
+      locale: "ru",
+      messages,
+      namespace: "settings",
+    })(key);
+
+    expect(rendered).not.toBe(`settings.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
   });
 });

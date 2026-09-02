@@ -10,11 +10,11 @@ import { NeedsReviewChip } from "@/components/needs-review-chip";
 import { useSheetOpener } from "@/components/use-sheet-opener";
 import { cx } from "@/lib/cx";
 import {
-  ingredientsYieldUnit,
+  ingredientsForMessage,
   portionsDisplay,
 } from "@/lib/recipes/portions";
 import { formatRecipeQty, rescaleQty } from "@/lib/recipes/rescale";
-import { timerDisplay } from "@/lib/recipes/timer";
+import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError, trpcErrorCode } from "@/lib/trpc-errors";
 import type {
@@ -66,12 +66,13 @@ type SheetView = "menu" | "confirm";
  * moment the app was killed. Failing fast and saying «нет сети» is the honest
  * behaviour for a mutation nobody is replaying later.
  *
- * **Focus is moved deliberately in the two places this screen unmounts the
- * element that has it**: when the sheet swaps its menu for the confirmation
- * (the menu row that was activated disappears while `BottomSheet` stays
- * mounted, so its own focus effect cannot re-run), and after «Вернуть»
- * succeeds and the banner holding it is replaced. Both follow the rescue
- * shape `revision-mode.tsx` and `cart-screen.tsx` already use.
+ * **Focus is moved deliberately everywhere this screen unmounts the element
+ * that has it**: when the sheet swaps its menu for the confirmation (the menu
+ * row that was activated disappears while `BottomSheet` stays mounted, so its
+ * own focus effect cannot re-run), and after «Вернуть» either succeeds or
+ * loses a version race — both replace the banner the button lives in. They
+ * follow the rescue shape `revision-mode.tsx` and `cart-screen.tsx` already
+ * use, guarded on `activeElement` so they rescue and never steal.
  */
 export function DishScreen({ dishId }: { dishId: string }) {
   const t = useTranslations("dish");
@@ -199,6 +200,14 @@ export function DishScreen({ dishId }: { dishId: string }) {
       onError: async (error) => {
         if (isConflictError(error)) {
           setBannerError(t("conflict"));
+          // One of the two things a CONFLICT here can mean is "the partner
+          // already restored it" — in which case the refresh below unmounts
+          // the banner and the «Вернуть» that still holds focus, exactly as a
+          // success would. Armed before the await, not at tap time: the effect
+          // is keyed on `dish.data`, so a background refetch landing mid-write
+          // would otherwise consume the token before the unmount happens. The
+          // `activeElement` guard makes arming it on the other cause free.
+          restoreFocusAfterUndoRef.current = true;
           await refreshAfterConflict();
           return;
         }
@@ -637,40 +646,34 @@ function portionsText(detail: DishDetailOutput, t: Translate): string {
 /**
  * «на 8 порций» / «на 8 печений» over the ingredient list (DESIGN_BRIEF S7).
  *
- * The count is `portionsBase` whether or not the source stated a range — the
- * quantities below are stated for that number — so the only question is
- * whether the recipe gave its own yield noun. Branching on the *range* here
- * instead is what made S7 say «7–8 печений» two lines above «на 8 порций».
+ * The choice of message is `ingredientsForMessage`'s
+ * (`src/lib/recipes/portions.ts`, pure and tested) — deliberately not a
+ * ternary here. A branch inside this component is unreachable from a node-only
+ * test suite, and this is the branch that once put «7–8 печений» two lines
+ * above «на 8 порций».
  */
 function ingredientsForText(detail: DishDetailOutput, t: Translate): string {
-  const unit = ingredientsYieldUnit(detail.recipe);
+  const message = ingredientsForMessage(detail.recipe);
 
-  return unit === null
-    ? t("ingredientsFor", { count: detail.recipe.portionsBase })
-    : t("ingredientsForUnit", { count: detail.recipe.portionsBase, unit });
+  return t(message.key, message.values);
 }
 
 /**
  * «9–11 мин» / «30 сек» from two integers, never from a stored Russian label.
  *
- * The arithmetic — including the rule that a sub-minute countdown stays in
- * seconds rather than rounding to «0 мин» — is `timerDisplay`
- * (`src/lib/recipes/timer.ts`, pure and tested, and what task 4.7's overlay
- * will render its own countdown from). This function only picks the message.
+ * Both halves live in `src/lib/recipes/timer.ts`: `timerDisplay` does the
+ * arithmetic (including the rule that a sub-minute countdown stays in seconds
+ * rather than rounding to «0 мин») and `timerMessage` picks the message. Task
+ * 4.7's cooking overlay renders its own countdown from the same pair, so a
+ * step cannot describe itself differently in the two places.
  */
 function timerText(
   display: NonNullable<ReturnType<typeof timerDisplay>>,
   t: Translate,
 ): string {
-  if (display.kind === "single") {
-    return display.unit === "sec"
-      ? t("timerSeconds", { seconds: display.value })
-      : t("timer", { minutes: display.value });
-  }
+  const message = timerMessage(display);
 
-  return display.unit === "sec"
-    ? t("timerSecondsRange", { from: display.from, to: display.to })
-    : t("timerRange", { from: display.from, to: display.to });
+  return t(message.key, message.values);
 }
 
 function DishPhoto({

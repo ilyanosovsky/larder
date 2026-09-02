@@ -79,3 +79,34 @@ export function timerDisplay(
 function toMinutes(seconds: number): number {
   return Math.max(1, Math.round(seconds / SECONDS_PER_MINUTE));
 }
+
+/**
+ * Which `dish.timer*` message a step's countdown should render, and with what.
+ *
+ * Same reasoning as `ingredientsForMessage` (`src/lib/recipes/portions.ts`):
+ * the four-way choice between minutes and seconds, single value and range, is
+ * the part that can silently invert — a swapped sec/min branch renders a
+ * 30-second step as «30 мин» — and a branch inside a component is unreachable
+ * from a node-only test suite. Task 4.7's overlay picks its label from the
+ * same function.
+ */
+export type TimerMessage =
+  | { key: "timer"; values: { minutes: number } }
+  | { key: "timerSeconds"; values: { seconds: number } }
+  | { key: "timerRange"; values: { from: number; to: number } }
+  | { key: "timerSecondsRange"; values: { from: number; to: number } };
+
+export function timerMessage(display: TimerDisplay): TimerMessage {
+  if (display.kind === "single") {
+    return display.unit === "sec"
+      ? { key: "timerSeconds", values: { seconds: display.value } }
+      : { key: "timer", values: { minutes: display.value } };
+  }
+
+  return display.unit === "sec"
+    ? {
+        key: "timerSecondsRange",
+        values: { from: display.from, to: display.to },
+      }
+    : { key: "timerRange", values: { from: display.from, to: display.to } };
+}

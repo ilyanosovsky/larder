@@ -119,3 +119,29 @@ export function portionsDisplay(recipe: PortionsSource): PortionsDisplay {
 export function ingredientsYieldUnit(recipe: PortionsSource): string | null {
   return portionsDisplay(recipe).unit;
 }
+
+/**
+ * Which `dish.ingredientsFor*` message the S7 header should render, and with
+ * what — the whole branch, not just its input.
+ *
+ * The decision lives here rather than in the screen because the screen cannot
+ * be tested: vitest runs in `node` with no DOM harness, so a module-private
+ * ternary inside a `.tsx` is unreachable from the suite and a flipped branch
+ * ships green (which is exactly how «7–8 печений» once ended up above «на 8
+ * порций»). Returning the key and its values keeps the component down to one
+ * `t(...)` call and puts the branch somewhere a test can flip.
+ */
+export type IngredientsForMessage =
+  | { key: "ingredientsFor"; values: { count: number } }
+  | { key: "ingredientsForUnit"; values: { count: number; unit: string } };
+
+export function ingredientsForMessage(
+  recipe: PortionsSource,
+): IngredientsForMessage {
+  const count = recipe.portionsBase;
+  const unit = ingredientsYieldUnit(recipe);
+
+  return unit === null
+    ? { key: "ingredientsFor", values: { count } }
+    : { key: "ingredientsForUnit", values: { count, unit } };
+}

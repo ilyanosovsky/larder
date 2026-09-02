@@ -55,7 +55,19 @@ export function DishLibraryScreen() {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
+  /**
+   * The screen's one announcement slot. `visible` separates its two writers,
+   * the same split `dish-screen.tsx` makes: a «скоро» tap has nothing else on
+   * screen to show for itself and needs visible copy, while «ничего не
+   * нашлось» is already on screen as a paragraph and only needs *speaking* —
+   * a live region that mounts together with its text is not reliably
+   * announced.
+   */
+  const [hint, setHint] = useState<{
+    text: string;
+    seq: number;
+    visible: boolean;
+  } | null>(null);
   const hintSeq = useRef(0);
   const sourceOpener = useSheetOpener();
 
@@ -73,10 +85,27 @@ export function DishLibraryScreen() {
    * a partner retagging or archiving the only tagged dish — would otherwise
    * leave a selection applied with no control left to clear it: the grid
    * filters to empty and «сними фильтр» names a chip that is not there.
-   * Deriving it costs nothing and removes the state rather than guarding it;
-   * an effect that reset the state would flash one empty frame first.
+   * Deriving it is what the render reads, so the chip row and the grid always
+   * agree within the very frame the tag disappears — an effect on its own
+   * would flash one filtered-to-empty frame first.
    */
   const activeTag = tag !== null && tags.includes(tag) ? tag : null;
+
+  /**
+   * …and then the state is narrowed to match, a tick later.
+   *
+   * Masking alone is not enough: the selection would still be sitting in
+   * state, so a tag that leaves the library and comes back on a later refetch
+   * (a partner archiving and restoring the last dish carrying it) would
+   * silently re-apply a filter nobody re-selected — the chip reappearing
+   * already pressed. Because `activeTag` drives the render, this runs after
+   * the frame that already showed the filter cleared, so it costs no flash.
+   */
+  useEffect(() => {
+    if (tag !== null && !tags.includes(tag)) {
+      setTag(null);
+    }
+  }, [tag, tags]);
 
   const visible = useMemo(
     () => filterDishes(items, { query, tag: activeTag }),
@@ -108,12 +137,24 @@ export function DishLibraryScreen() {
 
   useEffect(() => {
     if (!nothingFound) {
+      // The region keeps whatever it last held, so a filter that starts
+      // matching again would otherwise leave «Ничего не нашлось» sitting in
+      // the accessibility tree, contradicting the grid. Matched on the text
+      // rather than cleared outright, so a «скоро» hint set in the meantime
+      // survives.
+      setHint((current) =>
+        current?.text === nothingFoundTextRef.current ? null : current,
+      );
       return;
     }
 
     const timer = setTimeout(() => {
       hintSeq.current += 1;
-      setHint({ text: nothingFoundTextRef.current, seq: hintSeq.current });
+      setHint({
+        text: nothingFoundTextRef.current,
+        seq: hintSeq.current,
+        visible: false,
+      });
     }, ANNOUNCE_DELAY_MS);
 
     return () => clearTimeout(timer);
@@ -126,7 +167,11 @@ export function DishLibraryScreen() {
    */
   function announceSoon(action: string) {
     hintSeq.current += 1;
-    setHint({ text: t("soonHint", { action }), seq: hintSeq.current });
+    setHint({
+      text: t("soonHint", { action }),
+      seq: hintSeq.current,
+      visible: true,
+    });
   }
 
 
@@ -270,7 +315,7 @@ export function DishLibraryScreen() {
           >
             {t("emptyAction")}
           </button>
-          {hint === null ? null : (
+          {hint === null || !hint.visible ? null : (
             <p className={styles.hint} aria-hidden="true">
               {hint.text}
             </p>
@@ -278,8 +323,13 @@ export function DishLibraryScreen() {
         </div>
       ) : null}
 
+      {/* `aria-hidden`, like every other visible twin of a live region in this
+          app: the sentence is already in the accessibility tree via the status
+          region below, and a second copy is read twice while browsing. */}
       {nothingFound ? (
-        <p className={styles.nothingFound}>{t("nothingFound")}</p>
+        <p className={styles.nothingFound} aria-hidden="true">
+          {t("nothingFound")}
+        </p>
       ) : null}
 
       {visible.length === 0 ? null : (
@@ -303,9 +353,11 @@ export function DishLibraryScreen() {
       )}
 
       {/* Permanently mounted, keyed child — see `dish-source-sheet.tsx` and
-          S3/S5 for why both halves matter. The visible copy of the same text
-          renders next to the control that produced it, inside the empty state
-          above; this one exists only for assistive tech. */}
+          S3/S5 for why both halves matter. This node is for assistive tech
+          only; whether the same text also appears on screen depends on the
+          writer (`hint.visible`): a «скоро» tap renders it in the empty state
+          above, an empty search result is already visible as its own
+          paragraph. */}
       <p className={styles.srOnly} role="status">
         <span key={hint?.seq ?? "empty"}>{hint?.text ?? ""}</span>
       </p>

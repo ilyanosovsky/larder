@@ -46,7 +46,8 @@
     "dishArchiveRestoreAria": "Вернуть «{title}» в библиотеку",
     "dishArchiveRestored": "«{title}» снова в библиотеке",
     "dishArchiveError": "Не получилось вернуть блюдо. Попробуй ещё раз.",
-    "dishArchiveConflict": "Блюдо изменили — обновили список."
+    "dishArchiveConflict": "Блюдо изменили — обновили список.",
+    "dishArchiveOffline": "Нет связи — вернуть блюдо не получится. Попробуй, когда сеть вернётся."
   },
   "cart": {
     "title": "Корзина",
