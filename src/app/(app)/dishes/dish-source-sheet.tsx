@@ -40,6 +40,19 @@ export function DishSourceSheet({
   const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
 
+  /**
+   * The sheet unmounts its own DOM when it closes, but this component stays
+   * mounted — so the hint has to be dropped explicitly, or reopening the sheet
+   * would mount the live region with a stale «скоро» already inside it and
+   * assistive tech would announce a message about a tap from a minute ago.
+   * `BottomSheet` routes Esc and the scrim through `onClose` too, so this one
+   * handler covers every way out.
+   */
+  function close() {
+    setHint(null);
+    onClose();
+  }
+
   function announce(action: string) {
     hintSeq.current += 1;
     setHint({ text: t("soonHint", { action }), seq: hintSeq.current });
@@ -60,7 +73,7 @@ export function DishSourceSheet({
   return (
     <BottomSheet
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={t("sourceTitle")}
       closeLabel={common("close")}
       restoreFocusTo={restoreFocusTo}
