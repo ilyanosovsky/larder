@@ -236,6 +236,7 @@
     "decreaseAria": "Меньше порций",
     "increaseAria": "Больше порций",
     "equipmentNeed": "Нужно:",
+    "equipmentMissing": "Не хватает: {list}",
     "adaptButton": "Адаптировать (ИИ)",
     "adaptHint": "Можно адаптировать рецепт под твою кухню.",
     "profileMissing": "Профиль кухни не заполнен.",

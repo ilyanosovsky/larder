@@ -26,6 +26,17 @@
   color: var(--amber-txt);
 }
 
+/* The words-based counterpart to the ✓/✗ list, which the banner then hides
+   from assistive tech — a bare glyph is not a text alternative on its own.
+   Full width, a sentence rather than an inline fragment beside the ✓/✗ line,
+   which is why it is a block `<p>` and not another `<span>`. */
+.missingText {
+  width: 100%;
+  color: var(--amber-txt);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+}
+
 .hint {
   color: var(--mute);
   font-size: var(--t-meta);

@@ -366,15 +366,13 @@ export function DishScreen({ dishId }: { dishId: string }) {
     portionsOverride === null
       ? base
       : Math.min(range.max, Math.max(range.min, portionsOverride));
-  // «на 8 порций» / «на 8 печений» — the live count, never the stale
-  // `portionsMin` a range would otherwise pull in; shared between the
-  // ingredients header and the slider's own `aria-valuetext` so the two can
-  // never word the same number differently.
-  const ingredientsForMsg = ingredientsForMessage({
-    portionsBase: portions,
-    portionsMin: null,
-    yieldUnit: detail.recipe.yieldUnit,
-  });
+  // «на 8 порций» / «на 8 печений» — shared between the ingredients header
+  // and the slider's own `aria-valuetext` so the two can never word the same
+  // number differently. `ingredientsForMessage` keeps `detail.recipe.yieldUnit`
+  // only at `portions === base` (see its own doc comment) — a scaled «7
+  // печений» degrades to the correctly declined «7 порций» rather than
+  // staying frozen at an ungrammatical count.
+  const ingredientsForMsg = ingredientsForMessage(detail.recipe, portions);
   const ingredientsFor = t(ingredientsForMsg.key, ingredientsForMsg.values);
   const requiredEquipment = coerceEquipmentList(detail.recipe.equipment);
   const equipmentLabels = Object.fromEntries(
@@ -497,6 +495,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
         profileEquipment={profileEquipment}
         labels={equipmentLabels}
         needLabel={tp("equipmentNeed")}
+        missingText={(list) => tp("equipmentMissing", { list })}
         adaptLabel={tp("adaptButton")}
         adaptHint={tp("adaptHint")}
         adaptSoonText={t("soonHint", { action: tp("adaptButton") })}

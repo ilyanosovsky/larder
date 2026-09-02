@@ -130,6 +130,18 @@ export function ingredientsYieldUnit(recipe: PortionsSource): string | null {
  * ships green (which is exactly how «7–8 печений» once ended up above «на 8
  * порций»). Returning the key and its values keeps the component down to one
  * `t(...)` call and puts the branch somewhere a test can flip.
+ *
+ * `count` is a **separate argument from `recipe.portionsBase`**, not read off
+ * the recipe, because task 4.5's slider can drive this same header at any
+ * count in `portionsRange(recipe.portionsBase)` — not only the stored one.
+ * `dish.ingredientsForUnit` interpolates `yieldUnit` verbatim with no plural
+ * forms (it is imported data, not a declinable word this app owns), so it is
+ * only grammatical at the exact count the noun was recorded for: «7 печений»
+ * scaled to 3 portions is not «3 печений». The unit branch therefore fires
+ * only when `count === recipe.portionsBase`; every other count — including
+ * every recipe with no `yieldUnit` at all — falls back to the correctly
+ * declined `dish.ingredientsFor` («на 3 порции»), accepting that a scaled
+ * «печений» recipe reads as «порции» once it is actually rescaled.
  */
 export type IngredientsForMessage =
   | { key: "ingredientsFor"; values: { count: number } }
@@ -137,11 +149,11 @@ export type IngredientsForMessage =
 
 export function ingredientsForMessage(
   recipe: PortionsSource,
+  count: number,
 ): IngredientsForMessage {
-  const count = recipe.portionsBase;
   const unit = ingredientsYieldUnit(recipe);
 
-  return unit === null
+  return unit === null || count !== recipe.portionsBase
     ? { key: "ingredientsFor", values: { count } }
     : { key: "ingredientsForUnit", values: { count, unit } };
 }

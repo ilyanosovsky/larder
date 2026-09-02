@@ -30,25 +30,43 @@ import styles from "./equipment-banner.module.css";
  *    confidently reporting every requirement missing.
  * 4. **Covered** — every required slug lists with a ✓; the green family the
  *    mockup itself uses.
- * 5. **Something is missing** — the same list, now with a ✗ on the slugs the
- *    profile does not answer for, plus the `aria-disabled` «Адаптировать
- *    (ИИ)» button task 4.6 wires up.
+ * 5. **Something is missing** — the same ✓/✗ list, plus a plain-words
+ *    «Не хватает: …» sentence naming the missing appliances (never a bare
+ *    glyph as the only carrier of that fact — see the a11y note below), an
+ *    explanatory caption, and the `aria-disabled` «Адаптировать (ИИ)» button
+ *    task 4.6 wires up.
  *
  * `missingEquipment` runs the household's profile through
  * `coerceEquipmentSlug` (task 4.5's own `src/server/recipes/equipment-check
  * .ts`), so a free-form profile entry — «мультиварка» typed into the "add
  * your own" field instead of a checked box — still counts.
  *
+ * **The ✓/✗ list is `aria-hidden` once the missing state's own words carry
+ * the same meaning.** Bare `✓`/`✗` glyphs are a fine *visual* cue (colour is
+ * never their only differentiator — the mockup's covered state has no words
+ * at all and stays announced, glyph included), but a screen reader would
+ * otherwise read out symbol names in the middle of a Russian sentence. Once
+ * `missingText` exists to say the same thing in words, the glyph line next
+ * to it is redundant for anyone who cannot see it, so only the *missing*
+ * branch hides it — the covered branch has no equivalent sentence and keeps
+ * its glyph list the one thing announcing coverage.
+ *
  * Presentational, like `QtyStepper` and `PortionsSlider`: every string
- * arrives already translated (`labels` mirrors `resolveEquipmentEntry`'s own
- * `Readonly<Record<EquipmentSlug, string>>` shape), so the screen keeps the
- * one place `dishPortions` copy is composed.
+ * arrives already translated. `missingText` is the one exception — a small
+ * formatter (`(list) => tp("equipmentMissing", { list })`) rather than a
+ * flat string, because the joined list of missing labels is this
+ * component's own derived state (`missingEquipment`'s result), not something
+ * the screen can precompute without running that same match twice. `labels`
+ * mirrors `resolveEquipmentEntry`'s own `Readonly<Record<EquipmentSlug,
+ * string>>` shape, so the screen keeps the one place `dishPortions` copy is
+ * composed.
  */
 export function EquipmentBanner({
   required,
   profileEquipment,
   labels,
   needLabel,
+  missingText,
   adaptLabel,
   adaptHint,
   adaptSoonText,
@@ -68,11 +86,22 @@ export function EquipmentBanner({
   labels: Readonly<Record<EquipmentSlug, string>>;
   /** «Нужно:» */
   needLabel: string;
+  /**
+   * «Не хватает: {list}» — `list` is the missing appliances' own labels,
+   * comma-joined, resolved by this component (the only one that has
+   * `missingEquipment`'s result) and handed to the caller's `t(...)` call so
+   * translation stays in `dish-screen.tsx`. Deliberately not per-item gender
+   * agreement («нужен миксер» / «нужна тёрка» / «нужны миксер и тёрка») —
+   * that needs a grammatical-gender table for all eleven presets, which does
+   * not exist anywhere in this codebase; «не хватает» stays invariant.
+   */
+  missingText: (list: string) => string;
   /** «Адаптировать (ИИ)» */
   adaptLabel: string;
   /** The caption shown beside the button while something is missing. */
   adaptHint: string;
-  /** «„Адаптировать (ИИ)“ — скоро», announced (not shown) on tap. */
+  /** «„Адаптировать (ИИ)“ — скоро» — both announced and shown on tap, the
+   *  same split every other not-yet-wired S7 control uses. */
   adaptSoonText: string;
   profileMissingText: string;
   settingsLinkLabel: string;
@@ -120,12 +149,18 @@ export function EquipmentBanner({
     <div
       className={cx(styles.banner, covered ? styles.covered : styles.missing)}
     >
-      <span>
+      {/* Hidden from assistive tech only once the missing branch's own
+          `missingText` sentence exists to say the same thing in words — the
+          covered branch has no such sentence and keeps announcing its ✓s. */}
+      <span aria-hidden={covered ? undefined : "true"}>
         {needLabel} {list}
       </span>
 
       {covered ? null : (
         <>
+          <p className={styles.missingText}>
+            {missingText(missing.map((slug) => labels[slug]).join(", "))}
+          </p>
           <span className={styles.hint}>{adaptHint}</span>
           <button
             type="button"
@@ -135,6 +170,15 @@ export function EquipmentBanner({
           >
             {adaptLabel}
           </button>
+          {/* Spoken *and* shown — mirrors `dish-screen.tsx`'s own
+              `announceSoon` for its four disabled actions. A sighted tap
+              on an `aria-disabled` control (opacity change only, no
+              `:active` state) otherwise gets no feedback at all. */}
+          {announced === null ? null : (
+            <p className={styles.hint} aria-hidden="true">
+              {announced.text}
+            </p>
+          )}
         </>
       )}
 

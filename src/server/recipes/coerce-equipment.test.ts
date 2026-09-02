@@ -43,6 +43,14 @@ describe("coerceEquipmentSlug", () => {
     expect(coerceEquipmentSlug("")).toBeNull();
     expect(coerceEquipmentSlug("   ")).toBeNull();
   });
+
+  it("matches whole strings only, never a phrase or an inflected form", () => {
+    // The module doc's own contract: a sentence needs a word-boundary/stem
+    // scan this function deliberately does not do (no caller hands it prose
+    // today — recipe equipment arrives as a word list already split out).
+    expect(coerceEquipmentSlug("нужна духовка")).toBeNull();
+    expect(coerceEquipmentSlug("миксером")).toBeNull();
+  });
 });
 
 describe("coerceEquipmentList", () => {

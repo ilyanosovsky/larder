@@ -1,11 +1,21 @@
 import { EQUIPMENT_PRESETS, type EquipmentSlug } from "@/server/kitchen/equipment";
 
 /**
- * Maps a Russian recipe word ("нужна духовка", "взбить миксером") to the
- * preset slug it names, so `recipes.equipment` (task 4.3's parser output) and
- * `kitchen_profiles.equipment` (a mix of slugs and free text, VISION §5) can
- * be compared against each other by 4.5's banner and 4.6's adaptation without
- * silently never matching.
+ * Maps one Russian equipment word or slug, matched **in full** after
+ * ё/case/whitespace normalization ("духовка", "Тёрка", "индукционная плита",
+ * "oven"), to the preset slug it names — so `recipes.equipment` (task 4.3's
+ * parser output: a list of such words, already split out of the recipe text)
+ * and `kitchen_profiles.equipment` (a mix of slugs and free text, VISION §5)
+ * can be compared against each other by 4.5's banner and 4.6's adaptation
+ * without silently never matching.
+ *
+ * **Whole-string, not phrase-scanning.** "нужна духовка" and "миксером" both
+ * return `null` — a sentence needs a word-boundary/stem-matching scan this
+ * module does not do, because no caller today hands it one (recipe equipment
+ * arrives as a word list, never running prose; see `coerceEquipmentSlug`'s
+ * own doc comment). A future caller that does need to scan step text for
+ * mentioned equipment gets its own function and its own tests, not a second
+ * job folded into this one.
  *
  * Deliberately **not** `resolveEquipmentEntry()`'s job
  * (`src/lib/equipment-entry.ts`): that function matches a *localized checklist
