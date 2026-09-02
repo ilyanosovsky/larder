@@ -12,9 +12,11 @@ import { DishScreen } from "./dish-screen";
  * `pantry_items` join, so `pantry.list` is not needed) and `kitchenProfile
  * .get`, task 4.5's own equipment banner comparing against it. They start
  * together and `HydrateClient` awaits both before it dehydrates, so on a cold
- * load they reach the client as one payload; the banner keeps its defensive
- * `undefined` branch because a client-side invalidate can still put one of the
- * two back in flight on its own (see `EquipmentBanner`'s doc comment).
+ * load they reach the client as one payload — whenever both succeed. A
+ * prefetch that failed is dropped from the payload by design and refetched on
+ * the client, so the banner keeps its defensive `undefined` branch; a
+ * client-side invalidate can also put one of the two back in flight on its
+ * own (see `EquipmentBanner`'s doc comment).
  *
  * **The route segment is validated before it becomes a query.** `dishIdInput`
  * is `z.uuid()`, so a hand-typed or mis-shared `/dishes/oladi` would be

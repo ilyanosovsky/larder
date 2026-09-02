@@ -1,4 +1,8 @@
-import type { QueryClient } from "@tanstack/react-query";
+import {
+  dehydrate,
+  type DehydratedState,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 /**
  * How many awaits we are willing to spend on one render pass.
@@ -59,4 +63,24 @@ export async function settleQueries(queryClient: QueryClient): Promise<void> {
     rounds += 1;
     inFlight = collectInFlight(queryClient);
   }
+}
+
+/**
+ * Settles this request's queries, then snapshots the cache — the two halves
+ * `HydrateClient` needs, in the one order that is correct.
+ *
+ * They live here together rather than inline in `server.tsx` so the wiring is
+ * testable: `server.tsx` is a `.tsx` module whose import graph reaches the
+ * router, `env()` and the database, so a vitest file cannot call
+ * `HydrateClient` without standing all of that up. This function is what
+ * carries the behaviour, and `settle-queries.test.ts` pins it — drop the
+ * `await` here and the payload comes back empty (nothing has settled yet,
+ * and a pending query is never dehydrated).
+ */
+export async function dehydrateSettled(
+  queryClient: QueryClient,
+): Promise<DehydratedState> {
+  await settleQueries(queryClient);
+
+  return dehydrate(queryClient);
 }

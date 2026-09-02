@@ -1,8 +1,13 @@
-import { dehydrate, hydrate, QueryClient } from "@tanstack/react-query";
+import {
+  dehydrate,
+  hydrate,
+  onlineManager,
+  QueryClient,
+} from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import { makeQueryClient } from "./query-client";
-import { settleQueries } from "./settle-queries";
+import { dehydrateSettled, settleQueries } from "./settle-queries";
 
 /** A promise whose resolution the test decides, like a slow procedure. */
 function deferred<T>() {
@@ -73,6 +78,64 @@ describe("settleQueries", () => {
     expect(statuses).toStrictEqual(["cart:success", "categories:success"]);
   });
 
+  it("waits for a prefetch that only starts after the first await", async () => {
+    const client = makeQueryClient();
+    const first = deferred<string[]>();
+    const second = deferred<string[]>();
+
+    void client.prefetchQuery({
+      queryKey: ["first"],
+      queryFn: () => first.promise,
+    });
+    // A nested server component whose own prefetch begins only once the
+    // first one has landed — the case the re-scan after each await exists
+    // for. Collapse the loop to a single `allSettled` and `second` is still
+    // pending when the cache is snapshotted.
+    void first.promise.then(() => {
+      void client.prefetchQuery({
+        queryKey: ["second"],
+        queryFn: () => second.promise,
+      });
+      setTimeout(() => second.resolve(["b"]), 10);
+    });
+    setTimeout(() => first.resolve(["a"]), 5);
+
+    await settleQueries(client);
+
+    const statuses = dehydrate(client)
+      .queries.map(
+        (query) => `${String(query.queryKey[0])}:${query.state.status}`,
+      )
+      .sort();
+    expect(statuses).toStrictEqual(["first:success", "second:success"]);
+  });
+
+  it("does not await a paused query", async () => {
+    const client = makeQueryClient();
+
+    // `onlineManager` is a module singleton shared by every test in this
+    // worker, so it is restored even if an assertion throws.
+    onlineManager.setOnline(false);
+    try {
+      void client.prefetchQuery({
+        queryKey: ["paused"],
+        queryFn: () => new Promise<string>(() => undefined),
+      });
+      // A paused query has no in-flight promise to await and will never get
+      // one on the server: widen the `fetchStatus === "fetching"` predicate
+      // and this render waits forever instead of shipping without it.
+      expect(client.getQueryState(["paused"])?.fetchStatus).toBe("paused");
+
+      const raced = await Promise.race([
+        settleQueries(client).then(() => "settled"),
+        new Promise((resolve) => setTimeout(() => resolve("timeout"), 200)),
+      ]);
+      expect(raced).toBe("settled");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
   it("tolerates a failing prefetch: it neither rejects nor reaches the client", async () => {
     const server = makeQueryClient();
 
@@ -94,5 +157,28 @@ describe("settleQueries", () => {
     const browser = makeQueryClient();
     hydrate(browser, dehydrate(server));
     expect(browser.getQueryState(["boom"])).toBeUndefined();
+  });
+});
+
+describe("dehydrateSettled", () => {
+  it("snapshots the cache only after its queries have settled", async () => {
+    const client = makeQueryClient();
+    const gate = deferred<string[]>();
+
+    void client.prefetchQuery({
+      queryKey: ["slow"],
+      queryFn: () => gate.promise,
+    });
+    setTimeout(() => gate.resolve(["milk"]), 10);
+
+    // What `HydrateClient` calls, in one function so it can be tested without
+    // standing up `server.tsx`'s import graph. Without the await inside, the
+    // payload comes back empty: nothing has settled, and a pending query is
+    // never dehydrated.
+    const state = await dehydrateSettled(client);
+
+    expect(state.queries).toHaveLength(1);
+    expect(state.queries[0]?.state.status).toBe("success");
+    expect(state.queries[0]).not.toHaveProperty("promise");
   });
 });

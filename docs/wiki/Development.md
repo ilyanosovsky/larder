@@ -933,7 +933,7 @@ tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The 
 | `src/trpc/query-client.ts`         | `makeQueryClient()` — shared defaults, superjson dehydrate/hydrate                 |
 | `src/trpc/client.tsx`              | `TRPCReactProvider` (mounted in the root layout), `useTRPC()`, the links           |
 | `src/trpc/server.tsx`              | `caller`, `trpc` options proxy, `prefetch`, `HydrateClient` (**awaits this request's prefetches, then dehydrates**) for server components |
-| `src/trpc/settle-queries.ts`       | `settleQueries()` — awaits the request-scoped cache's in-flight queries before it is snapshotted |
+| `src/trpc/settle-queries.ts`       | `settleQueries()` / `dehydrateSettled()` — awaits the request-scoped cache's in-flight queries, then snapshots it |
 
 ### Adding a router
 
@@ -1004,16 +1004,20 @@ The price is that a `HydrateClient` subtree does not render before its data: **i
 
 ### `loading.tsx` (the pending state of a prefetching route)
 
-Since `HydrateClient` awaits, a route that prefetches has nothing to show until its data is there — and on a client-side navigation the tab tap would otherwise sit on the old screen with no feedback at all. Every prefetching route therefore has a `loading.tsx`, and each one renders the **same skeleton component the screen itself renders** while a query is pending, so the shape does not jump when the data lands:
+Since `HydrateClient` awaits, a route that prefetches has nothing to show until its data is there — and on a client-side navigation the tab tap would otherwise sit on the old screen with no feedback at all. Every one of the five prefetching routes therefore has its own `loading.tsx`, and each renders the **same skeleton component the screen itself renders** while a query is pending, under the same static chrome that sits above it in the real tree (toolbar, segment control, search field), so nothing shifts when the data lands:
 
-| Route file                              | Fallback                                                              |
-| --------------------------------------- | --------------------------------------------------------------------- |
-| `src/app/(app)/loading.tsx`             | `CartSkeleton` — S3, the tab `PurchasesScreen` opens on               |
-| `src/app/(app)/dishes/loading.tsx`      | `LibrarySkeleton` — S6's grid of tiles                                 |
-| `src/app/(app)/dishes/[dishId]/loading.tsx` | `DishSkeleton` — S7's card                                        |
-| `src/app/(app)/settings/loading.tsx`    | S12's shell with each section's own «Загружаем …» line                |
+| Route file                                       | Fallback                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `src/app/(app)/(purchases)/loading.tsx`          | segment control + cart toolbar + `CartSkeleton` — S3, the tab `PurchasesScreen` opens on |
+| `src/app/(app)/dishes/loading.tsx`               | toolbar + search + tag row + `LibrarySkeleton` — S6's grid of tiles                |
+| `src/app/(app)/dishes/[dishId]/loading.tsx`      | `DishSkeleton` — S7's card, which is the whole screen                              |
+| `src/app/(app)/dishes/[dishId]/edit/loading.tsx` | S8.3's heading + a form-shaped shell                                               |
+| `src/app/(app)/settings/loading.tsx`             | S12's shell with each section's own «Загружаем …» line                             |
+| `src/app/(app)/dishes/new/loading.tsx`           | the same S8.3 shell — this route prefetches nothing, see below                      |
 
-The skeletons are exported from their screens for this (`cart-screen.tsx`, `dish-library-screen.tsx`, `dish-screen.tsx`) rather than copied. The group-level `src/app/(app)/loading.tsx` is also what `/menu` and `/assistant` inherit — they prefetch nothing, so it is at most a flash on a tab tap; give a new route its own `loading.tsx` when its shape differs.
+The skeletons are exported from their screens for this (`cart-screen.tsx`, `dish-library-screen.tsx`, `dish-screen.tsx`) rather than copied. Nothing inside a fallback is focusable: buttons and inputs become spans and empty boxes in the same CSS-module classes, because a control that does nothing has no business taking a tab stop.
+
+**A `loading.tsx` covers its whole segment, so scope it.** The fallback belongs to every child slot of the segment it sits in — a file directly under `(app)` would be what `/menu` and `/assistant` show on a tab tap, and the cart chunk would be listed in their client-reference manifests. Hence the `(purchases)` route group: it gives `/` a boundary of its own without changing the URL, and the two placeholder tabs keep their pre-existing behaviour (no data to wait for, no fallback, the previous screen stays through the transition). For the same reason `/dishes/new` has a `loading.tsx` although it prefetches nothing — without one it would inherit S6's tile grid for the length of the RSC round trip. When adding a route under an existing segment, check what it inherits.
 
 ### Errors
 
