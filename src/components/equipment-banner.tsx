@@ -41,15 +41,16 @@ import styles from "./equipment-banner.module.css";
  * .ts`), so a free-form profile entry — «мультиварка» typed into the "add
  * your own" field instead of a checked box — still counts.
  *
- * **The ✓/✗ list is `aria-hidden` once the missing state's own words carry
- * the same meaning.** Bare `✓`/`✗` glyphs are a fine *visual* cue (colour is
- * never their only differentiator — the mockup's covered state has no words
- * at all and stays announced, glyph included), but a screen reader would
- * otherwise read out symbol names in the middle of a Russian sentence. Once
- * `missingText` exists to say the same thing in words, the glyph line next
- * to it is redundant for anyone who cannot see it, so only the *missing*
- * branch hides it — the covered branch has no equivalent sentence and keeps
- * its glyph list the one thing announcing coverage.
+ * **The ✓/✗ list stays fully announced in both branches — it is never
+ * hidden from assistive tech.** It is the only place a screen reader learns
+ * the *complete* requirement list, covered items included; `missingText`
+ * adds a plain-words sentence naming what's absent, but only ever
+ * *alongside* that list, never in place of it — an earlier version of this
+ * component hid the whole line once `missingText` existed, which meant a
+ * screen reader could report what was missing but never confirm what was
+ * already covered. Bare `✓`/`✗` glyphs read aloud as symbol names mid
+ * sentence, which is not ideal, but that is a smaller cost than losing half
+ * the information.
  *
  * Presentational, like `QtyStepper` and `PortionsSlider`: every string
  * arrives already translated. `missingText` is the one exception — a small
@@ -149,10 +150,14 @@ export function EquipmentBanner({
     <div
       className={cx(styles.banner, covered ? styles.covered : styles.missing)}
     >
-      {/* Hidden from assistive tech only once the missing branch's own
-          `missingText` sentence exists to say the same thing in words — the
-          covered branch has no such sentence and keeps announcing its ✓s. */}
-      <span aria-hidden={covered ? undefined : "true"}>
+      {/* Always announced, both branches: it is the only place the FULL
+          requirement list — covered items included — reaches assistive
+          tech. Hiding it in the missing branch (an earlier version of this
+          component did) meant a screen reader could report what's missing
+          but never confirm what's already covered. `missingText` below adds
+          the words-based alternative to the bare ✓/✗ glyphs; it supplements
+          this line, it does not replace it. */}
+      <span>
         {needLabel} {list}
       </span>
 
