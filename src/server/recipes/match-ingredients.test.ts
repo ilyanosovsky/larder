@@ -165,6 +165,20 @@ describe("matchIngredients — the reference catalog", () => {
     ).toEqual(["catalog:Томаты"]);
   });
 
+  it("binds through the staple's own name when the query used an alias", () => {
+    // The household owns «Помидоры»; the recipe says «томат», which is the
+    // built-in entry's alias but not theirs. Step 1 cannot see the connection
+    // — it compares the query against their row — and the entry is what
+    // bridges the two spellings.
+    expect(
+      match(
+        ["томат"],
+        [product("Помидоры")],
+        [reference("Помидоры", ["томат"])],
+      ).map(shape),
+    ).toEqual(["catalog:Помидоры"]);
+  });
+
   it("binds the household's own row rather than minting the staple twice", () => {
     // «Картошка» owned, «Картофель» asked for. The unique index is on
     // `normalized_name`, so a second row would insert cleanly and the catalog
