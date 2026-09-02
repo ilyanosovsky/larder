@@ -11,6 +11,7 @@ import { useSheetOpener } from "@/components/use-sheet-opener";
 import { cx } from "@/lib/cx";
 import { portionsDisplay } from "@/lib/recipes/portions";
 import { formatRecipeQty, rescaleQty } from "@/lib/recipes/rescale";
+import { trpcErrorCode } from "@/lib/trpc-errors";
 import type {
   DishDetailOutput,
   DishIngredientOutput,
@@ -129,18 +130,25 @@ export function DishScreen({ dishId }: { dishId: string }) {
   }
 
   if (dish.isError) {
+    // A dish this household does not have is not a retryable failure — the
+    // only useful action is going back, so the screen does not offer a button
+    // that would fail identically every time it is pressed.
+    const missing = trpcErrorCode(dish.error) === "NOT_FOUND";
+
     return (
       <section className={styles.screen}>
         <BackLink label={t("back")} />
         <div className={styles.error} role="alert">
-          <p>{t("loadFailed")}</p>
-          <button
-            type="button"
-            className={styles.retryButton}
-            onClick={() => void dish.refetch()}
-          >
-            {t("retry")}
-          </button>
+          <p>{missing ? t("notFound") : t("loadFailed")}</p>
+          {missing ? null : (
+            <button
+              type="button"
+              className={styles.retryButton}
+              onClick={() => void dish.refetch()}
+            >
+              {t("retry")}
+            </button>
+          )}
         </div>
       </section>
     );
@@ -195,7 +203,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
           {detail.recipe.totalTimeMin === null
             ? null
             : `${t("time", { minutes: detail.recipe.totalTimeMin })} · `}
-          {t(`source${sourceKey(detail.sourceType)}`)}
+          {t(SOURCE_MESSAGE[detail.sourceType])}
         </span>
         {detail.sourceUrl === null ? null : (
           <a
@@ -388,10 +396,17 @@ function BackLink({ label }: { label: string }) {
   );
 }
 
-/** The four `dish.source*` message keys, from the stored enum. */
-function sourceKey(sourceType: DishDetailOutput["sourceType"]): string {
-  return sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
-}
+/**
+ * The stored enum → its message key, spelled out rather than derived from the
+ * value. A computed `t(`source${...}`)` would compile, would be invisible to a
+ * grep for the key, and would break silently the day a fifth source is added.
+ */
+const SOURCE_MESSAGE = {
+  photo: "sourcePhoto",
+  url: "sourceUrl",
+  text: "sourceText",
+  manual: "sourceManual",
+} as const satisfies Record<DishDetailOutput["sourceType"], string>;
 
 type Translate = ReturnType<typeof useTranslations<"dish">>;
 

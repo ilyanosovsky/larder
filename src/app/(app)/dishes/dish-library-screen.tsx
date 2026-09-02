@@ -8,6 +8,7 @@ import { DishCard } from "@/components/dish-card";
 import { useSheetOpener } from "@/components/use-sheet-opener";
 import { cx } from "@/lib/cx";
 import { collectTags, filterDishes } from "@/lib/recipes/filter-dishes";
+import { portionsDisplay } from "@/lib/recipes/portions";
 import type { DishListItemOutput } from "@/server/api/routers/dish";
 import { useTRPC } from "@/trpc/client";
 
@@ -93,30 +94,28 @@ export function DishLibraryScreen() {
     return parts.join(" · ");
   }
 
+  /**
+   * «8 порций» · «7–8 печений». The branch itself is `portionsDisplay`
+   * (pure, tested) — the same function S7 uses, so a card and the card it
+   * opens can never disagree about what a dish yields; only the message keys
+   * differ, because the two screens word it differently.
+   */
   function portionsLabel(dish: DishListItemOutput): string {
-    const hasRange =
-      dish.portionsMin !== null && dish.portionsMin < dish.portionsBase;
+    const display = portionsDisplay(dish);
 
-    if (hasRange && dish.yieldUnit !== null) {
-      return t("cardPortionsRangeUnit", {
-        from: dish.portionsMin ?? dish.portionsBase,
-        to: dish.portionsBase,
-        unit: dish.yieldUnit,
-      });
+    if (display.kind === "range") {
+      return display.unit === null
+        ? t("cardPortionsRange", { from: display.from, to: display.to })
+        : t("cardPortionsRangeUnit", {
+            from: display.from,
+            to: display.to,
+            unit: display.unit,
+          });
     }
-    if (hasRange) {
-      return t("cardPortionsRange", {
-        from: dish.portionsMin ?? dish.portionsBase,
-        to: dish.portionsBase,
-      });
-    }
-    if (dish.yieldUnit !== null) {
-      return t("cardPortionsUnit", {
-        count: dish.portionsBase,
-        unit: dish.yieldUnit,
-      });
-    }
-    return t("cardPortions", { count: dish.portionsBase });
+
+    return display.unit === null
+      ? t("cardPortions", { count: display.count })
+      : t("cardPortionsUnit", { count: display.count, unit: display.unit });
   }
 
   return (
@@ -213,6 +212,11 @@ export function DishLibraryScreen() {
           >
             {t("emptyAction")}
           </button>
+          {hint === null ? null : (
+            <p className={styles.hint} aria-hidden="true">
+              {hint.text}
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -241,15 +245,12 @@ export function DishLibraryScreen() {
       )}
 
       {/* Permanently mounted, keyed child — see `dish-source-sheet.tsx` and
-          S3/S5 for why both halves matter. */}
+          S3/S5 for why both halves matter. The visible copy of the same text
+          renders next to the control that produced it, inside the empty state
+          above; this one exists only for assistive tech. */}
       <p className={styles.srOnly} role="status">
         <span key={hint?.seq ?? "empty"}>{hint?.text ?? ""}</span>
       </p>
-      {hint === null ? null : (
-        <p className={styles.hint} aria-hidden="true">
-          {hint.text}
-        </p>
-      )}
 
       <DishSourceSheet
         open={sourceOpen}
