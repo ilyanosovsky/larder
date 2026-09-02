@@ -22,6 +22,15 @@
   padding-top: var(--s-6);
 }
 
+/* The «Архив блюд» section doubles as the fallback keyboard-focus target once
+   «Вернуть» removes the last archived row with no neighbour left to land on
+   (`dish-archive-section.tsx`) — programmatic only (`tabIndex` is set in the
+   component), so this only ever shows up right after such a move. */
+.section:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 2px;
+}
+
 .sectionTitle {
   margin-bottom: var(--s-5);
   color: var(--ink);

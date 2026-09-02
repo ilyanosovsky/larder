@@ -633,10 +633,14 @@ export const dishes = pgTable(
  * **Its own `id` primary key, not `PRIMARY KEY (dish_id)`.** Children carry
  * `recipe_id`, and a child column named `dish_id` whose foreign key actually
  * points at *this* table would be a trap for every hand-written join and for
- * phase 5. The unique index is where the 1:1 invariant has to live to survive
- * a race: two taps on «Сохранить блюдо» in the same tick must not mint two
- * recipes (the repo's rule — invariants that must survive a race live in the
- * database, tenant isolation lives at the app boundary).
+ * phase 5. `recipes_dishId_uidx` is where the 1:1 invariant lives, so that no
+ * writer can ever give one dish two recipes.
+ *
+ * It is **not** a guard against a double-tapped «Сохранить блюдо»: that path
+ * mints a fresh `dishes.id` first and inserts the recipe against it, so the
+ * index cannot fire and the second tap simply produces a second dish. Nothing
+ * in the schema deduplicates that — `normalized_title` is deliberately not
+ * unique — and the defence is the form's own synchronous ref lock (task 4.2).
  *
  * `ON DELETE cascade` from `dishes`, unlike the `restrict` used elsewhere: a
  * recipe has no meaning apart from its dish. Because dishes archive rather

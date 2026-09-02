@@ -562,10 +562,21 @@ export const dishRouter = createTRPCRouter({
    *    round trip inside an open transaction would pin a pooled Railway
    *    connection and row locks on a Vercel function.
    * 2. **Inside one transaction** — the dish, the recipe, and both child
-   *    tables, so a save is all or nothing. `recipes_dishId_uidx` is what
-   *    stops a double-tapped «Сохранить блюдо» from minting two recipes for
-   *    one dish; the screen's synchronous ref-lock is the first line of
-   *    defence, the index is the one that survives a race.
+   *    tables, so a save is all or nothing.
+   *
+   * **This procedure is not idempotent, and `recipes_dishId_uidx` does not
+   * make it so.** Every call mints a fresh `dishes.id`, and the recipe hangs
+   * off that brand-new id, so the unique index can never fire on this path —
+   * what it protects is the 1:1 shape against any future writer that inserts
+   * a second recipe for an *existing* dish. A duplicate submit therefore
+   * produces a second complete dish; the only planned defence is the
+   * synchronous ref lock on «Сохранить блюдо» (task 4.2), and `input.jobId`
+   * is recorded but never checked, so it is not an idempotency key either.
+   * Turning it into one — read `output_json->>'consumedDishId'` under `FOR
+   * UPDATE` and return the dish it names — is the option task 4.3 has when
+   * the import path makes a retry likely. Duplicate dishes break no
+   * invariant (`normalized_title` is deliberately not unique), which is why
+   * this is a known gap rather than a bug.
    * 3. **After the commit** — the aggregate is re-read and returned. Outside
    *    the transaction on purpose: it carries its own `version`, so reading a
    *    state a partner has already moved on from is not a lie, while holding

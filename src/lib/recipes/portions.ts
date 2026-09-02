@@ -103,3 +103,19 @@ export function portionsDisplay(recipe: PortionsSource): PortionsDisplay {
 
   return { kind: "single", count: recipe.portionsBase, unit: yieldUnit };
 }
+
+/**
+ * The yield noun the **ingredient list's** header should carry — «на 8
+ * печений» — or `null` when the recipe never stated one and next-intl's own
+ * «порций» applies.
+ *
+ * A separate, named answer rather than a field read off `portionsDisplay`,
+ * because the mistake it prevents is specific and was made once already:
+ * the header is stated for `portionsBase` whether or not the source gave a
+ * range, so it must branch on the **noun alone**. Branching on
+ * `display.kind` instead drops «печений» for exactly the recipes that state
+ * a range — leaving S7 saying «7–8 печений» two lines above «на 8 порций».
+ */
+export function ingredientsYieldUnit(recipe: PortionsSource): string | null {
+  return portionsDisplay(recipe).unit;
+}

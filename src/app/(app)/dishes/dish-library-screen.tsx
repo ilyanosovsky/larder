@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DishCard } from "@/components/dish-card";
 import { useSheetOpener } from "@/components/use-sheet-opener";
@@ -17,6 +17,16 @@ import styles from "./dish-library-screen.module.css";
 
 /** Enough tiles to fill the first screen while the real ones load. */
 const SKELETON_TILES = 4;
+
+/**
+ * How long the filter has to settle before "nothing matched" is announced.
+ *
+ * The grid itself re-filters on every keystroke — that is the point of
+ * client-side filtering — but a live region that fired per character would
+ * read a running commentary over the typing. Long enough to cover a pause,
+ * short enough that it still feels like an answer.
+ */
+const ANNOUNCE_DELAY_MS = 500;
 
 /**
  * S6 «Блюда» (DESIGN_BRIEF S6, VISION §3.3) — the household's recipe library
@@ -53,14 +63,61 @@ export function DishLibraryScreen() {
 
   const items = useMemo(() => dishes.data ?? [], [dishes.data]);
   const tags = useMemo(() => collectTags(items), [items]);
+
+  /**
+   * The tag actually applied — the selection reconciled against the tags the
+   * library still has.
+   *
+   * The chip row (including the «все» reset) only renders while some tag
+   * exists, so a background refetch that removes the library's *last* tag —
+   * a partner retagging or archiving the only tagged dish — would otherwise
+   * leave a selection applied with no control left to clear it: the grid
+   * filters to empty and «сними фильтр» names a chip that is not there.
+   * Deriving it costs nothing and removes the state rather than guarding it;
+   * an effect that reset the state would flash one empty frame first.
+   */
+  const activeTag = tag !== null && tags.includes(tag) ? tag : null;
+
   const visible = useMemo(
-    () => filterDishes(items, { query, tag }),
-    [items, query, tag],
+    () => filterDishes(items, { query, tag: activeTag }),
+    [items, query, activeTag],
   );
+
+  /**
+   * Filtering the grid to nothing is a result, and a screen reader has to be
+   * told it — the visible «Ничего не нашлось» is a paragraph that mounts with
+   * its own text, which is precisely the pattern this codebase documents as
+   * unreliable (cart-screen.tsx). It goes through the permanently mounted
+   * region below instead.
+   *
+   * The effect depends on the *outcome*, not on the query, so a run of
+   * keystrokes that stays empty announces once; going back to results and
+   * empty again announces again, which is the honest reading of what
+   * happened. The message text is read from a ref so re-rendering never
+   * restarts the timer.
+   */
+  const nothingFoundText = t("nothingFound");
+  const nothingFoundTextRef = useRef(nothingFoundText);
+  useEffect(() => {
+    nothingFoundTextRef.current = nothingFoundText;
+  });
 
   const hasList = dishes.data !== undefined;
   const isEmpty = hasList && items.length === 0;
   const nothingFound = hasList && items.length > 0 && visible.length === 0;
+
+  useEffect(() => {
+    if (!nothingFound) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      hintSeq.current += 1;
+      setHint({ text: nothingFoundTextRef.current, seq: hintSeq.current });
+    }, ANNOUNCE_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [nothingFound]);
 
   /**
    * The empty state's «📷 С фото» leads to `/dishes/import?src=photo`, which
@@ -71,6 +128,7 @@ export function DishLibraryScreen() {
     hintSeq.current += 1;
     setHint({ text: t("soonHint", { action }), seq: hintSeq.current });
   }
+
 
   /**
    * «30 мин · 8 порций · выпечка, духовка» (DESIGN_BRIEF §3): whichever of
@@ -161,8 +219,8 @@ export function DishLibraryScreen() {
             >
               <button
                 type="button"
-                className={cx(styles.tag, tag === null && styles.tagActive)}
-                aria-pressed={tag === null}
+                className={cx(styles.tag, activeTag === null && styles.tagActive)}
+                aria-pressed={activeTag === null}
                 onClick={() => setTag(null)}
               >
                 {t("tagAll")}
@@ -171,9 +229,9 @@ export function DishLibraryScreen() {
                 <button
                   key={value}
                   type="button"
-                  className={cx(styles.tag, tag === value && styles.tagActive)}
-                  aria-pressed={tag === value}
-                  onClick={() => setTag(tag === value ? null : value)}
+                  className={cx(styles.tag, activeTag === value && styles.tagActive)}
+                  aria-pressed={activeTag === value}
+                  onClick={() => setTag(activeTag === value ? null : value)}
                 >
                   {value}
                 </button>

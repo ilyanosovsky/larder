@@ -188,9 +188,19 @@ function compileWithParams(clause: unknown): {
  * The tenancy guard (VISION §6.7). Local to this file on purpose — every
  * router test carries its own copy (see `pantry.test.ts`), so a shared helper
  * cannot be quietly weakened for all of them at once.
+ *
+ * **The bound value is asserted, not only the column name.** A predicate that
+ * mentions `household_id` while binding the wrong in-scope string — a recipe
+ * id, a dish id — compiles to text this assertion would otherwise accept, and
+ * that is exactly the shape a bad refactor takes.
  */
-function expectScopedByHousehold(statement: RecordedStatement | undefined) {
-  expect(compile(statement?.wheres[0])).toContain('"household_id"');
+function expectScopedByHousehold(
+  statement: RecordedStatement | undefined,
+  householdId: string = HOUSEHOLD_ID,
+) {
+  const compiled = compileWithParams(statement?.wheres[0]);
+  expect(compiled.sql).toContain('"household_id"');
+  expect(compiled.params).toContain(householdId);
 }
 
 describe("dish.list", () => {
@@ -278,8 +288,16 @@ describe("dish.list", () => {
 
     const statement = stub.statements[1];
     const fields = statement?.fields as Record<string, unknown>;
-    expect(compile(fields.ingredientCount)).toContain("count(");
-    expect(compile(fields.needsReviewCount)).toContain("filter (where");
+    // The exact text, not a substring: under the LEFT JOIN a `count(*)` would
+    // report 1 for a dish with no ingredients at all, and a `needs_review` →
+    // `is_optional` slip would put S6's amber dot on the wrong cards. Both
+    // mutants compile and pass every other assertion in this file.
+    expect(compile(fields.ingredientCount)).toBe(
+      'count("recipe_ingredients"."id")::int',
+    );
+    expect(compile(fields.needsReviewCount)).toBe(
+      'count(*) filter (where "recipe_ingredients"."needs_review")::int',
+    );
     expect(compile(statement?.groupBys[0])).toBe('"dishes"."id"');
     expect(compile(statement?.groupBys[1])).toBe('"recipes"."id"');
   });
@@ -742,6 +760,56 @@ describe("dish.create", () => {
     expect(stub.statements.every((s) => s.kind === "select")).toBe(true);
   });
 
+  it("refuses a mixed draft where only one of two bound ids comes back", async () => {
+    // The set-size comparison, not "did anything come back": one id belongs
+    // to this household and one does not, and the save must still be refused.
+    const { caller, stub } = callerWith([[membershipRow], [{ id: PRODUCT_ID }]]);
+
+    await expect(
+      caller.dish.create({
+        draft: draft({
+          ingredients: [
+            ingredient({ productId: PRODUCT_ID }),
+            ingredient({ productId: OTHER_PRODUCT_ID }),
+          ],
+        }),
+        originalDraft: null,
+        jobId: null,
+      }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+
+    expect(stub.statements).toHaveLength(2);
+    expect(stub.statements.every((s) => s.kind === "select")).toBe(true);
+  });
+
+  it("accepts two rows bound to the same product", async () => {
+    // «Молоко в тесто» + «молоко в глазурь» is a real recipe. Without the
+    // dedupe the check compares two requested ids against one catalog row and
+    // rejects a perfectly legal save.
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ id: PRODUCT_ID }],
+      [{ id: DISH_ID }],
+      [{ id: RECIPE_ID }],
+      [],
+      [],
+      ...detailResults(),
+    ]);
+
+    await expect(
+      caller.dish.create({
+        draft: draft({
+          ingredients: [
+            ingredient({ productId: PRODUCT_ID }),
+            ingredient({ productId: PRODUCT_ID }),
+          ],
+        }),
+        originalDraft: null,
+        jobId: null,
+      }),
+    ).resolves.toBeDefined();
+  });
+
   it("skips the catalog check when every row is unbound", async () => {
     const { caller, stub } = callerWith([
       ...CREATE_PREAMBLE,
@@ -889,6 +957,46 @@ describe("dish.update", () => {
     );
     // Refused on the read; nothing was written.
     expect(stub.statements.every((s) => s.kind === "select")).toBe(true);
+  });
+
+  it("rewrites normalized_title alongside every other column it owns", async () => {
+    const { caller, stub } = callerWith([
+      ...UPDATE_PREAMBLE,
+      ...detailResults(),
+    ]);
+
+    await caller.dish.update(updateInput({ title: "  Тёплый  Салат " }));
+
+    // A title whose canonical form differs visibly from the input, so the
+    // assertion cannot pass by echoing. A stale `normalized_title` silently
+    // breaks `dishes_householdId_normalizedTitle_idx` — the seed's own
+    // idempotency check today, the assistant's dish lookup in task 6.1.
+    expect(stub.statements[3]?.values).toMatchObject({
+      title: "Тёплый  Салат",
+      normalizedTitle: "теплый салат",
+      photoUrl: null,
+      photoKey: null,
+      tags: ["выпечка"],
+      sourceType: "photo",
+      sourceUrl: null,
+    });
+  });
+
+  it("looks the recipe up scoped by dish AND household", async () => {
+    const { caller, stub } = callerWith([
+      ...UPDATE_PREAMBLE,
+      ...detailResults(),
+    ]);
+
+    await caller.dish.update(updateInput());
+
+    const lookup = stub.statements[2];
+    expect(lookup?.table).toBe("recipes");
+    expectScopedByHousehold(lookup);
+    expect(compileWithParams(lookup?.wheres[0]).params).toEqual([
+      DISH_ID,
+      HOUSEHOLD_ID,
+    ]);
   });
 
   it("bumps the version by exactly one", async () => {

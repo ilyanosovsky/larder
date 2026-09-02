@@ -17,12 +17,20 @@ describe("rescaleQty", () => {
     expect(rescaleQty(285, 4, 8)).toBe(142.5);
   });
 
-  it("is an identity at the base portion count, with no float drift", () => {
-    // The reason the early return exists: (285 * 3) / 3 is not 285 in
-    // binary floating point for every base, and S7 opens on exactly this case.
+  it("is an identity at the base portion count", () => {
     for (const base of [1, 3, 7, 8, 9, 12]) {
       expect(rescaleQty(285, base, base)).toBe(285);
     }
+  });
+
+  it("returns the caller's exact value at the base, not a rounded one", () => {
+    // The assertion that actually pins the early return. Every quantity the
+    // column can hold survives the arithmetic path too, so only a value from
+    // outside the storage scale can tell the two apart: without the guard
+    // 0.30000000000000004 comes back as 0.3.
+    const unrounded = 0.1 + 0.2;
+
+    expect(Object.is(rescaleQty(unrounded, 8, 8), unrounded)).toBe(true);
   });
 
   it("rounds to the storage scale the cart shares", () => {

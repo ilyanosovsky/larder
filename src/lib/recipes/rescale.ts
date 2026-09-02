@@ -41,9 +41,13 @@ const NO_QUANTITY = "—";
 /**
  * The stated quantity, rescaled from `base` portions to `portions`.
  *
- * `portions === base` is an **identity**, returned before any arithmetic:
- * S7 opens on `portionsBase`, and multiplying then dividing by the same
- * number would drift 285 into 284.99999999999994 for no reason at all.
+ * `portions === base` returns the caller's own value untouched, before any
+ * arithmetic. At the storage scale this is only a fast path — `roundQty`
+ * erases every difference `(qty * base) / base` could introduce for an
+ * integer `portions_base` — but it is a real guarantee outside it: a value
+ * that never came from the column (0.1 + 0.2, say) comes back bit-identical
+ * rather than rounded to three decimals. S7 opens on `portionsBase`, so this
+ * is the path every unmoved slider takes.
  *
  * Rounded with the cart's own `roundQty`, so the number the slider shows is a
  * number `numeric(10, 3)` can hold and phase 5.2 can sum without rounding it

@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 import { recipeUnitSchema } from "@/lib/units";
-import { normalizeTags } from "@/lib/recipes/tags";
+import {
+  MAX_TAG_LENGTH,
+  MAX_TAGS,
+  normalizeTags,
+} from "@/lib/recipes/tags";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
@@ -63,8 +67,6 @@ const MAX_STEP_TEXT = 2000;
 const MAX_INGREDIENTS = 60;
 const MAX_STEPS = 60;
 const MAX_EQUIPMENT = 12;
-const MAX_TAGS_IN_DRAFT = 12;
-const MAX_TAG_LENGTH = 24;
 /** «печений», «шт» — the source's own yield noun, not a sentence. */
 const MAX_YIELD_UNIT = 24;
 /** A day. Longer than any countdown a step can honestly ask a cook to wait. */
@@ -136,7 +138,13 @@ export const recipeDraftSchema = z
     photoUrl: httpUrl(500).nullable(),
     /** The UploadThing file key — the only handle that can delete the blob. */
     photoKey: z.string().trim().max(200).nullable(),
-    tags: z.array(z.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS_IN_DRAFT),
+    /**
+     * The caps come from `tags.ts`, not from literals repeated here: the
+     * client normalizes with `normalizeTags` and the server validates with
+     * this schema, so two numbers that drifted apart would reject a payload
+     * the form itself had just produced.
+     */
+    tags: z.array(z.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
     sourceType: dishSourceTypeSchema,
     sourceUrl: httpUrl(2000).nullable(),
     /**

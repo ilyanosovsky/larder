@@ -392,16 +392,21 @@ async function seedDishes(db: Database): Promise<number> {
 }
 
 /**
- * Loads the same env files `drizzle.config.ts` does, and in the same order.
+ * Loads the same env files `drizzle.config.ts` does, with the same effective
+ * precedence — which is why `.env` is read **first**, not last.
  *
  * Unlike drizzle-kit, plain `tsx` preloads nothing, so without this the
  * documented `pnpm db:seed` only worked with `DATABASE_URL` exported into the
- * shell. `loadEnvFile` never overrides a variable that is already set, so the
- * precedence stays: shell environment beats `.env.local` beats `.env` — the
- * same rule, so the two commands cannot end up pointed at different databases.
+ * shell. `process.loadEnvFile` never overrides a variable that is already
+ * set, so whichever file is read first wins — and drizzle-kit's own bundled
+ * dotenv preloads `.env` before `drizzle.config.ts` ever runs (see the note
+ * there). Reading `.env` first here reproduces that exactly: shell beats
+ * `.env` beats `.env.local`, in both commands. The reverse order would let
+ * `pnpm db:seed --dishes` populate one local database while `pnpm db:migrate`
+ * migrated another.
  */
 function loadEnvFiles(): void {
-  for (const file of [".env.local", ".env"]) {
+  for (const file of [".env", ".env.local"]) {
     if (existsSync(file)) {
       process.loadEnvFile(file);
     }

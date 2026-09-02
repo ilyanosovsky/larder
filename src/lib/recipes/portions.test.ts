@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePortions, portionsDisplay } from "./portions";
+import {
+  ingredientsYieldUnit,
+  parsePortions,
+  portionsDisplay,
+} from "./portions";
 
 describe("parsePortions", () => {
   it("reads a bare number", () => {
@@ -85,5 +89,46 @@ describe("portionsDisplay", () => {
     expect(
       portionsDisplay({ portionsBase: 8, portionsMin: null, yieldUnit: " шт " }),
     ).toEqual({ kind: "single", count: 8, unit: "шт" });
+  });
+});
+
+describe("ingredientsYieldUnit", () => {
+  it("keeps the stored noun for a ranged yield — the S7 regression", () => {
+    // «7–8 печений» above the list, so the list itself must say «на 8
+    // печений», never «на 8 порций».
+    expect(
+      ingredientsYieldUnit({
+        portionsBase: 8,
+        portionsMin: 7,
+        yieldUnit: "печений",
+      }),
+    ).toBe("печений");
+  });
+
+  it("keeps it for a single yield too", () => {
+    expect(
+      ingredientsYieldUnit({
+        portionsBase: 8,
+        portionsMin: null,
+        yieldUnit: "печений",
+      }),
+    ).toBe("печений");
+  });
+
+  it("is null when the source stated no noun — next-intl says «порций»", () => {
+    expect(
+      ingredientsYieldUnit({
+        portionsBase: 8,
+        portionsMin: 7,
+        yieldUnit: null,
+      }),
+    ).toBeNull();
+    expect(
+      ingredientsYieldUnit({
+        portionsBase: 2,
+        portionsMin: null,
+        yieldUnit: "  ",
+      }),
+    ).toBeNull();
   });
 });

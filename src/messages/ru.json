@@ -45,7 +45,8 @@
     "dishArchiveRestore": "Вернуть",
     "dishArchiveRestoreAria": "Вернуть «{title}» в библиотеку",
     "dishArchiveRestored": "«{title}» снова в библиотеке",
-    "dishArchiveError": "Не получилось вернуть блюдо. Попробуй ещё раз."
+    "dishArchiveError": "Не получилось вернуть блюдо. Попробуй ещё раз.",
+    "dishArchiveConflict": "Блюдо изменили — обновили список."
   },
   "cart": {
     "title": "Корзина",
@@ -163,7 +164,7 @@
     "cardTime": "{minutes} мин",
     "cardPortions": "{count, plural, one {# порция} few {# порции} many {# порций} other {# порции}}",
     "cardPortionsUnit": "{count} {unit}",
-    "cardPortionsRange": "{from}–{to} порций",
+    "cardPortionsRange": "{from}–{to, plural, one {# порция} few {# порции} many {# порций} other {# порции}}",
     "cardPortionsRangeUnit": "{from}–{to} {unit}",
     "cardNeedsReview": "{count, plural, one {# позицию нужно уточнить} few {# позиции нужно уточнить} many {# позиций нужно уточнить} other {# позиции нужно уточнить}}",
     "cardPhotoAlt": "Фото блюда «{title}»",
@@ -193,7 +194,7 @@
     "portionsLabel": "Порции",
     "portions": "{count, plural, one {# порция} few {# порции} many {# порций} other {# порции}}",
     "portionsUnit": "{count} {unit}",
-    "portionsRange": "{from}–{to} порций",
+    "portionsRange": "{from}–{to, plural, one {# порция} few {# порции} many {# порций} other {# порции}}",
     "portionsRangeUnit": "{from}–{to} {unit}",
     "adaptedTitle": "Адаптировано",
     "ingredientsTitle": "Ингредиенты",
@@ -207,6 +208,8 @@
     "stepsEmpty": "Шагов пока нет — рецепт сохранён списком ингредиентов.",
     "timer": "{minutes} мин",
     "timerRange": "{from}–{to} мин",
+    "timerSeconds": "{seconds} сек",
+    "timerSecondsRange": "{from}–{to} сек",
     "toMenu": "В меню недели",
     "toCart": "Ингредиенты в корзину",
     "cook": "Готовить",
@@ -220,9 +223,13 @@
     "archiveConfirmPending": "Убираем…",
     "archiveError": "Не получилось убрать в архив. Попробуй ещё раз.",
     "archivedBanner": "Блюдо в архиве",
+    "archivedAnnounce": "Блюдо убрано в архив",
     "undo": "Вернуть",
     "undoPending": "Возвращаем…",
-    "undoError": "Не получилось вернуть блюдо. Попробуй ещё раз."
+    "undoError": "Не получилось вернуть блюдо. Попробуй ещё раз.",
+    "undoDone": "Блюдо снова в библиотеке",
+    "conflict": "Блюдо изменили — обновили карточку, посмотри ещё раз",
+    "offline": "Нет связи — изменения не сохранятся. Попробуй, когда сеть вернётся."
   },
   "autocomplete": {
     "title": "Что купить?",
