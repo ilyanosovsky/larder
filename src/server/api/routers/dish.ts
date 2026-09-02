@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   aiJobs,
+  categories,
   dishes,
   pantryItems,
   products,
@@ -17,17 +18,40 @@ import {
   recipeDraftSchema,
   type RecipeDraft,
 } from "@/lib/recipes/draft";
-import { recipeUnitSchema, type RecipeUnit } from "@/lib/units";
+import { recipeUnitSchema, type Unit, type RecipeUnit } from "@/lib/units";
+import { enrichProducts } from "@/server/ai/enrich-products";
+import { formatCostUsd } from "@/server/ai/pricing";
+import { aiRateLimitDecision } from "@/server/ai/rate-limit-guard";
 import {
   createTRPCRouter,
   householdProcedure,
   type TRPCContext,
 } from "@/server/api/trpc";
-import { productOutput } from "@/server/api/routers/product";
+import {
+  FALLBACK_ICON,
+  FALLBACK_UNIT,
+  findExistingProduct,
+  productColumns,
+  productOutput,
+  toProductOutput,
+  type ProductOutput,
+} from "@/server/api/routers/product";
+import { normalizeProductName } from "@/server/catalog/normalize";
+import {
+  fallbackCategoryId,
+  type HouseholdCategory,
+} from "@/server/catalog/resolve-category";
+import type { CatalogProduct } from "@/server/catalog/search";
+import { isUniqueViolation } from "@/server/db-errors";
 import { normalizeDishTitle } from "@/server/dishes/normalize";
+import {
+  isUsableProductName,
+  matchIngredients,
+} from "@/server/recipes/match-ingredients";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
 
 type Database = TRPCContext["db"];
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
  * A dish library row as S6 renders it (DESIGN_BRIEF S6): the card's photo,
@@ -126,17 +150,25 @@ export const createDishInput = z.object({
   jobId: z.uuid().nullable(),
 });
 
-export const createDishOutput = z.object({
+/**
+ * What both `create` and `update` answer — the same three facts, because the
+ * S8.3 form asks the same question either way: what did I just save, what did
+ * it cost the catalog, and does anything need a second look.
+ */
+export const saveDishOutput = z.object({
   dish: dishDetailOutput,
   /**
-   * Products minted from unbound ingredient rows, for the toast «Создано N
-   * новых продуктов». **Always empty in task 4.1**, which saves unbound rows
-   * as the honest «новый» state and creates nothing: resolution — reference
-   * catalog first, then one batched enrichment call — is task 4.2, and it
-   * fills these two fields without changing the shape S8.3 renders.
+   * Products minted from unbound ingredient rows, for the form's «Создано N
+   * новых продуктов». A reference-catalog hit and an AI-enriched name both
+   * land here — from the household's point of view they are the same event.
    */
   createdProducts: z.array(productOutput),
-  /** Batch enrichment degraded to fallbacks; `false` until task 4.2. */
+  /**
+   * At least one of those products was created with fallback values: the
+   * batched enrichment was refused by the rate limiter, failed outright, or
+   * skipped that name. The dish is saved either way — the form only says
+   * «проверь новые продукты».
+   */
   aiFailed: z.boolean(),
 });
 
@@ -418,11 +450,397 @@ async function assertProductsOwned(
   }
 }
 
+/**
+ * The slice of a `householdProcedure` context a save actually uses. Named
+ * structurally rather than as an intersection of `TRPCContext` so the helpers
+ * below can be called from a test with a plain object if that ever helps.
+ */
+interface SaveContext {
+  db: Database;
+  openai: TRPCContext["openai"];
+  user: { id: string };
+  household: { id: string };
+}
+
+/** One product a save is about to mint, and the draft rows that bind to it. */
+interface PendingProduct {
+  readonly values: {
+    name: string;
+    icon: string;
+    categoryId: string;
+    defaultUnit: Unit;
+    aliases: string[];
+  };
+  /** Indexes into `draft.ingredients` — two rows may name one product. */
+  readonly rowIndexes: number[];
+}
+
+interface ResolvedDraft {
+  /** `productId` per draft ingredient index; `null` = saved unbound. */
+  readonly bound: (string | null)[];
+  /** To be inserted inside the transaction, each in its own savepoint. */
+  readonly pending: PendingProduct[];
+  /** At least one pending product carries fallback values. */
+  readonly aiFailed: boolean;
+}
+
+/** The household's own catalog, as the matcher needs it. */
+async function loadCatalog(
+  db: Database,
+  householdId: string,
+): Promise<CatalogProduct[]> {
+  const rows = await db
+    .select(productColumns)
+    .from(products)
+    .where(eq(products.householdId, householdId));
+
+  return rows.map((row) => toProductOutput(row));
+}
+
+/** The caller's departments, in walking order — the enrichment's choice set. */
+function loadCategories(db: Database, householdId: string) {
+  return db
+    .select({
+      id: categories.id,
+      name: categories.name,
+      sortOrder: categories.sortOrder,
+    })
+    .from(categories)
+    .where(eq(categories.householdId, householdId))
+    .orderBy(asc(categories.sortOrder));
+}
+
+/**
+ * Turns every unbound ingredient row into either a catalog id or a product
+ * the transaction is about to create — **outside any transaction** (D3).
+ *
+ * The order is the whole design, cheapest first:
+ *
+ * 1. Rows that already carry a `productId`, and rows whose name could never be
+ *    a product (`isUsableProductName`), are skipped outright. A bad parse must
+ *    not mint «(см. шаг 3)» as a permanent, `RESTRICT`-referenced catalog row.
+ * 2. The remaining names are **deduplicated by normalized name** before
+ *    anything is looked up: «мука» twice in one recipe is one product, one
+ *    match and one enrichment slot.
+ * 3. `matchIngredients` — the household's own catalog, then the built-in
+ *    reference list. Both are free and deterministic.
+ * 4. Whatever is left goes into **one** batched `enrichProducts` call, behind
+ *    the rate limiter and with its own `ai_jobs` row. A refusal or a failure
+ *    does not fail the save: the products are created with fallbacks and
+ *    `aiFailed` comes back so the form can say «проверь новые продукты».
+ *    Losing a recipe someone just spent a minute reviewing, to save a
+ *    fraction of a cent, is the wrong trade.
+ *
+ * **Nothing here runs inside `ctx.db.transaction`**, and that is asserted in
+ * the tests as `txDepth === 0`: a 15–40 s OpenAI round trip inside an open
+ * transaction would pin a pooled Railway connection and its row locks for the
+ * whole call, on a function with a hard duration ceiling.
+ */
+async function resolveIngredientProducts(
+  ctx: SaveContext,
+  draft: RecipeDraft,
+): Promise<ResolvedDraft> {
+  const householdId = ctx.household.id;
+  const bound = draft.ingredients.map((row) => row.productId);
+
+  /** normalized name → the draft rows that want it. */
+  const wanted = new Map<string, { name: string; rowIndexes: number[] }>();
+
+  draft.ingredients.forEach((row, index) => {
+    if (row.productId !== null || !isUsableProductName(row.name)) {
+      return;
+    }
+    const key = normalizeProductName(row.name);
+    const existing = wanted.get(key);
+    if (existing) {
+      existing.rowIndexes.push(index);
+    } else {
+      wanted.set(key, { name: row.name, rowIndexes: [index] });
+    }
+  });
+
+  if (wanted.size === 0) {
+    // Nothing to resolve — an edit that only reordered steps costs no reads
+    // at all, and `unusableOpenai` in the tests proves no AI call is made.
+    return { bound, pending: [], aiFailed: false };
+  }
+
+  const catalog = await loadCatalog(ctx.db, householdId);
+  const householdCategories = await loadCategories(ctx.db, householdId);
+  const firstCategory = householdCategories[0];
+
+  if (!firstCategory) {
+    // A household with no departments cannot hold a product at all (in
+    // practice impossible — `household.create` seeds seven in the same
+    // transaction as the membership). The rows stay unbound, which is a
+    // first-class state, rather than the save failing over it.
+    return { bound, pending: [], aiFailed: false };
+  }
+
+  const targets = [...wanted.values()];
+  const matches = matchIngredients({
+    names: targets.map((target) => target.name),
+    products: catalog,
+    categories: householdCategories,
+  });
+
+  const pending: PendingProduct[] = [];
+  const unknown: number[] = [];
+
+  matches.forEach((match, at) => {
+    const target = targets[at];
+    if (!target) {
+      return;
+    }
+
+    if (match.kind === "catalog") {
+      for (const index of target.rowIndexes) {
+        bound[index] = match.product.id;
+      }
+      return;
+    }
+
+    if (match.kind === "reference") {
+      pending.push({
+        values: {
+          // The reference entry's own capitalization and aliases, not the
+          // recipe's wording: «мука» becomes «Мука», and «томаты» will find
+          // it later — exactly what `product.create`'s reference path does.
+          name: match.ref.name,
+          icon: match.ref.icon,
+          categoryId: match.categoryId,
+          defaultUnit: match.ref.unit,
+          aliases: [...match.ref.aliases],
+        },
+        rowIndexes: target.rowIndexes,
+      });
+      return;
+    }
+
+    unknown.push(at);
+  });
+
+  if (unknown.length === 0) {
+    return { bound, pending, aiFailed: false };
+  }
+
+  const unknownNames = unknown.map((at) => targets[at]?.name ?? "");
+  const enrichment = await enrichUnknownProducts(
+    ctx,
+    unknownNames,
+    householdCategories,
+  );
+
+  const fallbackId = fallbackCategoryId(householdCategories) ?? firstCategory.id;
+  let aiFailed = enrichment === null;
+
+  unknown.forEach((at, position) => {
+    const target = targets[at];
+    if (!target) {
+      return;
+    }
+
+    const value = enrichment?.values[position] ?? null;
+    if (value === null) {
+      aiFailed = true;
+    }
+
+    pending.push({
+      values: {
+        name: target.name,
+        icon: value?.icon ?? FALLBACK_ICON,
+        categoryId: value?.categoryId ?? fallbackId,
+        defaultUnit: value?.unit ?? FALLBACK_UNIT,
+        aliases: [],
+      },
+      rowIndexes: target.rowIndexes,
+    });
+  });
+
+  return { bound, pending, aiFailed };
+}
+
+/**
+ * The one paid step of a save: rate limit, `ai_jobs` row, batched call,
+ * `ai_jobs` row closed with its cost. `null` means the call never happened.
+ *
+ * The job row is written **before** the call, not after: it is what the rate
+ * limiter counts, so a burst still in flight already counts against the
+ * window. The cost is recorded on the failure branch too — a response that
+ * came back and then failed validation was billed all the same, and a ledger
+ * that only counts successes under-reports exactly when things go wrong.
+ */
+async function enrichUnknownProducts(
+  ctx: SaveContext,
+  names: readonly string[],
+  householdCategories: readonly HouseholdCategory[],
+): Promise<Awaited<ReturnType<typeof enrichProducts>> | null> {
+  const decision = await aiRateLimitDecision(ctx.db, ctx.user.id);
+
+  if (!decision.allowed) {
+    // Refused, not thrown: `product.create` can afford to say «попробуй через
+    // минуту» because retrying costs the user one tap. Here the user is
+    // holding a whole reviewed recipe.
+    return null;
+  }
+
+  const [job] = await ctx.db
+    .insert(aiJobs)
+    .values({
+      householdId: ctx.household.id,
+      userId: ctx.user.id,
+      type: "product_enrich",
+      status: "running",
+      inputRef: names.join(", ").slice(0, INPUT_REF_MAX),
+    })
+    .returning({ id: aiJobs.id });
+
+  let result: Awaited<ReturnType<typeof enrichProducts>>;
+  try {
+    result = await enrichProducts({
+      client: ctx.openai(),
+      names,
+      categories: householdCategories,
+    });
+  } catch (error) {
+    // `enrichProducts` itself never throws; this catches `ctx.openai()`
+    // failing to build a client at all — a malformed OPENAI_API_KEY, say.
+    result = {
+      values: names.map(() => null),
+      error: error instanceof Error ? error.message : String(error),
+      usage: null,
+      costUsd: 0,
+    };
+  }
+
+  if (job) {
+    await ctx.db
+      .update(aiJobs)
+      .set(
+        result.error === null
+          ? {
+              status: "done",
+              outputJson: { values: result.values },
+              costUsd: formatCostUsd(result.costUsd),
+              finishedAt: sql`now()`,
+            }
+          : {
+              status: "error",
+              error: result.error,
+              costUsd: formatCostUsd(result.costUsd),
+              finishedAt: sql`now()`,
+            },
+      )
+      .where(
+        and(eq(aiJobs.id, job.id), eq(aiJobs.householdId, ctx.household.id)),
+      );
+  }
+
+  return result;
+}
+
+/** Longest name list `ai_jobs.input_ref` carries for one batched enrichment. */
+const INPUT_REF_MAX = 500;
+
+/**
+ * Inserts one catalog product **inside a savepoint**, or reads back the row
+ * that beat us to it.
+ *
+ * The savepoint is not decoration (D14, and the lesson `cart.ts`'s
+ * `insertActiveItem` already encodes): in Postgres a 23505 aborts the *whole*
+ * enclosing transaction, so catching it without one would leave every
+ * following statement — the dish, the recipe, both child tables — failing
+ * with 25P02, and the recovery read would never reach the winner's row.
+ *
+ * `created` distinguishes "we minted it" from "someone else already had it",
+ * so the form's «Создано N новых продуктов» counts what actually appeared in
+ * the catalog rather than what this save happened to look up.
+ */
+async function insertCatalogProduct(
+  tx: Transaction,
+  values: {
+    householdId: string;
+    createdBy: string;
+    name: string;
+    icon: string;
+    categoryId: string;
+    defaultUnit: Unit;
+    aliases: string[];
+  },
+): Promise<{ product: ProductOutput; created: boolean }> {
+  try {
+    const [inserted] = await tx.transaction((savepoint) =>
+      savepoint
+        .insert(products)
+        .values({
+          ...values,
+          // Derived here, never by the caller: `name` and `normalized_name`
+          // are one value in two forms, and the unique index is built on the
+          // second one.
+          normalizedName: normalizeProductName(values.name),
+        })
+        .returning(productColumns),
+    );
+
+    if (inserted) {
+      return { product: toProductOutput(inserted), created: true };
+    }
+  } catch (error) {
+    if (!isUniqueViolation(error)) {
+      throw error;
+    }
+  }
+
+  const existing = await findExistingProduct(tx, values.householdId, values.name);
+  if (existing) {
+    return { product: existing, created: false };
+  }
+
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: "Product insert returned no row",
+  });
+}
+
+/**
+ * Creates every pending product and fills the bindings the ingredient rows
+ * are about to be written with. Sequential on purpose: each insert owns a
+ * savepoint, and a concurrent pair inside one transaction has no meaning.
+ */
+async function createPendingProducts(
+  tx: Transaction,
+  householdId: string,
+  userId: string,
+  resolved: ResolvedDraft,
+  bound: (string | null)[],
+): Promise<ProductOutput[]> {
+  const created: ProductOutput[] = [];
+
+  for (const item of resolved.pending) {
+    const outcome = await insertCatalogProduct(tx, {
+      householdId,
+      createdBy: userId,
+      ...item.values,
+    });
+
+    for (const index of item.rowIndexes) {
+      bound[index] = outcome.product.id;
+    }
+
+    if (outcome.created) {
+      created.push(outcome.product);
+    }
+  }
+
+  return created;
+}
+
 /** The children of a saved recipe, with freshly minted `0..n-1` orders. */
 function childRows(
   householdId: string,
   recipeId: string,
   draft: RecipeDraft,
+  bound: readonly (string | null)[],
 ): {
   ingredients: (typeof recipeIngredients.$inferInsert)[];
   steps: (typeof recipeSteps.$inferInsert)[];
@@ -431,7 +849,10 @@ function childRows(
     ingredients: draft.ingredients.map((row, index) => ({
       householdId,
       recipeId,
-      productId: row.productId,
+      // The resolved binding, not the one that came off the wire: the client
+      // may only ever say «this is product X» or «I don't know», and the
+      // second answer is the server's to fill in.
+      productId: bound[index] ?? null,
       rawText: row.rawText,
       name: row.name,
       qty: row.qty,
@@ -557,11 +978,13 @@ export const dishRouter = createTRPCRouter({
    * The order is the whole design (blueprint §3.7):
    *
    * 1. **Outside any transaction** — every client-sent `productId` is checked
-   *    against this household's catalog. From task 4.2 the unbound rows are
-   *    also resolved here, including one batched AI call: a 15–40 s OpenAI
-   *    round trip inside an open transaction would pin a pooled Railway
-   *    connection and row locks on a Vercel function.
-   * 2. **Inside one transaction** — the dish, the recipe, and both child
+   *    against this household's catalog, and the unbound rows are resolved
+   *    (`resolveIngredientProducts`): reference catalog first, then one
+   *    batched AI call. A 15–40 s OpenAI round trip inside an open
+   *    transaction would pin a pooled Railway connection and row locks on a
+   *    Vercel function.
+   * 2. **Inside one transaction** — the products those unbound rows need
+   *    (each in its own savepoint), then the dish, the recipe and both child
    *    tables, so a save is all or nothing.
    *
    * **This procedure is not idempotent, and `recipes_dishId_uidx` does not
@@ -587,14 +1010,25 @@ export const dishRouter = createTRPCRouter({
    */
   create: householdProcedure
     .input(createDishInput)
-    .output(createDishOutput)
+    .output(saveDishOutput)
     .mutation(async ({ ctx, input }) => {
       const householdId = ctx.household.id;
       const draft = draftForSave(input.draft);
 
       await assertProductsOwned(ctx.db, householdId, draft);
 
-      const dishId = await ctx.db.transaction(async (tx) => {
+      const resolved = await resolveIngredientProducts(ctx, draft);
+      const bound = [...resolved.bound];
+
+      const saved = await ctx.db.transaction(async (tx) => {
+        const createdProducts = await createPendingProducts(
+          tx,
+          householdId,
+          ctx.user.id,
+          resolved,
+          bound,
+        );
+
         const [dish] = await tx
           .insert(dishes)
           .values({
@@ -638,7 +1072,7 @@ export const dishRouter = createTRPCRouter({
           });
         }
 
-        const children = childRows(householdId, recipe.id, draft);
+        const children = childRows(householdId, recipe.id, draft, bound);
 
         await tx.insert(recipeIngredients).values(children.ingredients);
 
@@ -666,10 +1100,10 @@ export const dishRouter = createTRPCRouter({
             );
         }
 
-        return dish.id;
+        return { dishId: dish.id, createdProducts };
       });
 
-      const detail = await readDishDetail(ctx.db, householdId, dishId);
+      const detail = await readDishDetail(ctx.db, householdId, saved.dishId);
 
       if (!detail) {
         throw new TRPCError({
@@ -678,7 +1112,11 @@ export const dishRouter = createTRPCRouter({
         });
       }
 
-      return { dish: detail, createdProducts: [], aiFailed: false };
+      return {
+        dish: detail,
+        createdProducts: saved.createdProducts,
+        aiFailed: resolved.aiFailed,
+      };
     }),
 
   /**
@@ -699,14 +1137,42 @@ export const dishRouter = createTRPCRouter({
    */
   update: householdProcedure
     .input(updateDishInput)
-    .output(dishDetailOutput)
+    .output(saveDishOutput)
     .mutation(async ({ ctx, input }) => {
       const householdId = ctx.household.id;
       const draft = draftForSave(input.draft);
 
+      // The version is read **before** anything is resolved, so a stale
+      // editor is refused before it can spend an AI call and mint products
+      // for a save that was never going to land. The `FOR UPDATE` read inside
+      // the transaction below is still the real guard — this one only closes
+      // the common case cheaply; between the two, a partner's write turns
+      // into the same `CONFLICT`, one round trip later.
+      const [current] = await ctx.db
+        .select({ version: dishes.version })
+        .from(dishes)
+        .where(
+          and(eq(dishes.id, input.id), eq(dishes.householdId, householdId)),
+        )
+        .limit(1);
+
+      if (!current) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      if (current.version !== input.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The dish changed since it was opened",
+        });
+      }
+
       await assertProductsOwned(ctx.db, householdId, draft);
 
-      await ctx.db.transaction(async (tx) => {
+      const resolved = await resolveIngredientProducts(ctx, draft);
+      const bound = [...resolved.bound];
+
+      const createdProducts = await ctx.db.transaction(async (tx) => {
         const [locked] = await tx
           .select({ version: dishes.version })
           .from(dishes)
@@ -744,6 +1210,14 @@ export const dishRouter = createTRPCRouter({
             message: "Dish has no recipe",
           });
         }
+
+        const created = await createPendingProducts(
+          tx,
+          householdId,
+          ctx.user.id,
+          resolved,
+          bound,
+        );
 
         const [updated] = await tx
           .update(dishes)
@@ -811,13 +1285,15 @@ export const dishRouter = createTRPCRouter({
             ),
           );
 
-        const children = childRows(householdId, recipe.id, draft);
+        const children = childRows(householdId, recipe.id, draft, bound);
 
         await tx.insert(recipeIngredients).values(children.ingredients);
 
         if (children.steps.length > 0) {
           await tx.insert(recipeSteps).values(children.steps);
         }
+
+        return created;
       });
 
       const detail = await readDishDetail(ctx.db, householdId, input.id);
@@ -829,7 +1305,7 @@ export const dishRouter = createTRPCRouter({
         });
       }
 
-      return detail;
+      return { dish: detail, createdProducts, aiFailed: resolved.aiFailed };
     }),
 
   /**

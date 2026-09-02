@@ -105,6 +105,36 @@ interface RankedHit {
 }
 
 /**
+ * The tiers good enough to bind an **imported ingredient name** to a catalog
+ * row with nobody looking: exact, prefix and word-prefix, on names and on
+ * aliases alike (0, 1, 2 and the same three shifted by `ALIAS_TIER_OFFSET`).
+ *
+ * A **bare substring is deliberately absent** (tiers 3 and 7). «масло» is a
+ * substring of «Масло сливочное» *and* of «Масло подсолнечное»; a silent wrong
+ * bind is invisible on the S8.3 form and buys the wrong thing three screens
+ * later when phase 5.2 turns the recipe into a shopping list. More «новый»
+ * chips is the price of fewer wrong binds, and every «новый» is approved by a
+ * human before the save that creates it.
+ *
+ * A **set, not a ceiling.** `rank <= 6` would admit tier 3 (name substring),
+ * which is exactly the case this exists to reject — the tiers are two blocks
+ * of quality, not one ordered scale.
+ */
+export const INGREDIENT_MATCH_TIERS: ReadonlySet<number> = new Set([
+  TIER_NAME_EXACT,
+  TIER_NAME_PREFIX,
+  TIER_NAME_WORD_PREFIX,
+  TIER_NAME_EXACT + ALIAS_TIER_OFFSET,
+  TIER_NAME_PREFIX + ALIAS_TIER_OFFSET,
+  TIER_NAME_WORD_PREFIX + ALIAS_TIER_OFFSET,
+]);
+
+/** Whether a rank out of `bestCatalogMatch` may bind without a human. */
+export function acceptsIngredientTier(rank: number): boolean {
+  return INGREDIENT_MATCH_TIERS.has(rank);
+}
+
+/**
  * Autocomplete over the household's catalog, topped up with the built-in
  * reference catalog (VISION §3.1, DESIGN_BRIEF S4).
  *
@@ -125,12 +155,58 @@ interface RankedHit {
  * suggestions only once there is something to suggest from, rather than
  * dumping the catalog on someone who has not typed yet.
  */
-export function searchCatalog({
+export function searchCatalog(args: SearchCatalogArgs): CatalogSearchHit[] {
+  return rankCatalog(args)
+    .slice(0, SEARCH_RESULT_LIMIT)
+    .map((entry) => entry.hit);
+}
+
+/**
+ * The single best catalog or reference entry for a query, with the tier it
+ * reached — or `null` when there is no single best one.
+ *
+ * Built on `searchCatalog`'s own ranking rather than a second ranker, so the
+ * sheet and the ingredient matcher can never disagree about what «сливочное
+ * масло» means.
+ *
+ * **A tie at the top rank returns `null`, deliberately.** «масло» reaches the
+ * prefix tier against «Масло сливочное», «Масло оливковое» *and* «Масло
+ * подсолнечное» at once; "best" is not defined there, and picking the first
+ * of three by an incidental sort key would bind an ingredient to a fat the
+ * recipe never mentioned. The caller's honest answer to an ambiguous name is
+ * to leave the row unbound and let a human choose (`matchIngredients`).
+ *
+ * The rank is returned rather than filtered here because the threshold is the
+ * *caller's* policy: autocomplete happily shows a substring hit, an automatic
+ * ingredient bind must not accept one (`acceptsIngredientTier`).
+ */
+export function bestCatalogMatch(
+  args: SearchCatalogArgs,
+): { hit: CatalogSearchHit; rank: number } | null {
+  const ranked = rankCatalog(args);
+  const best = ranked[0];
+
+  if (!best) {
+    return null;
+  }
+  if (ranked[1]?.rank === best.rank) {
+    return null;
+  }
+
+  return { hit: best.hit, rank: best.rank };
+}
+
+/**
+ * Every entry that matches, best first. The shared half of `searchCatalog`
+ * and `bestCatalogMatch` — extracted so the two cannot drift, with no change
+ * to what `searchCatalog` returns.
+ */
+function rankCatalog({
   query,
   products,
   categories,
   references = REFERENCE_PRODUCTS,
-}: SearchCatalogArgs): CatalogSearchHit[] {
+}: SearchCatalogArgs): RankedHit[] {
   const normalizedQuery = normalizeProductName(query);
   if (normalizedQuery.length === 0) {
     return [];
@@ -200,7 +276,7 @@ export function searchCatalog({
       a.name.localeCompare(b.name, "ru"),
   );
 
-  return ranked.slice(0, SEARCH_RESULT_LIMIT).map((entry) => entry.hit);
+  return ranked;
 }
 
 /**
