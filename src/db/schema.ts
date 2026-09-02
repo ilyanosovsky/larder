@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -11,6 +12,8 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+import { DISH_SOURCE_TYPES } from "@/lib/recipes/draft";
 
 import { users } from "./auth-schema";
 
@@ -432,12 +435,24 @@ export const kitchenProfiles = pgTable("kitchen_profiles", {
     .defaultNow(),
 });
 
+/**
+ * `adapt_recipe` is **appended**, never inserted: drizzle-kit then emits a
+ * plain `ALTER TYPE … ADD VALUE` rather than an `ADD VALUE … BEFORE` or a
+ * type recreate, and only the plain form is backward-compatible with code
+ * already running. It ships in task 4.1 though task 4.6 is the first to write
+ * it, because `migrate.yml` and the Vercel deploy of the same commit run in
+ * **parallel** — shipping the value several PRs early removes the window
+ * where the function could go live before the type knows the word. The rule
+ * that follows from the same fact: never write or select a new enum value in
+ * the migration batch that adds it.
+ */
 export const aiJobTypeEnum = pgEnum("ai_job_type", [
   "product_enrich",
   "parse_photo",
   "parse_url",
   "parse_text",
   "assistant",
+  "adapt_recipe",
 ]);
 
 export const aiJobStatusEnum = pgEnum("ai_job_status", [
@@ -495,5 +510,340 @@ export const aiJobs = pgTable(
       table.householdId,
       table.createdAt,
     ),
+  ],
+);
+
+/**
+ * Where a dish came from (VISION §3.3): a photo/screenshot, a page, pasted
+ * text, or typed by hand.
+ *
+ * A real enum, unlike `cart_items.unit` / `ordered_via` (deliberately `text`):
+ * this is a closed four-value set that drives real branches — S7's «~30 мин ·
+ * 📷 с фото» source line and which re-import affordance S8.2 offers — and an
+ * unknown value would have no safe fallback. It cannot grow without a code
+ * change anyway.
+ *
+ * The members come from `DISH_SOURCE_TYPES` (`src/lib/recipes/draft.ts`)
+ * rather than being spelled out here, for the reason `src/lib/units.ts`
+ * documents for `UNITS`: the vocabulary is shared with the client, and only
+ * one of the two modules may be imported from a browser bundle.
+ */
+export const dishSourceTypeEnum = pgEnum("dish_source_type", DISH_SOURCE_TYPES);
+
+/**
+ * A dish in the household's library (VISION §3.3, DESIGN_BRIEF S6/S7) — the
+ * thing a week's menu names (phase 5) and the assistant looks up (phase 6).
+ *
+ * A dish and its recipe are one aggregate split over four tables, and
+ * `version` is what makes that split safe: **every** write to the dish, its
+ * recipe, its ingredients or its steps bumps it by one, and `dish.update`
+ * refuses a save whose `expectedVersion` no longer matches. An integer rather
+ * than `updated_at`, and that is not a style choice: every router here writes
+ * `updatedAt: sql\`now()\`` at microsecond precision, postgres.js parses
+ * `timestamptz` down to a millisecond `Date`, and superjson round-trips that
+ * — so a `WHERE updated_at = $clientDate` guard could silently never match
+ * and turn every legitimate save into a conflict. An integer compares
+ * exactly, and doubles as the non-`Date` remount key (`${id}:${version}`)
+ * that keeps a background refetch from wiping a half-typed recipe.
+ *
+ * **Archived, never deleted** (`archived_at`, and no `dish.delete`). Phase
+ * 5.1's `menu_items.dish_id` and 5.3's «повторить неделю» must not lose the
+ * dish a stored week names; a hard delete would either cascade that history
+ * away or start throwing 23503 at the user.
+ *
+ * **`normalized_title` is deliberately not unique** — the asymmetry with
+ * `products.normalized_name` is the point. A duplicate *product* is the bug
+ * the catalog exists to prevent; a second «Оладьи» (mum's and the other one)
+ * is a library decision the household is allowed to make. The column exists
+ * for lookup — the assistant's dish resolution in task 6.1 — not for a
+ * constraint.
+ *
+ * `created_at DESC` is the library order: S6 is a grid you keep importing
+ * into, so the dish just added belongs top-left; `id` is the tiebreak that
+ * keeps the order stable when two land in the same millisecond.
+ *
+ * **No GIN index on `tags`** — tag filtering runs client-side over tens of
+ * rows (`filterDishes`); the index is additive if server-side filtering ever
+ * appears. **No `import_job_id`** either: `ai_jobs.input_ref` and
+ * `output_json` already record the import, and a column with no reader is
+ * dead weight.
+ *
+ * `photo_key` ships here though only task 4.3 writes it — additive-first.
+ * Without it an orphaned or replaced UploadThing blob is unreachable forever
+ * (`UTApi.deleteFiles` takes keys, not URLs).
+ *
+ * `created_by` is `set null`, like `products.created_by` and
+ * `cart_items.added_by`: the library belongs to the household, not to
+ * whoever imported first.
+ */
+export const dishes = pgTable(
+  "dishes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /**
+     * `normalizeDishTitle(title)` (`src/server/dishes/normalize.ts`) — the
+     * catalog's own canon, aliased. Written together with `title`, never on
+     * its own.
+     */
+    normalizedTitle: text("normalized_title").notNull(),
+    /** UploadThing public URL, or a url import's own page image. */
+    photoUrl: text("photo_url"),
+    /** UploadThing file key — the only handle that can ever delete the blob. */
+    photoKey: text("photo_key"),
+    /** Lower-cased, deduped free-form tags: «ужин», «духовка», «быстро». */
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    sourceType: dishSourceTypeEnum("source_type").notNull(),
+    sourceUrl: text("source_url"),
+    /** Aggregate optimistic-concurrency token; see the note above. */
+    version: integer("version").notNull().default(1),
+    /** Archive, never delete; see the note above. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("dishes_householdId_createdAt_idx").on(
+      table.householdId,
+      table.createdAt,
+    ),
+    index("dishes_householdId_normalizedTitle_idx").on(
+      table.householdId,
+      table.normalizedTitle,
+    ),
+  ],
+);
+
+/**
+ * The recipe half of a dish — 1:1 with it, enforced by `unique(dish_id)`.
+ *
+ * **Its own `id` primary key, not `PRIMARY KEY (dish_id)`.** Children carry
+ * `recipe_id`, and a child column named `dish_id` whose foreign key actually
+ * points at *this* table would be a trap for every hand-written join and for
+ * phase 5. `recipes_dishId_uidx` is where the 1:1 invariant lives, so that no
+ * writer can ever give one dish two recipes.
+ *
+ * It is **not** a guard against a double-tapped «Сохранить блюдо»: that path
+ * mints a fresh `dishes.id` first and inserts the recipe against it, so the
+ * index cannot fire and the second tap simply produces a second dish. Nothing
+ * in the schema deduplicates that — `normalized_title` is deliberately not
+ * unique — and the defence is the form's own synchronous ref lock (task 4.2).
+ *
+ * `ON DELETE cascade` from `dishes`, unlike the `restrict` used elsewhere: a
+ * recipe has no meaning apart from its dish. Because dishes archive rather
+ * than delete, that cascade is a safety net, not a path.
+ *
+ * **Two portion integers and a yield noun, no stored Russian label.**
+ * DESIGN_BRIEF S7 shows «7–8 печений» literally, and a stored label would be
+ * a user-visible string living outside next-intl — an AGENTS.md violation.
+ * The client composes it from `portions_min`, `portions_base` and
+ * `yield_unit` through an ICU message. Same treatment as the step timer
+ * below.
+ */
+export const recipes = pgTable(
+  "recipes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    dishId: uuid("dish_id")
+      .notNull()
+      .references(() => dishes.id, { onDelete: "cascade" }),
+    /**
+     * Ingredient quantities are stated for this many portions — the number
+     * every rescale divides by, and the **upper** end of a stated range
+     * («7–8 печений» → 8). Upper, not lower: a source that says «7–8» has
+     * weighed its flour for the batch it actually makes.
+     */
+    portionsBase: integer("portions_base").notNull().default(2),
+    /** The lower end of a stated range, else null. Display only. */
+    portionsMin: integer("portions_min"),
+    /**
+     * The source's own yield noun — «печений», «шт». `null` means «порции».
+     * Imported data like `raw_text`, never UI copy: it is passed *into* an
+     * ICU message as a parameter, so the words around it still come from
+     * next-intl.
+     */
+    yieldUnit: text("yield_unit"),
+    totalTimeMin: integer("total_time_min"),
+    /**
+     * `EQUIPMENT_PRESETS` slugs **only** — a deliberate deviation from
+     * `kitchen_profiles.equipment`, which stores slugs and the user's free
+     * text side by side. That array is user-authored; this one exists solely
+     * to be compared against it (4.5's banner, 4.6's adaptation), and
+     * comparing a parser's «миксер» against a profile's `mixer` silently
+     * never matches. A recipe needing something not on the list is a signal
+     * to extend `EQUIPMENT_PRESETS`, not to store a free word here.
+     */
+    equipment: text("equipment")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /**
+     * The `RecipeDraft` exactly as imported, before any human or AI edit.
+     * Written only by an import; null for a manual dish. Powers 4.6's
+     * «вернуть как было» and its proposal diff base — without it, a revert
+     * after «Применить» is impossible.
+     */
+    originalDraft: jsonb("original_draft"),
+    /** Written only by task 4.6 — renders S7's «переделано под твою духовку». */
+    adaptedAt: timestamp("adapted_at", { withTimezone: true }),
+    /**
+     * A short machine-written summary of what the adaptation changed. It is
+     * AI-generated Russian *content*, not UI chrome, so it is data like
+     * `raw_text`; the label around it comes from next-intl.
+     */
+    adaptedNote: text("adapted_note"),
+  },
+  (table) => [
+    uniqueIndex("recipes_dishId_uidx").on(table.dishId),
+    index("recipes_householdId_idx").on(table.householdId),
+  ],
+);
+
+/**
+ * One ingredient line (VISION §3.3, DESIGN_BRIEF §5's NYC Cookies list).
+ *
+ * **The four-way split `raw_text` / `name` / `note` / `is_optional` is the
+ * whole design.** `rawText` is the honesty anchor S8.3's «ИИ мог ошибиться»
+ * is checked against and what a later re-match diffs from; `name` is the
+ * buyable noun the AI extracted («Шоколад» out of «Шоколад крупными кусками
+ * — 150 г»), which is the only reason a free deterministic catalog matcher
+ * can work at all; `note` is S7's «(холодное)» sub-line and phase 5.2's
+ * `cart_items.note`; `is_optional` is what stops 5.2 buying a garnish by
+ * default.
+ *
+ * **`qty` and `unit` are nullable, and that nullability is the honesty
+ * rule** (VISION §6.4). Three states, all present in the design's own sample
+ * recipe and all rendered differently:
+ * `qty=null, needs_review=true` → «Кукурузный крахмал — уточнить» (amber);
+ * `qty=null, is_optional=true` → «Biscoff — опционально» (neutral);
+ * `qty=null, note='по вкусу'` → «Соль по вкусу» (plain text).
+ * `needs_review` is derived server-side by `deriveNeedsReview`
+ * (`src/server/recipes/needs-review.ts`) on every save and never sent by the
+ * model — a model that forgets to flag cannot produce a silently confident
+ * recipe.
+ *
+ * `qty numeric(10, 3)` in `number` mode is **byte-identical to
+ * `cart_items.qty`, on purpose**: phase 5.2 sums ingredient quantities into
+ * cart rows, and a different scale would force a rounding decision at the
+ * boundary and let MergePreview disagree with the row it writes. One scale,
+ * one rounding rule (`roundQty`, `src/server/cart/merge.ts`). The cost —
+ * `⅓+⅓+⅓ = 0.999` — is one the cart already lives with.
+ *
+ * `unit` is `text`, re-validated on read against `RECIPE_UNITS` and degraded
+ * to `null` for anything unrecognized, exactly as `cart_items.unit` degrades
+ * to «шт»: one bad row must not fail a whole dish's output validation.
+ *
+ * **`household_id` on a child table** is required by the tenancy rule
+ * (VISION §6.7): `DELETE FROM recipe_ingredients WHERE recipe_id = $1` has
+ * nowhere else to put the household predicate, and a predicate expressible
+ * only through a join is one refactor away from vanishing.
+ *
+ * **No unique index on `(recipe_id, product_id)`.** «Молоко 200 мл в тесто» +
+ * «молоко 50 мл в глазурь» is a real recipe, not a duplicate; the cart's
+ * one-active-row invariant does not generalize here, and deduping is 5.2's
+ * summing job. **No CHECK constraints** either (`qty > 0`,
+ * `sort_order >= 0`) — consistent with `cart_items`, where bounds live in
+ * Zod; constraints are reserved for invariants that must survive a race.
+ *
+ * `product_id` is `ON DELETE restrict`, like `cart_items.product_id` and
+ * `pantry_items.product_id`. **Task 7.1's product-delete endpoint must
+ * pre-check** `SELECT count(*) FROM recipe_ingredients WHERE product_id = $1
+ * AND household_id = $2` and report «используется в N блюдах», or the delete
+ * fails with a raw 23503 the user cannot act on.
+ * `recipe_ingredients_productId_idx` exists for exactly that query (and for
+ * task 6.1's reverse lookup product → dishes).
+ */
+export const recipeIngredients = pgTable(
+  "recipe_ingredients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    /** Null = unbound: nothing in the catalog answers to this name yet. */
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "restrict",
+    }),
+    rawText: text("raw_text").notNull(),
+    name: text("name").notNull(),
+    qty: numeric("qty", { precision: 10, scale: 3, mode: "number" }),
+    /** One of `RECIPE_UNITS` (`src/lib/units.ts`), stored as text. */
+    unit: text("unit"),
+    note: text("note"),
+    isOptional: boolean("is_optional").notNull().default(false),
+    needsReview: boolean("needs_review").notNull().default(false),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [
+    index("recipe_ingredients_recipeId_sortOrder_idx").on(
+      table.recipeId,
+      table.sortOrder,
+    ),
+    index("recipe_ingredients_householdId_idx").on(table.householdId),
+    index("recipe_ingredients_productId_idx").on(table.productId),
+  ],
+);
+
+/**
+ * One numbered step (DESIGN_BRIEF S9 — «Духовка 205 °C … таймер 9–11 мин»).
+ *
+ * **Two timer integers, no stored label**, for the same reason `recipes`
+ * keeps two portion integers: «9–11 мин» is in the design's own sample step,
+ * and a `timer_label text` column would be a user-visible Russian string
+ * outside next-intl. The client composes the label from the two numbers; the
+ * countdown runs `timer_sec`, the lower bound — you check the cookies at 9,
+ * not at 11.
+ *
+ * `step_order` rather than `order` because the latter is reserved SQL, and
+ * `sort_order` on `recipe_ingredients` already sets the house style.
+ *
+ * **The index is deliberately not unique.** The save path is a full replace
+ * (`dish.update` deletes the children and re-inserts them with fresh
+ * `0..n-1` orders), so it never swaps two rows in place — a unique constraint
+ * would buy nothing and would fight any future in-place reorder without a
+ * `DEFERRABLE` constraint.
+ */
+export const recipeSteps = pgTable(
+  "recipe_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    stepOrder: integer("step_order").notNull(),
+    text: text("text").notNull(),
+    /** Countdown length in seconds — the LOWER bound of a range. */
+    timerSec: integer("timer_sec"),
+    /** Upper bound, so «9–11 мин» is two numbers and one ICU message. */
+    timerMaxSec: integer("timer_max_sec"),
+  },
+  (table) => [
+    index("recipe_steps_recipeId_stepOrder_idx").on(
+      table.recipeId,
+      table.stepOrder,
+    ),
+    index("recipe_steps_householdId_idx").on(table.householdId),
   ],
 );

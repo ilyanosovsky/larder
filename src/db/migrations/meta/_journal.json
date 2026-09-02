@@ -64,6 +64,20 @@
       "when": 1788081588426,
       "tag": "0008_military_korg",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788329255491,
+      "tag": "0009_odd_vapor",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788329269525,
+      "tag": "0010_abnormal_pandemic",
+      "breakpoints": true
     }
   ]
 }

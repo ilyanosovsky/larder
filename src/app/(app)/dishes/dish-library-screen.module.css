@@ -1,0 +1,330 @@
+/* S6 «Блюда» — Paper Ledger. Toolbar (title, count, «+ Блюдо») → search →
+   tag chips → two-column card grid. Same vocabulary as S3/S5's toolbars, with
+   a grid instead of ruled rows. */
+
+.screen {
+  padding-bottom: var(--s-6);
+}
+
+/* ── Toolbar ── */
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.count {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+/* The one accent-filled control on the screen (DESIGN_BRIEF S6). */
+.addButton {
+  display: flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  margin-bottom: calc(-1 * var(--s-3));
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.addButton:focus-visible,
+.retryButton:focus-visible,
+.search:focus-visible,
+.tag:focus-visible,
+.emptyAction:focus-visible,
+.sourceRow:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Search ── */
+
+/* The label is visible to assistive tech only: the placeholder carries the
+   same words on screen, and a second line of chrome above a search box on a
+   390px screen costs more than it explains. */
+.searchLabel {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.search {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--s-4);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.search::placeholder {
+  color: var(--mute-2);
+}
+
+/* ── Tag chips ── */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.tag {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tagActive {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* ── Grid ── */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+
+/* ── States ── */
+
+.error {
+  margin-top: var(--s-4);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.retryButton {
+  min-height: 44px;
+  margin-top: var(--s-2);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  cursor: pointer;
+}
+
+.nothingFound {
+  margin-top: var(--s-6);
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+  text-align: center;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-8) var(--s-6);
+  text-align: center;
+}
+
+.emptyMark {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) dashed var(--rule-2);
+  font-size: 40px;
+}
+
+.emptyText {
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+.emptyAction {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-6);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+/* Not-yet-wired controls stay focusable (`aria-disabled`, never `disabled`)
+   and merely look quieter. */
+.emptyAction[aria-disabled="true"],
+.sourceRow[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.hint {
+  margin-top: var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  text-align: center;
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── First-load skeleton (DESIGN_BRIEF §6: tiles, never a full-screen spinner) ── */
+
+.skeletonCard {
+  border: var(--bd-hair) solid var(--rule);
+}
+
+.skeletonFrame {
+  aspect-ratio: 4 / 3;
+  border-bottom: var(--bd-hair) solid var(--rule);
+  background: var(--rule);
+  opacity: 0.5;
+}
+
+.skeletonBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+}
+
+.skeletonTitle {
+  display: block;
+  width: 70%;
+  height: 12px;
+  background: var(--rule);
+}
+
+.skeletonMeta {
+  display: block;
+  width: 45%;
+  height: 10px;
+  background: var(--rule);
+}
+
+/* ── «+ Блюдо» source sheet (dish-source-sheet.tsx) ── */
+
+.sourceList {
+  list-style: none;
+}
+
+.sourceRow {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-4);
+  border: 0;
+  border-bottom: var(--bd-hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-4) var(--s-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sourceIcon {
+  flex: none;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.sourceText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sourceLabel {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+}
+
+.sourceHint {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.sourceSoon {
+  flex: none;
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+}
+
+.sheetStatus {
+  min-height: 18px;
+  padding-top: var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

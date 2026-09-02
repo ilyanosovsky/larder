@@ -3,16 +3,18 @@ import { getTranslations } from "next-intl/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { caller, HydrateClient, prefetch, trpc } from "@/trpc/server";
 
+import { DishArchiveSection } from "./dish-archive-section";
 import { KitchenProfileSection } from "./kitchen-profile-section";
 import styles from "./settings-page.module.css";
 import { TripHistorySection } from "./trip-history-section";
 
 /**
- * S12 Settings — still a scaffold (task 1.4), now with two real blocks: the
- * kitchen profile and the purchase history «Завершить закупку» produces
- * (task 3.2). Full S12 assembly (household/members, invite link, expandable
- * trip rows, departments, AI budget) is task 7.1, which extends this same
- * section structure — the identity/sign-out block is expected to move into a
+ * S12 Settings — still a scaffold (task 1.4), now with three real blocks: the
+ * kitchen profile, the purchase history «Завершить закупку» produces (task
+ * 3.2), and the dish archive «В архив» on S7 fills (task 4.1). Full S12
+ * assembly (household/members, invite link, expandable trip rows,
+ * departments, AI budget) is task 7.1, which extends this same section
+ * structure — the identity/sign-out block is expected to move into a
  * "Household" section then, not stay pinned at the bottom forever.
  */
 export default async function SettingsPage() {
@@ -26,6 +28,7 @@ export default async function SettingsPage() {
   // fetching one waterfall later.
   prefetch(trpc.kitchenProfile.get.queryOptions());
   prefetch(trpc.trip.list.queryOptions());
+  prefetch(trpc.dish.listArchived.queryOptions());
 
   return (
     <div className={styles.screen}>
@@ -34,6 +37,7 @@ export default async function SettingsPage() {
       <HydrateClient>
         <KitchenProfileSection />
         <TripHistorySection />
+        <DishArchiveSection />
       </HydrateClient>
 
       <div className={styles.footer}>
