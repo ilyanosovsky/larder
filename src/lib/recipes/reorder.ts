@@ -89,7 +89,9 @@ export function stepDropIndex(
   }
 
   const source = clampIndex(from, rects.length);
-  return gap > source ? clampIndex(gap - 1, rects.length) : clampIndex(gap, rects.length);
+  return gap > source
+    ? clampIndex(gap - 1, rects.length)
+    : clampIndex(gap, rects.length);
 }
 
 function clampIndex(value: number, length: number): number {

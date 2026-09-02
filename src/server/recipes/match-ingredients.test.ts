@@ -172,19 +172,19 @@ describe("matchIngredients — the reference catalog", () => {
     // aliases. 103 such pairs exist in the shipped reference catalog.
     const owned = product("Картошка");
     expect(
-      match(
-        ["Картофель"],
-        [owned],
-        [reference("Картофель", ["картошка"])],
-      ).map(shape),
+      match(["Картофель"], [owned], [reference("Картофель", ["картошка"])]).map(
+        shape,
+      ),
     ).toEqual(["catalog:Картошка"]);
   });
 
   it("still mints a staple the household does not own in any spelling", () => {
     expect(
-      match(["Картофель"], [product("Мука")], [
-        reference("Картофель", ["картошка"]),
-      ]).map(shape),
+      match(
+        ["Картофель"],
+        [product("Мука")],
+        [reference("Картофель", ["картошка"])],
+      ).map(shape),
     ).toEqual(["reference:Картофель"]);
   });
 

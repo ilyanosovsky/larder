@@ -139,7 +139,8 @@ function matchOne(
   // nothing downstream would stop it. An exact staple the household owns beats
   // a prefix match on a different product, which is the rule the ranker itself
   // already encodes for everything it can see.
-  const ownedStaple = ref === null ? null : ownedUnderAnotherSpelling(ref, products);
+  const ownedStaple =
+    ref === null ? null : ownedUnderAnotherSpelling(ref, products);
   if (ownedStaple) {
     return { kind: "catalog", product: ownedStaple };
   }

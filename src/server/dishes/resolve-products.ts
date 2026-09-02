@@ -242,7 +242,8 @@ export async function resolveIngredientProducts(
     householdCategories,
   );
 
-  const fallbackId = fallbackCategoryId(householdCategories) ?? firstCategory.id;
+  const fallbackId =
+    fallbackCategoryId(householdCategories) ?? firstCategory.id;
   let aiFailed = enrichment === null;
 
   unknown.forEach((at, position) => {
@@ -402,7 +403,11 @@ async function insertCatalogProduct(
     }
   }
 
-  const existing = await findExistingProduct(tx, values.householdId, values.name);
+  const existing = await findExistingProduct(
+    tx,
+    values.householdId,
+    values.name,
+  );
   if (existing) {
     return { product: existing, created: false };
   }

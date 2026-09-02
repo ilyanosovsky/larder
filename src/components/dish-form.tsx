@@ -519,7 +519,8 @@ export function DishForm({
     // field on top of that would take the typed word away with no explanation,
     // which is the one case here worth a word.
     const rejectedByCap =
-      next.length === tags.length && !tags.includes(normalizeTags([raw])[0] ?? "");
+      next.length === tags.length &&
+      !tags.includes(normalizeTags([raw])[0] ?? "");
 
     if (rejectedByCap) {
       setTagNotice(t("tagsFull"));

@@ -288,9 +288,9 @@ describe("the keys the dish screens call by name", () => {
         expect(line.trim().length).toBeGreaterThan(0);
       }
       // «1 продукт» / «2 продукта» / «5 продуктов» — three different words.
-      expect(new Set(rendered.map((line) => line.replace(/\d+/g, "#"))).size).toBe(
-        3,
-      );
+      expect(
+        new Set(rendered.map((line) => line.replace(/\d+/g, "#"))).size,
+      ).toBe(3);
     }
   });
 
@@ -349,8 +349,8 @@ describe("the equipment banner's missing-appliances sentence", () => {
     expect(portions("equipmentMissing", { list: "Миксер" })).toBe(
       "Не хватает: Миксер",
     );
-    expect(
-      portions("equipmentMissing", { list: "Миксер, Аэрогриль" }),
-    ).toBe("Не хватает: Миксер, Аэрогриль");
+    expect(portions("equipmentMissing", { list: "Миксер, Аэрогриль" })).toBe(
+      "Не хватает: Миксер, Аэрогриль",
+    );
   });
 });
