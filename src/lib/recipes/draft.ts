@@ -1,11 +1,7 @@
 import { z } from "zod";
 
 import { recipeUnitSchema } from "@/lib/units";
-import {
-  MAX_TAG_LENGTH,
-  MAX_TAGS,
-  normalizeTags,
-} from "@/lib/recipes/tags";
+import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTags } from "@/lib/recipes/tags";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
