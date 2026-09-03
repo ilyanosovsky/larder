@@ -31,12 +31,13 @@ The test CI runs without secrets by design — tests must never call external se
 
 Adding a new variable? Update `.env.example`, the README table, and this page — in the same PR (rule in [CLAUDE.md](https://github.com/ilyanosovsky/larder/blob/main/CLAUDE.md)).
 
-**`UPLOADTHING_TOKEN` is read at runtime by two places, both lazily and both straight off `process.env`.** No new variable — the entry above has existed since phase 1; task 4.3 is simply the first code to spend it.
+**`UPLOADTHING_TOKEN` is read at runtime by three places, all lazily and all straight off `process.env`.** No new variable — the entry above has existed since phase 1; task 4.3 is simply the first code to spend it.
 
 - `src/app/api/uploadthing/route.ts` passes it explicitly into `createRouteHandler`'s config rather than letting the library find it, and builds the handler inside the first request.
 - `src/server/uploadthing-url.ts` decodes the app id out of it (the v7 token is base64 JSON: `{ apiKey, appId, regions }`) to rebuild `https://<appId>.ufs.sh/f/<key>` server-side, memoized after the first call.
+- `src/server/uploadthing-files.ts` reads it per call to delete a blob, and skips the delete when it is absent. That branch only fires in tests and zero-env builds: `env()` declares the variable required and every request builds its context through `db()` → `env()`, so a deployment missing it fails every request rather than silently orphaning files.
 
-Both read `process.env.UPLOADTHING_TOKEN` directly instead of going through `env()`. `env()` validates the _whole_ schema on its first call, so an unrelated missing variable would make a photo import fail with a message about `RESEND_API_KEY`; the token's own shape is validated where it is decoded, and a token that carries no `appId` throws with a message naming the variable. Nothing reads it at module scope — `pnpm build` runs in CI with zero environment variables.
+All three read `process.env.UPLOADTHING_TOKEN` directly instead of going through `env()`. `env()` validates the _whole_ schema on its first call, so an unrelated missing variable would make a photo import fail with a message about `RESEND_API_KEY`; the token's own shape is validated where it is decoded, and a token that carries no `appId` throws with a message naming the variable. Nothing reads it at module scope — `pnpm build` runs in CI with zero environment variables.
 
 **Watch the value's shape when pasting it.** UploadThing's dashboard copies the whole `UPLOADTHING_TOKEN='…'` line, so pasting it after `UPLOADTHING_TOKEN=` yields `UPLOADTHING_TOKEN=UPLOADTHING_TOKEN='…'` — every upload then fails with `Invalid token. A token is a base64 encoded JSON object matching { apiKey, appId, regions }`. The value must be the bare base64 string, unquoted.
 

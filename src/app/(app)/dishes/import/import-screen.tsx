@@ -270,6 +270,7 @@ export function ImportScreen() {
                 tooLarge: t("photoTooBig"),
                 notAnImage: t("photoNotImage"),
                 uploadFailed: t("uploadFailed"),
+                rateLimited: t("uploadRateLimited"),
               }}
               onPicked={(photo) => void runImport(photo)}
               autoFocus={focusPicker || refocusPicker}

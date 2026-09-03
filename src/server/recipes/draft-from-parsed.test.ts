@@ -307,6 +307,28 @@ describe("the name sanity check", () => {
     expect(draft.ingredients[0]?.needsReview).toBe(true);
   });
 
+  it.each([
+    "Колбаса чайная",
+    "Соль столовая",
+    "Свёкла столовая",
+    "Масло сливочное",
+  ])("keeps the real product name «%s»", (name) => {
+    // The head word of a spoon spelling is an ordinary Russian adjective, and
+    // treating «чайная»/«столовая» as unit words in their own right rejected
+    // these — which saved them under their raw source line and, unreviewed,
+    // minted the near-duplicate catalog row the check exists to prevent.
+    const draft = draftOf(
+      parsed({
+        ingredients: [
+          ingredient({ rawText: `${name} — 200 г`, name, qty: 200, unit: "г" }),
+        ],
+      }),
+    );
+
+    expect(draft.ingredients[0]?.name).toBe(name);
+    expect(draft.ingredients[0]?.needsReview).toBe(false);
+  });
+
   it("drops a row with neither a name nor a source line", () => {
     const recipe = parsed({
       ingredients: [ingredient(), ingredient({ rawText: "  ", name: "  " })],

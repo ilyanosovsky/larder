@@ -150,6 +150,7 @@ function Action({
             tooLarge: t("photoTooBig"),
             notAnImage: t("photoNotImage"),
             uploadFailed: t("uploadFailed"),
+            rateLimited: t("uploadRateLimited"),
           }}
           onPicked={onPicked}
         />

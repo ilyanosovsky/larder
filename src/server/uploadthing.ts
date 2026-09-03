@@ -7,6 +7,7 @@ import { UploadThingError } from "uploadthing/server";
 import { db } from "@/db";
 import { householdMembers, photoUploads } from "@/db/schema";
 import { getSession } from "@/lib/session";
+import { UPLOAD_LIMIT_MESSAGE_PREFIX } from "@/lib/images/upload-errors";
 import { checkRateLimit, rateLimitWindows } from "@/server/ai/rate-limit";
 
 /**
@@ -123,7 +124,11 @@ export const larderFileRouter = {
         // honest answer the client can render.
         throw new UploadThingError({
           code: "FORBIDDEN",
-          message: `Upload limit reached (${decision.reason})`,
+          // The prefix is a shared constant: the default `errorFormatter`
+          // sends only `{ message }`, and this refusal and the non-member one
+          // are both 403, so the message is all the client has to tell them
+          // apart (`src/lib/images/upload-errors.ts`).
+          message: `${UPLOAD_LIMIT_MESSAGE_PREFIX} (${decision.reason})`,
         });
       }
 

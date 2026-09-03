@@ -199,31 +199,40 @@ function coerceSpoon(normalized: string): RecipeUnit | null {
 
 /**
  * Every word this module recognizes as a measure — the canon and `SPELLINGS`'
- * own keys, exploded into the tokens a *consumer* will actually see.
+ * own keys, reduced to the tokens a *consumer* will actually see.
  *
  * Exported for `draft-from-parsed.ts`'s name check: a `name` whose words
  * include one of these is a source line the model failed to reduce to a
  * buyable noun («Стакан йогурта»), and binding the catalog on it would mint a
  * near-duplicate product.
  *
- * **The explosion is the point, and it was a real bug.** The keys above are
- * normalized by *this* module — spaces collapsed, dots stripped — while the
- * consumer tokenizes with `splitWords(normalizeProductName(name))`, which
- * splits on whitespace and hyphens only and keeps dots exactly where they
- * were. So a multi-word key like «чайная ложка» could never match a single
- * token, and the dot-stripped «ч.л» could never match the source's «ч.л.».
- * Ten of the sixty-odd entries were unreachable, and «Чайная ложка соли»
- * sailed through the check as a buyable noun — straight into a permanent
- * catalog product named after the phrase, with no «уточнить» chip.
+ * **Why the keys are not used verbatim.** They are normalized by *this*
+ * module — spaces collapsed, dots stripped — while the consumer tokenizes
+ * with `splitWords(normalizeProductName(name))`, which splits on whitespace
+ * and hyphens only and keeps dots exactly where they were. So a multi-word
+ * key like «чайная ложка» can never match a single token, and the
+ * dot-stripped «ч.л» can never match the source's «ч.л.».
  *
- * Each key therefore contributes itself, its individual words, and each of
- * those words with a trailing dot. That admits the bare «ч» and «ст» as unit
- * words, which is consistent: «ст» is already a live key in its own right
- * («стакан»).
+ * **Why only the LAST word of a multi-word key.** The head word of a spoon
+ * spelling is an ordinary Russian adjective, and it is the *noun* that makes
+ * it a measure: «ложка» is one, «чайная» is not. Contributing «чайная» and
+ * «столовая» as unit words in their own right made the check reject real
+ * product names built on them — «Колбаса чайная», «Соль столовая», «Свёкла
+ * столовая» — which then saved under their raw source line with an «уточнить»
+ * chip and, unreviewed, minted exactly the near-duplicate catalog row this
+ * check exists to prevent. The last word alone still catches every phrase
+ * that matters («Чайная ложка соли», «Столовая ложка мёда») because they all
+ * end in the noun.
+ *
+ * Single-word keys contribute themselves, so the bare «ст» stays a unit word
+ * — it is a live key in its own right («стакан»).
  */
 export const UNIT_WORDS: ReadonlySet<string> = new Set(
   [...RECIPE_UNITS.map(normalize), ...Object.keys(SPELLINGS)].flatMap((key) => {
     const words = key.split(/[\s-]+/).filter((word) => word.length > 0);
-    return [key, ...words, ...words.map((word) => `${word}.`)];
+    const last = words.at(-1);
+    const contributed = words.length > 1 && last !== undefined ? [last] : words;
+
+    return [key, ...contributed, ...contributed.map((word) => `${word}.`)];
   }),
 );

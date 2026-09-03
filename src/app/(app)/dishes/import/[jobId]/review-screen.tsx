@@ -10,6 +10,7 @@ import { AiProgress } from "@/components/ai-progress";
 import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import type { RecipeDraft } from "@/lib/recipes/draft";
+import { consumedDishIdOf } from "@/lib/recipes/import-consumption";
 import { trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
@@ -68,8 +69,9 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
   // the same job id, so reopening this URL afterwards must land on the dish
   // rather than re-offer a dead end whose «Другое фото» would try to discard
   // a photo the new dish is now showing.
-  const consumedDishId =
-    job.data?.outcome === "running" ? null : (job.data?.consumedDishId ?? null);
+  // Shared with `/dishes/new?from=`, so the two screens cannot answer the
+  // question differently.
+  const consumedDishId = consumedDishIdOf(job.data);
 
   // A draft already saved must not offer to create a second dish from the
   // same recipe. Redirecting in an effect rather than during render because
@@ -228,6 +230,7 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
                 tooLarge: t("photoTooBig"),
                 notAnImage: t("photoNotImage"),
                 uploadFailed: t("uploadFailed"),
+                rateLimited: t("uploadRateLimited"),
               }}
               onPicked={onPicked}
             />

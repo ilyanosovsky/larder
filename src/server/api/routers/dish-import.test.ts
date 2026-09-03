@@ -12,6 +12,7 @@ import {
   createDbStub,
   signedInContext,
   unusableDb,
+  type DbStub,
   type RecordedStatement,
   type StubResult,
 } from "@/server/api/test-support";
@@ -162,14 +163,21 @@ function callerWith(
  * dish is using this key" guard so «Отмена» deletes a photo a dish renders,
  * both left all 32 tests green.
  */
-function fakeUploadThing() {
-  const deleted: string[][] = [];
+function fakeUploadThing(stub: DbStub) {
+  /**
+   * `at` is how many statements had run when the delete was issued, which is
+   * what makes the ordering assertable: «revoke the row, then the blob» is
+   * declared load-bearing by both the router's comment and the test's, yet
+   * hoisting `deleteFiles` above the DELETE used to leave the whole repo
+   * green — the fake recorded keys and nothing else.
+   */
+  const deleted: { keys: string[]; at: number }[] = [];
 
   return {
     deleted,
     factory: () => ({
       deleteFiles(fileKeys: readonly string[]) {
-        deleted.push([...fileKeys]);
+        deleted.push({ keys: [...fileKeys], at: stub.statements.length });
         return Promise.resolve();
       },
     }),
@@ -179,7 +187,7 @@ function fakeUploadThing() {
 /** `callerWith`, plus the injected blob store `discardPhoto` needs. */
 function discardCallerWith(results: StubResult[]) {
   const stub = createDbStub(results);
-  const uploadThing = fakeUploadThing();
+  const uploadThing = fakeUploadThing(stub);
 
   return {
     caller: createCaller(
@@ -935,9 +943,16 @@ describe("dishImport.discardPhoto", () => {
     expectScopedByHousehold(removed);
     expect(compileWithParams(removed?.wheres[0]).params).toContain(FILE_KEY);
 
-    // The row is revoked first, then the file: the key can never be spent
-    // again even if the delete below fails.
-    expect(uploadThing.deleted).toEqual([[FILE_KEY]]);
+    // The row is revoked first, then the file — and the *order* is the
+    // invariant, not just that both happened: if the blob went first, a
+    // failure in between would leave a live ownership row pointing at nothing,
+    // and `requireOwnedPhoto` would keep accepting the key.
+    const deleteAt = stub.statements.findIndex(
+      (statement) => statement.kind === "delete",
+    );
+    expect(uploadThing.deleted).toHaveLength(1);
+    expect(uploadThing.deleted[0]?.keys).toEqual([FILE_KEY]);
+    expect(uploadThing.deleted[0]?.at).toBeGreaterThan(deleteAt);
   });
 });
 

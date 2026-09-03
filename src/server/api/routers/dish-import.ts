@@ -546,9 +546,10 @@ async function buildDraft(
  *
  * A second, small `UPDATE` rather than folding it into the one above: that
  * one is the ledger and has to land the instant the model answers, while this
- * one carries a draft that does not exist yet at that point. `jsonb_set` on
- * the existing document (rather than a plain overwrite) is what `dish.create`
- * expects — it later writes `consumedDishId` into the same object.
+ * one carries a draft that does not exist yet at that point. This write is a
+ * plain overwrite; `dish.create` is the one that later merges
+ * `consumedDishId` into the same document with `jsonb_set`, which is why it
+ * must survive an older shape — see the note on `importResultOutput`.
  */
 async function recordResult(
   db: Database,

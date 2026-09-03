@@ -96,6 +96,7 @@ export function EditDishScreen({ dishId }: { dishId: string }) {
               tooLarge: importCopy("photoTooBig"),
               notAnImage: importCopy("photoNotImage"),
               uploadFailed: importCopy("uploadFailed"),
+              rateLimited: importCopy("uploadRateLimited"),
             }}
             onPicked={onPicked}
           />

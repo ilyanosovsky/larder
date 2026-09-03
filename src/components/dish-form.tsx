@@ -569,7 +569,20 @@ export function DishForm({
       // recipe and «Сохранить блюдо» mints a second complete dish (dishes
       // archive, never delete). Unconditional: the path is cheap, and a form
       // with no `jobId` simply has nothing cached to drop.
-      void queryClient.invalidateQueries(trpc.dishImport.pathFilter());
+      //
+      // `refetchType: "none"` like the sibling above, and here it is
+      // load-bearing rather than tidy: this form is often *mounted inside*
+      // the review screen, so an active refetch would return the
+      // `consumedDishId` this very save just stamped, fire that screen's
+      // redirect effect a round trip later, and unmount the «Блюдо
+      // сохранено · Создано N новых продуктов» panel before anyone could read
+      // it. Marking the entry stale is enough for the case the paragraph
+      // above is about — a Back remounts the observer and `refetchOnMount`
+      // does the rest.
+      void queryClient.invalidateQueries({
+        ...trpc.dishImport.pathFilter(),
+        refetchType: "none",
+      });
 
       // The version this form just authored. Without it the refetch above
       // raises `latest.version` past `expectedVersion` and the form tells the

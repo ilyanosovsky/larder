@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { compressImage } from "@/lib/images/compress";
+import { isUploadLimitMessage } from "@/lib/images/upload-errors";
 import { useUploadThing } from "@/lib/uploadthing";
 
 import styles from "./dish-photo-upload.module.css";
@@ -44,6 +45,8 @@ export function DishPhotoUpload({
     tooLarge: string;
     notAnImage: string;
     uploadFailed: string;
+    /** The per-user upload cap — «подожди минуту», not «проверь связь». */
+    rateLimited: string;
   };
   onPicked: (photo: UploadedPhoto) => void;
   autoFocus?: boolean;
@@ -55,7 +58,24 @@ export function DishPhotoUpload({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { startUpload } = useUploadThing("dishPhoto");
+  /**
+   * Why the upload failed, captured from the hook's own callback.
+   *
+   * `startUpload` **swallows every non-abort error and resolves `undefined`**
+   * (@uploadthing/react), so the `catch` below is unreachable for an upload
+   * refusal and the `!first` branch is what renders. Without `onUploadError`
+   * there is no channel at all: the cap's «Upload limit reached», an expired
+   * session and a dropped connection all became «Проверь связь».
+   */
+  const failureRef = useRef<string | null>(null);
+
+  const { startUpload } = useUploadThing("dishPhoto", {
+    onUploadError: (error) => {
+      failureRef.current = isUploadLimitMessage(error.message)
+        ? errorLabels.rateLimited
+        : errorLabels.uploadFailed;
+    },
+  });
 
   async function handle(file: File) {
     if (busyRef.current) {
@@ -64,6 +84,7 @@ export function DishPhotoUpload({
     busyRef.current = true;
     setBusy(true);
     setError(null);
+    failureRef.current = null;
 
     try {
       const compressed = await compressImage(file);
@@ -80,7 +101,7 @@ export function DishPhotoUpload({
       const first = uploaded?.[0];
 
       if (!first) {
-        setError(errorLabels.uploadFailed);
+        setError(failureRef.current ?? errorLabels.uploadFailed);
         return;
       }
 

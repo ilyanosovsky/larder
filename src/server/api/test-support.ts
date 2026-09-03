@@ -155,6 +155,16 @@ export interface RecordedStatement {
     setWhere?: unknown;
   } | null;
   /**
+   * Whether the insert ended in `.onConflictDoNothing()`.
+   *
+   * A boolean rather than a config object because the call takes no arguments
+   * on the only path that uses it — the UploadThing callback, where a
+   * redelivered notification for a key already recorded must be a no-op
+   * rather than a 23505. Recorded so that dropping the link is a test
+   * failure and not a production surprise.
+   */
+  onConflictDoNothing: boolean;
+  /**
    * How many `transaction()` callbacks the statement was issued inside: `0`
    * for a bare statement, `1` inside a transaction, `2` inside a nested one.
    *
@@ -218,6 +228,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       limit: null,
       lock: null,
       onConflict: null,
+      onConflictDoNothing: false,
       txDepth,
     };
     statements.push(statement);
@@ -261,6 +272,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       },
       for(strength: unknown, config?: unknown) {
         statement.lock = { strength, config };
+        return chain;
+      },
+      onConflictDoNothing() {
+        statement.onConflictDoNothing = true;
         return chain;
       },
       onConflictDoUpdate(config: {

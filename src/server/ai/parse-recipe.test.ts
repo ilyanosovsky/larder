@@ -294,15 +294,87 @@ describe("failures", () => {
     // identically, and never offers «Другое фото» — the one action that
     // discards the unusable blob. A HEIC picked in desktop Chrome reaches the
     // vision call exactly this way.
+    //
+    // **The body's `message` is deliberately image-free.** `APIError.makeMessage`
+    // ignores its `message` argument whenever the body is truthy and
+    // serializes the body instead — so `{ code }` alone produced the message
+    // `400 {"code":"invalid_image_format"}`, which the `/image/i` fallback
+    // matched on its own. Every one of these four cases passed *without* the
+    // code table, and replacing the whole guard with `if (false)` kept the
+    // suite green. With a real message only `IMAGE_ERROR_CODES` can decide.
     const fake = fakeClient(() =>
       Promise.reject(
-        new OpenAI.BadRequestError(400, { code }, "bad image", new Headers()),
+        new OpenAI.BadRequestError(
+          400,
+          { code, message: "Запрос отклонён" },
+          undefined,
+          new Headers(),
+        ),
       ),
     );
 
     await expect(photo(fake.client)).resolves.toMatchObject({
       ok: false,
       reason: "photoUnreadable",
+    });
+  });
+
+  it("maps a 415 to photoUnreadable", async () => {
+    // The media-type branch — nothing else in the suite constructs one.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.APIError(
+          415,
+          { code: "unsupported_media_type", message: "Тип не поддерживается" },
+          undefined,
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "photoUnreadable",
+    });
+  });
+
+  it("recovers the case the message alone gets wrong", async () => {
+    // The realistic body that motivates the table at all: OpenAI names the
+    // image in the *code* and says nothing about it in the message, so the
+    // regex fallback would route this to «Ещё раз» — a retry against the same
+    // undecodable file, forever.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          {
+            code: "invalid_image_url",
+            message: "Timeout while fetching the file.",
+          },
+          undefined,
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "photoUnreadable",
+    });
+  });
+
+  it("treats the code table as a whitelist, not «any 400 with a code»", async () => {
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          { code: "rate_limit_exceeded", message: "Слишком много запросов" },
+          undefined,
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "aiUnavailable",
     });
   });
 

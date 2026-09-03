@@ -2,14 +2,18 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 
 import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import { emptyDraft, type RecipeDraft } from "@/lib/recipes/draft";
+import {
+  consumableJobId,
+  consumedDishIdOf,
+} from "@/lib/recipes/import-consumption";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
 
@@ -36,6 +40,7 @@ export function NewDishScreen() {
   const t = useTranslations("dishForm");
   const importCopy = useTranslations("dishImport");
   const trpc = useTRPC();
+  const router = useRouter();
 
   // Validated here as well as in `page.tsx`, and for a sharper reason than
   // saving a round trip: `jobId` is handed to `dish.create`, whose input
@@ -70,17 +75,26 @@ export function NewDishScreen() {
   }
 
   /**
-   * The job this save is allowed to mark consumed — **only a failed one**.
-   *
-   * `?from=` accepts any job id the household owns, including one that parsed
-   * successfully. That draft has its own review route, so `draftFrom` opens a
-   * blank form for it; passing the id on anyway would let saving that blank
-   * form stamp `consumedDishId` on the parsed job, and the review route would
-   * then redirect to an empty manual dish instead of ever offering the recipe
-   * it holds. A job still running must not be consumed either — it has not
-   * finished deciding what it is.
+   * The job this save may mark consumed — a failed one that has not already
+   * become a dish. The rule itself lives in `import-consumption.ts`, where it
+   * can be tested (this repo has no component-test setup).
    */
-  const consumableJobId = job.data?.outcome === "failed" ? jobId : null;
+  const consumable = consumableJobId(job.data, jobId);
+
+  /**
+   * The guard `/dishes/import/[jobId]` already has, for the same reason: a job
+   * that already became a dish must not re-open a prefilled form. Saving
+   * invalidates the `dishImport` cache, so a Back onto this screen refetches
+   * and lands here. `replace`, in an effect, so Back does not bounce straight
+   * back into the form.
+   */
+  const consumedDishId = consumedDishIdOf(job.data);
+
+  useEffect(() => {
+    if (consumedDishId !== null) {
+      router.replace(`/dishes/${consumedDishId}`);
+    }
+  }, [consumedDishId, router]);
 
   return (
     <section className={styles.screen}>
@@ -96,7 +110,7 @@ export function NewDishScreen() {
       ) : (
         <DishForm
           initial={seed}
-          target={{ mode: "create", jobId: consumableJobId }}
+          target={{ mode: "create", jobId: consumable }}
           photoUploadSlot={({ current, onPicked }) => (
             <DishPhotoUpload
               label={
@@ -109,6 +123,7 @@ export function NewDishScreen() {
                 tooLarge: importCopy("photoTooBig"),
                 notAnImage: importCopy("photoNotImage"),
                 uploadFailed: importCopy("uploadFailed"),
+                rateLimited: importCopy("uploadRateLimited"),
               }}
               onPicked={onPicked}
             />
