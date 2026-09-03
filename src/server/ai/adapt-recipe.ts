@@ -116,12 +116,21 @@ export type AdaptRecipeResult =
       readonly costUsd: number;
     };
 
-/** The household's kitchen, as the prompt describes it. */
+/**
+ * The household's kitchen, as the prompt describes it.
+ *
+ * **`kitchen_profiles.household_size` is deliberately absent**, against the
+ * brief's own sketch, on the evidence of the first real run: with «В доме
+ * человек: 2» in the prompt, gpt-5-mini adapted a recipe «пересчитано на 2
+ * человека (всё вдвое меньше)» — it took the headcount for the portion target
+ * and halved quantities that had already been scaled to four. A second number
+ * that looks like a serving count, sitting next to the one that is, is
+ * exactly what a model latches onto; the portion count is stated
+ * unambiguously and needs no company.
+ */
 export interface AdaptProfile {
   /** `kitchen_profiles.equipment` verbatim — slugs and free text side by side. */
   readonly equipment: readonly string[];
-  /** «в доме N человек», or `null` when no profile was ever saved. */
-  readonly householdSize: number | null;
 }
 
 export interface AdaptRecipeArgs {
@@ -184,20 +193,23 @@ const SYSTEM_PROMPT = [
   "1. Присылай ТОЛЬКО то, что меняешь. Строку или шаг, который остаётся как есть, не присылай вообще.",
   "2. Правки адресуются индексами из списков ниже. Не меняй порядок и не присылай рецепт целиком.",
   "3. НЕ ВЫДУМЫВАЙ количества. Если количество неизвестно — qty=null. Пустое поле честнее выдуманного числа.",
-  "4. Количества УЖЕ пересчитаны на нужное число порций. Меняй их только там, где линейный пересчёт бессмыслен:",
-  "   целые яйца, «1 форма», «1 упаковка», «1 щепотка».",
-  "5. Название ингредиента менять нельзя — его нет в ответе. Меняются только qty, unit, note, rawText.",
-  `6. unit — единица из списка: ${RECIPE_UNITS.join(", ")}. Другое слово («зубчик», «по вкусу») клади в note, а unit=null.`,
-  "7. rawText — строка ингредиента, переписанная под новое количество, или null, чтобы оставить исходную.",
-  "8. Замени технику, которой на кухне нет, на то, что есть. Используй ТОЛЬКО технику из списка «есть на кухне»",
+  "4. Количества в списке ниже — ОКОНЧАТЕЛЬНЫЕ: пересчёт под нужное число порций уже сделан за тебя.",
+  "   НЕ ДЕЛИ и НЕ УМНОЖАЙ их. Меняй число только там, где оно физически невозможно:",
+  "   «0,5 яйца» → 1 яйцо, «0,3 формы» → 1 форма, «0,25 упаковки» → 1 упаковка.",
+  "5. Если выход считается штуками (печенья, котлеты, блины), при пересчёте меняется ЧИСЛО штук,",
+  "   а вес каждой штуки остаётся прежним. Не уменьшай «шары по 140–160 г» — их просто станет меньше.",
+  "6. Название ингредиента менять нельзя — его нет в ответе. Меняются только qty, unit, note, rawText.",
+  `7. unit — единица из списка: ${RECIPE_UNITS.join(", ")}. Другое слово («зубчик», «по вкусу») клади в note, а unit=null.`,
+  "8. rawText — строка ингредиента, переписанная под новое количество, или null, чтобы оставить исходную.",
+  "9. Замени технику, которой на кухне нет, на то, что есть. Используй ТОЛЬКО технику из списка «есть на кухне»",
   "   или ручной способ («венчиком вручную», «руками»). Не предлагай технику, которой у человека нет.",
-  "9. steps — замена текста существующего шага по его индексу. removedStepIndexes — шаги, которые стали не нужны.",
+  "10. steps — замена текста существующего шага по его индексу. removedStepIndexes — шаги, которые стали не нужны.",
   "   addedSteps — новые шаги; afterIndex — индекс исходного шага, ПОСЛЕ которого вставить (-1 = в самое начало).",
-  "10. timerSec / timerMaxSec — в СЕКУНДАХ. «выпекать 9–11 минут» → timerSec=540, timerMaxSec=660.",
+  "11. timerSec / timerMaxSec — в СЕКУНДАХ. «выпекать 9–11 минут» → timerSec=540, timerMaxSec=660.",
   "    Если способ изменился и время меняется — обнови его. Если времени в шаге нет — null.",
-  "11. summary — ОДНА короткая фраза по-русски о том, что изменилось: «переделано под духовку вместо аэрогриля»,",
+  "12. summary — ОДНА короткая фраза по-русски о том, что изменилось: «переделано под духовку вместо аэрогриля»,",
   "    «взбиваем венчиком вручную, пересчитано на 4 порции».",
-  "12. Если менять нечего — верни пустые массивы и summary «Ничего менять не нужно».",
+  "13. Если менять нечего — верни пустые массивы и summary «Ничего менять не нужно».",
 ].join("\n");
 
 /**
@@ -223,12 +235,10 @@ export function describeDraftForModel(args: {
     lines.push(`Порций: ${basePortions} (количества указаны для них).`);
   } else {
     lines.push(
-      `Порций: ${targetPortions}. Количества ниже УЖЕ пересчитаны с ${basePortions} на ${targetPortions}.`,
+      `Порций: ${targetPortions} (было ${basePortions}).`,
+      `ПЕРЕСЧЁТ УЖЕ СДЕЛАН. Количества ниже — ОКОНЧАТЕЛЬНЫЕ, для ${targetPortions} порций.`,
+      "Ничего не дели и не умножай. Меняй число, только если оно физически невозможно.",
     );
-  }
-
-  if (profile.householdSize !== null) {
-    lines.push(`В доме человек: ${profile.householdSize}.`);
   }
 
   const have = profileWords(profile.equipment);

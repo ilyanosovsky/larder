@@ -92,6 +92,14 @@
   font-size: var(--t-meta);
 }
 
+/* The restated source line — data, in the mono face every stored value uses. */
+.rowSource {
+  flex-basis: 100%;
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
 .step,
 .stepRemoved {
   display: flex;

@@ -160,7 +160,14 @@ export function DishScreen({ dishId }: { dishId: string }) {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   /** The «Готовить» control — where focus returns once the S9 overlay closes (task 4.7). */
   const cookLinkRef = useRef<HTMLAnchorElement>(null);
-  const restoreFocusAfterUndoRef = useRef(false);
+  /**
+   * Armed by any write that unmounts the control the user just activated —
+   * «Вернуть» in the archived banner, and (task 4.6) «Применить» / «Вернуть
+   * как было», whose own buttons vanish with the plaque or the banner they
+   * live in. Consumed by the effect below, guarded on `activeElement` so it
+   * rescues and never steals.
+   */
+  const rescueFocusRef = useRef(false);
 
   const dishFilter = trpc.dish.get.queryFilter({ id: dishId });
   const dishKey = trpc.dish.get.queryKey({ id: dishId });
@@ -253,7 +260,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
         setBannerError(null);
         // The banner — and the «Вернуть» inside it that still holds focus —
         // is about to unmount.
-        restoreFocusAfterUndoRef.current = true;
+        rescueFocusRef.current = true;
         applyArchivedAt(result.version, null);
         announce(t("undoDone"));
         invalidateDish();
@@ -268,7 +275,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
           // is keyed on `dish.data`, so a background refetch landing mid-write
           // would otherwise consume the token before the unmount happens. The
           // `activeElement` guard makes arming it on the other cause free.
-          restoreFocusAfterUndoRef.current = true;
+          rescueFocusRef.current = true;
           await refreshAfterConflict();
           return;
         }
@@ -297,21 +304,24 @@ export function DishScreen({ dishId }: { dishId: string }) {
   }, [sheet]);
 
   /**
-   * Rescues focus after a successful «Вернуть» — the same shape
-   * `cart-screen.tsx` uses, and for the same reason: the button that was
-   * activated is `aria-disabled` rather than `disabled`, so it still holds
-   * focus at the moment its banner unmounts, and a browser drops that to
-   * `<body>` rather than picking a neighbour.
+   * Rescues focus after a write whose own control has just unmounted — the
+   * same shape `cart-screen.tsx` uses, and for the same reason: a browser
+   * drops focus to `<body>` rather than picking a neighbour.
+   *
+   * `BottomSheet` restores focus to its opener first and this only fires when
+   * that could not happen — which is exactly the adaptation case, where the
+   * «Адаптировать (ИИ)» button that opened the sheet is gone by the time the
+   * sheet closes (the recipe no longer needs the appliance).
    *
    * Keyed on `dish.data`, whose identity changes on every refetch (superjson
    * mints fresh `Date`s), with the ref guard and the `activeElement` check
    * keeping it a rescue and never a steal.
    */
   useEffect(() => {
-    if (!restoreFocusAfterUndoRef.current) {
+    if (!rescueFocusRef.current) {
       return;
     }
-    restoreFocusAfterUndoRef.current = false;
+    rescueFocusRef.current = false;
 
     const active = document.activeElement;
     if (active === null || active === document.body) {
@@ -343,6 +353,10 @@ export function DishScreen({ dishId }: { dishId: string }) {
     setAdapt(null);
     setReverting(false);
     setBannerError(null);
+    // The button that opened the sheet is usually gone by now: applying drops
+    // the appliance the banner was complaining about, and reverting removes
+    // the «Адаптировано» plaque the revert button lives in.
+    rescueFocusRef.current = true;
     queryClient.setQueryData(dishKey, saved);
     announceVisible(message);
     invalidateDish();

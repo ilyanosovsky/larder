@@ -82,8 +82,18 @@ export function AdaptationSheet({
 
   /** Frozen at mount — see the doc comment. */
   const [expectedVersion] = useState(() => detail.version);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  /**
+   * The sheet's own phase, rather than `adapt.isPending` / `apply.isPending`.
+   *
+   * Not a style choice: in the first real run the progress block stayed on
+   * screen underneath a finished proposal, because a `setState` from inside
+   * `onSuccess` renders while the mutation's own status has not flipped yet —
+   * and whether it flips back in a later render is TanStack's business, not
+   * something this sheet should be reading tea leaves about. One state
+   * variable the component sets itself has exactly one answer at any moment,
+   * and every branch below reads it.
+   */
+  const [phase, setPhase] = useState<Phase>({ kind: "running" });
 
   /** Synchronous mutex: render state lands a re-render too late for a double tap. */
   const pendingRef = useRef(false);
@@ -91,16 +101,16 @@ export function AdaptationSheet({
 
   /**
    * One place decides both the sentence and whether «Ещё раз» is worth
-   * offering: retrying a `CONFLICT` re-sends the same frozen version and
-   * fails identically, and there is nothing to retry about «менять нечего».
+   * offering.
    */
   function report(cause: unknown) {
     if (isConflictError(cause)) {
       onConflict();
-      setFailure({ text: dish("conflict"), retryable: false });
+      setPhase({ kind: "failed", text: dish("conflict"), retryable: false });
       return;
     }
-    setFailure({
+    setPhase({
+      kind: "failed",
       text: isRateLimitedError(cause) ? t("rateLimited") : t("failed"),
       retryable: true,
     });
@@ -113,18 +123,24 @@ export function AdaptationSheet({
       // `mutationFn` ever ran and the sheet would spin forever.
       networkMode: "always",
       onSuccess: (result) => {
-        if (result.outcome === "proposed") {
-          setProposal({
-            draft: result.draft,
-            summary: result.summary,
-            diff: result.diff,
-          });
-          return;
-        }
-        setFailure(
-          result.reason === "nothingToAdapt"
-            ? { text: t("nothingToAdapt"), retryable: false }
-            : { text: t("failed"), retryable: true },
+        setPhase(
+          result.outcome === "proposed"
+            ? {
+                kind: "proposed",
+                proposal: {
+                  draft: result.draft,
+                  summary: result.summary,
+                  diff: result.diff,
+                },
+              }
+            : {
+                kind: "failed",
+                text:
+                  result.reason === "nothingToAdapt"
+                    ? t("nothingToAdapt")
+                    : t("failed"),
+                retryable: result.reason !== "nothingToAdapt",
+              },
         );
       },
       onError: report,
@@ -164,7 +180,7 @@ export function AdaptationSheet({
       return;
     }
     pendingRef.current = true;
-    setFailure(null);
+    setPhase({ kind: "running" });
     adapt.mutate({ dishId, expectedVersion, targetPortions });
   }
 
@@ -173,7 +189,7 @@ export function AdaptationSheet({
       return;
     }
     pendingRef.current = true;
-    setFailure(null);
+    setPhase({ kind: "applying", proposal: accepted });
     apply.mutate({
       id: dishId,
       expectedVersion,
@@ -185,7 +201,11 @@ export function AdaptationSheet({
     });
   }
 
-  const busy = adapt.isPending || apply.isPending;
+  const busy = phase.kind === "running" || phase.kind === "applying";
+  const proposal =
+    phase.kind === "proposed" || phase.kind === "applying"
+      ? phase.proposal
+      : null;
 
   return (
     <BottomSheet
@@ -196,7 +216,7 @@ export function AdaptationSheet({
       restoreFocusTo={restoreFocusTo}
     >
       <div className={styles.sheet}>
-        {adapt.isPending ? (
+        {phase.kind === "running" ? (
           <AiProgress label={t("running")} hint={t("runningHint")} />
         ) : null}
 
@@ -209,13 +229,13 @@ export function AdaptationSheet({
           />
         )}
 
-        {failure === null ? null : (
+        {phase.kind === "failed" ? (
           // Inside the `aria-modal` subtree, always — a page-level region is
           // behind the scrim and pruned from the accessibility tree.
           <p className={styles.error} role="alert">
-            {failure.text}
+            {phase.text}
           </p>
-        )}
+        ) : null}
 
         {online || busy ? null : <p className={styles.offline}>{t("offline")}</p>}
 
@@ -230,7 +250,7 @@ export function AdaptationSheet({
           </button>
 
           {proposal === null ? (
-            failure?.retryable === true ? (
+            phase.kind === "failed" && phase.retryable ? (
               <button type="button" className={styles.primary} onClick={retry}>
                 {t("retry")}
               </button>
@@ -239,10 +259,10 @@ export function AdaptationSheet({
             <button
               type="button"
               className={styles.primary}
-              aria-disabled={apply.isPending || undefined}
+              aria-disabled={phase.kind === "applying" || undefined}
               onClick={() => applyProposal(proposal)}
             >
-              {apply.isPending ? t("applying") : t("apply")}
+              {phase.kind === "applying" ? t("applying") : t("apply")}
             </button>
           )}
         </div>
@@ -285,7 +305,8 @@ export function RevertSheet({
 
   const [expectedVersion] = useState(() => detail.version);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  /** True from the tap until both the fetch and the save have settled. */
+  const [busy, setBusy] = useState(false);
   const pendingRef = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -308,7 +329,10 @@ export function RevertSheet({
       onError: report,
       onSettled: () => {
         pendingRef.current = false;
-        setLoading(false);
+        // `busy` is this component's own flag, not `revert.isPending`, for the
+        // same reason the proposal sheet keeps a `phase` — and because half of
+        // this flow is a query, which has no mutation status at all.
+        setBusy(false);
       },
     }),
   );
@@ -323,7 +347,7 @@ export function RevertSheet({
       return;
     }
     pendingRef.current = true;
-    setLoading(true);
+    setBusy(true);
     setError(null);
 
     let original: RecipeDraft | null;
@@ -340,14 +364,14 @@ export function RevertSheet({
       );
     } catch (cause) {
       pendingRef.current = false;
-      setLoading(false);
+      setBusy(false);
       report(cause);
       return;
     }
 
     if (original === null) {
       pendingRef.current = false;
-      setLoading(false);
+      setBusy(false);
       setError(t("revertMissing"));
       return;
     }
@@ -363,8 +387,6 @@ export function RevertSheet({
       adaptation: null,
     });
   }
-
-  const busy = loading || revert.isPending;
 
   return (
     <BottomSheet
@@ -409,11 +431,18 @@ export function RevertSheet({
   );
 }
 
-/** A message plus whether «Ещё раз» would be anything but a second failure. */
-interface Failure {
-  text: string;
-  retryable: boolean;
-}
+/**
+ * Where the sheet is, as one value.
+ *
+ * `retryable` rides along with the failure because the two are decided
+ * together: retrying a `CONFLICT` re-sends the same frozen version and fails
+ * identically, and there is nothing to retry about «менять нечего».
+ */
+type Phase =
+  | { kind: "running" }
+  | { kind: "proposed"; proposal: Proposal }
+  | { kind: "applying"; proposal: Proposal }
+  | { kind: "failed"; text: string; retryable: boolean };
 
 interface Proposal {
   draft: RecipeDraft;
@@ -493,21 +522,43 @@ function ProposalView({
                 return null;
               }
 
+              // Every listed row shows what actually moved, and nothing else:
+              // an unchanged amount would render «180 г → 180 г» beside a row
+              // whose only real change was its note, which reads as noise and
+              // trains people to skim the diff.
+              const amountChanged =
+                row.qty !== (original?.qty ?? null) ||
+                row.unit !== (original?.unit ?? null);
+              const noteChanged = row.note !== (original?.note ?? null);
+              const sourceChanged = row.rawText !== (original?.rawText ?? "");
+
               return (
                 <li key={index} className={styles.row}>
                   <span className={styles.rowName}>{row.name}</span>
                   <span className={styles.rowChange}>
-                    <span className={styles.was}>
-                      {formatRecipeQty(original?.qty ?? null, original?.unit ?? null)}
-                    </span>
-                    <span aria-hidden="true"> → </span>
+                    {amountChanged ? (
+                      <>
+                        <span className={styles.was}>
+                          {formatRecipeQty(
+                            original?.qty ?? null,
+                            original?.unit ?? null,
+                          )}
+                        </span>
+                        <span aria-hidden="true"> → </span>
+                      </>
+                    ) : null}
                     <span className={styles.now}>
                       {formatRecipeQty(row.qty, row.unit)}
                     </span>
                   </span>
-                  {row.note === (original?.note ?? null) || row.note === null ? null : (
-                    <span className={styles.rowNote}>{row.note}</span>
-                  )}
+                  {noteChanged ? (
+                    // `—` when the adaptation dropped a qualifier: a row that
+                    // silently lost «холодное» would look unchanged.
+                    <span className={styles.rowNote}>{row.note ?? "—"}</span>
+                  ) : null}
+                  {sourceChanged ? (
+                    <span className={styles.rowSource}>{row.rawText}</span>
+                  ) : null}
                 </li>
               );
             })}

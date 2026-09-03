@@ -1162,10 +1162,7 @@ export const dishRouter = createTRPCRouter({
       }
 
       const [profile] = await ctx.db
-        .select({
-          householdSize: kitchenProfiles.householdSize,
-          equipment: kitchenProfiles.equipment,
-        })
+        .select({ equipment: kitchenProfiles.equipment })
         .from(kitchenProfiles)
         .where(eq(kitchenProfiles.householdId, householdId))
         .limit(1);
@@ -1223,10 +1220,7 @@ export const dishRouter = createTRPCRouter({
         // will land on.
         draft:
           targetPortions === null ? draft : rescaleDraft(draft, targetPortions),
-        profile: {
-          equipment: profile?.equipment ?? [],
-          householdSize: profile?.householdSize ?? null,
-        },
+        profile: { equipment: profile?.equipment ?? [] },
         missing,
         targetPortions,
         basePortions: draft.portionsBase,

@@ -135,7 +135,7 @@ function run(
   return adaptRecipe({
     client,
     draft: draft(),
-    profile: { equipment: ["oven", "кухонные весы"], householdSize: 2 },
+    profile: { equipment: ["oven", "кухонные весы"] },
     missing: ["mixer"],
     targetPortions: 4,
     basePortions: 8,
@@ -147,7 +147,7 @@ function run(
 describe("describeDraftForModel", () => {
   const prompt = describeDraftForModel({
     draft: draft(),
-    profile: { equipment: ["oven", "кухонные весы"], householdSize: 2 },
+    profile: { equipment: ["oven", "кухонные весы"] },
     missing: ["mixer"],
     targetPortions: 4,
     basePortions: 8,
@@ -163,21 +163,33 @@ describe("describeDraftForModel", () => {
     expect(prompt).toContain("1. Выпекать [таймер 540–660 с]");
   });
 
-  it("says the quantities are already rescaled, and from what", () => {
-    expect(prompt).toContain("УЖЕ пересчитаны с 8 на 4");
+  it("says the arithmetic is done, and states the numbers as final", () => {
+    // The first real run halved an already-halved recipe; the prompt now says
+    // so three ways over.
+    expect(prompt).toContain("Порций: 4 (было 8)");
+    expect(prompt).toContain("ПЕРЕСЧЁТ УЖЕ СДЕЛАН");
+    expect(prompt).toContain("Ничего не дели и не умножай");
+  });
+
+  it("never puts the household headcount in front of the model", () => {
+    // Evidence, not taste: with «В доме человек: 2» present, gpt-5-mini
+    // adapted «пересчитано на 2 человека (всё вдвое меньше)» — it read the
+    // headcount as the portion target. See `AdaptProfile`.
+    expect(prompt).not.toContain("В доме");
+    expect(prompt).not.toMatch(/человек/);
   });
 
   it("states the recipe's own yield when nothing is being rescaled", () => {
     const plain = describeDraftForModel({
       draft: draft(),
-      profile: { equipment: [], householdSize: null },
+      profile: { equipment: [] },
       missing: ["mixer"],
       targetPortions: null,
       basePortions: 8,
     });
 
-    expect(plain).toContain("Порций: 8");
-    expect(plain).not.toContain("пересчитаны");
+    expect(plain).toContain("Порций: 8 (количества указаны для них)");
+    expect(plain).not.toContain("ПЕРЕСЧЁТ");
   });
 
   it("names the missing appliance in Russian, not as a slug", () => {
@@ -192,7 +204,7 @@ describe("describeDraftForModel", () => {
   it("tells the model to propose manual work when the kitchen is empty", () => {
     const bare = describeDraftForModel({
       draft: draft(),
-      profile: { equipment: [], householdSize: null },
+      profile: { equipment: [] },
       missing: ["mixer"],
       targetPortions: null,
       basePortions: 8,
