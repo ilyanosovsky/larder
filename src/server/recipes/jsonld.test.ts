@@ -92,7 +92,11 @@ describe("the shapes JSON-LD actually arrives in", () => {
     const html = page(
       JSON.stringify([
         { "@type": "WebPage", name: "страница" },
-        { "@type": "Recipe", name: "Шакшука", recipeIngredient: ["Яйца, 4 шт"] },
+        {
+          "@type": "Recipe",
+          name: "Шакшука",
+          recipeIngredient: ["Яйца, 4 шт"],
+        },
       ]),
     );
 

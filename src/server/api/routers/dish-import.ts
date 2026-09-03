@@ -14,10 +14,7 @@ import {
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
 import { recipeDraftSchema, type RecipeDraft } from "@/lib/recipes/draft";
-import {
-  MAX_IMPORT_TEXT,
-  MIN_IMPORT_TEXT,
-} from "@/lib/recipes/import-input";
+import { MAX_IMPORT_TEXT, MIN_IMPORT_TEXT } from "@/lib/recipes/import-input";
 import { parseRecipe, type ParsedRecipe } from "@/server/ai/parse-recipe";
 import { formatCostUsd } from "@/server/ai/pricing";
 import { assertWithinRateLimit } from "@/server/ai/rate-limit-guard";
@@ -544,7 +541,11 @@ export const dishImportRouter = createTRPCRouter({
 
         if (!scraped.ok) {
           return await failImport(ctx.db, householdId, job.id, {
-            reason: scrapeFailureReason(classified.kind, fetched, scraped.reason),
+            reason: scrapeFailureReason(
+              classified.kind,
+              fetched,
+              scraped.reason,
+            ),
             partial,
             error: `firecrawl ${scraped.reason}`,
           });
@@ -943,7 +944,8 @@ async function buildDraft(
       // screenshot. On the URL and text paths the same failure means the
       // model produced something this app cannot store, and the way out is
       // «ещё раз» or «вручную».
-      reason: source.sourceType === "photo" ? "photoUnreadable" : "aiUnavailable",
+      reason:
+        source.sourceType === "photo" ? "photoUnreadable" : "aiUnavailable",
       title: fallbackTitle,
     };
   }

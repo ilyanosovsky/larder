@@ -178,7 +178,10 @@ describe("the request", () => {
     const fake = replyWith(JSON.stringify(RECIPE));
     await parseRecipe({
       client: fake.client,
-      input: { kind: "skeleton", hint: "Название: Печенье NYC\n- Мука — 285 г" },
+      input: {
+        kind: "skeleton",
+        hint: "Название: Печенье NYC\n- Мука — 285 г",
+      },
     });
 
     const content = fake.calls[0]?.params.messages[1]?.content;

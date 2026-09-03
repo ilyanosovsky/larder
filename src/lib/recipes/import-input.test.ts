@@ -52,14 +52,16 @@ describe("isLongEnough", () => {
     expect(isLongEnough("я".repeat(MIN_IMPORT_TEXT))).toBe(true);
     expect(isLongEnough("я".repeat(MIN_IMPORT_TEXT - 1))).toBe(false);
 
-    expect(fromTextInput.safeParse({ text: "я".repeat(MIN_IMPORT_TEXT) }).success).toBe(
-      true,
-    );
     expect(
-      fromTextInput.safeParse({ text: "я".repeat(MIN_IMPORT_TEXT - 1) }).success,
+      fromTextInput.safeParse({ text: "я".repeat(MIN_IMPORT_TEXT) }).success,
+    ).toBe(true);
+    expect(
+      fromTextInput.safeParse({ text: "я".repeat(MIN_IMPORT_TEXT - 1) })
+        .success,
     ).toBe(false);
     expect(
-      fromTextInput.safeParse({ text: "я".repeat(MAX_IMPORT_TEXT + 1) }).success,
+      fromTextInput.safeParse({ text: "я".repeat(MAX_IMPORT_TEXT + 1) })
+        .success,
     ).toBe(false);
   });
 });

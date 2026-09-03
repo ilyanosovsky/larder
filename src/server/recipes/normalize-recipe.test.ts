@@ -39,7 +39,9 @@ const NORMALIZED: ParsedRecipe = {
       isOptional: false,
     },
   ],
-  steps: [{ text: "Взбей масло с сахаром.", timerSec: null, timerMaxSec: null }],
+  steps: [
+    { text: "Взбей масло с сахаром.", timerSec: null, timerMaxSec: null },
+  ],
 };
 
 function fakeClient(answer: string | Error) {

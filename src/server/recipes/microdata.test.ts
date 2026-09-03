@@ -66,7 +66,9 @@ describe("recipeSkeletonFromMicrodata — the rules", () => {
     expect(
       recipeSkeletonFromMicrodata(fixture("russianfood-plain.html")),
     ).toBeNull();
-    expect(recipeSkeletonFromMicrodata("<html><body>ничего</body></html>")).toBeNull();
+    expect(
+      recipeSkeletonFromMicrodata("<html><body>ничего</body></html>"),
+    ).toBeNull();
   });
 
   it("accepts either scheme and a trailing slash on the itemtype", () => {

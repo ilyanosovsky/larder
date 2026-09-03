@@ -85,7 +85,10 @@ describe("parseFirecrawlResponse — the shape guard (R7)", () => {
     // menu and a login box. Truncating *that* handed the model a navigation
     // bar and got back «на этой странице нет рецепта» for a page with a
     // perfectly good recipe on it.
-    const chrome = "| [Рецепты](https://x/r) | [Войти](https://x/l) |\n| --- | --- |\n".repeat(400);
+    const chrome =
+      "| [Рецепты](https://x/r) | [Войти](https://x/l) |\n| --- | --- |\n".repeat(
+        400,
+      );
     const recipe = `# Гуляш\n\n| Говядина – 1 кг |\n| Лук репчатый – 600 г |\n${"Тушим два часа. ".repeat(20)}`;
 
     const result = parseFirecrawlResponse({
@@ -151,7 +154,9 @@ describe("firecrawlScrape", () => {
     await expect(
       firecrawlScrape("https://x.example/r", {
         fetch: (() =>
-          Promise.reject(new Error("aborted"))) as unknown as typeof globalThis.fetch,
+          Promise.reject(
+            new Error("aborted"),
+          )) as unknown as typeof globalThis.fetch,
       }),
     ).resolves.toEqual({ ok: false, reason: "blocked" });
   });
@@ -162,7 +167,9 @@ describe("firecrawlScrape", () => {
     await expect(
       firecrawlScrape("https://x.example/r", {
         fetch: (() =>
-          Promise.resolve(new Response("<html>502</html>", { status: 502 }))) as unknown as typeof globalThis.fetch,
+          Promise.resolve(
+            new Response("<html>502</html>", { status: 502 }),
+          )) as unknown as typeof globalThis.fetch,
       }),
     ).resolves.toEqual({ ok: false, reason: "blocked" });
   });
@@ -225,14 +232,13 @@ describe("condenseMarkdown", () => {
   });
 
   it("leaves ordinary prose alone", () => {
-    const markdown = "# Гуляш\n\nТушим два часа.\n\n- Говядина – 1 кг\n- Лук – 600 г";
+    const markdown =
+      "# Гуляш\n\nТушим два часа.\n\n- Говядина – 1 кг\n- Лук – 600 г";
 
     expect(condenseMarkdown(markdown)).toBe(markdown);
   });
 
   it("collapses blank runs to one, so paragraphs stay paragraphs", () => {
-    expect(condenseMarkdown("Первый\n\n\n\nВторой")).toBe(
-      "Первый\n\nВторой",
-    );
+    expect(condenseMarkdown("Первый\n\n\n\nВторой")).toBe("Первый\n\nВторой");
   });
 });

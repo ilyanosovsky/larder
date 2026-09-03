@@ -127,7 +127,10 @@ describe("fetchPage — the SSRF guard", () => {
     const result = await fetchPage("https://mixed.example/r", {
       fetch: unusedFetch,
       lookup: () =>
-        Promise.resolve([{ address: "93.184.216.34" }, { address: "10.0.0.7" }]),
+        Promise.resolve([
+          { address: "93.184.216.34" },
+          { address: "10.0.0.7" },
+        ]),
     });
 
     expect(result).toEqual({ kind: "blocked" });
@@ -155,7 +158,9 @@ describe("fetchPage — the SSRF guard", () => {
   it("re-resolves DNS on a redirect to a different public name", async () => {
     const lookup = vi.fn((hostname: string) =>
       Promise.resolve([
-        { address: hostname === "inner.example" ? "10.0.0.9" : "93.184.216.34" },
+        {
+          address: hostname === "inner.example" ? "10.0.0.9" : "93.184.216.34",
+        },
       ]),
     );
     const { fetch } = queuedFetch([
@@ -344,7 +349,10 @@ describe("decodeHtml", () => {
   it("falls back to UTF-8 for an encoding the runtime does not know", () => {
     // Better a readable page than a thrown RangeError with no failure branch.
     expect(
-      decodeHtml(new TextEncoder().encode("Блины"), "text/html; charset=x-mac-cyrillic-typo"),
+      decodeHtml(
+        new TextEncoder().encode("Блины"),
+        "text/html; charset=x-mac-cyrillic-typo",
+      ),
     ).toBe("Блины");
   });
 

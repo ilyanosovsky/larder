@@ -40,7 +40,12 @@ export function extractJsonLdNodes(html: string): unknown[] {
   const root = parse(html, {
     // The default keeps `<script>` bodies; being explicit is what makes this
     // module's whole premise (reading script text) survive a library upgrade.
-    blockTextElements: { script: true, noscript: false, style: false, pre: true },
+    blockTextElements: {
+      script: true,
+      noscript: false,
+      style: false,
+      pre: true,
+    },
   });
 
   const nodes: unknown[] = [];

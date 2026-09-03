@@ -6,7 +6,10 @@ import {
   recipeSkeletonFromJsonLd,
 } from "@/server/recipes/jsonld";
 import { recipeSkeletonFromMicrodata } from "@/server/recipes/microdata";
-import { isUsableSkeleton, type RecipeSkeleton } from "@/server/recipes/skeleton";
+import {
+  isUsableSkeleton,
+  type RecipeSkeleton,
+} from "@/server/recipes/skeleton";
 import { isSocialHost, normalizeHostname } from "@/server/recipes/url-guard";
 
 /**

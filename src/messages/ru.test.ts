@@ -52,12 +52,7 @@ function importCopyCallSites(): string[] {
  */
 function translator(
   namespace:
-    | "dish"
-    | "dishes"
-    | "dishForm"
-    | "dishImport"
-    | "dishPortions"
-    | "cooking",
+    "dish" | "dishes" | "dishForm" | "dishImport" | "dishPortions" | "cooking",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }

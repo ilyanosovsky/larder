@@ -967,7 +967,6 @@ describe("dishImport.discardPhoto", () => {
   });
 });
 
-
 // ─────────────────────────────────────────────────────────────────────────
 // Task 4.4 — import by URL and by pasted text
 // ─────────────────────────────────────────────────────────────────────────
@@ -1223,9 +1222,7 @@ describe("dishImport.fromUrl — the free JSON-LD path", () => {
     // the model give up early with twenty seconds of budget unused.
     expect(openai.calls[0]?.options?.maxRetries).toBe(0);
     expect(openai.calls[0]?.options?.timeout).toBeGreaterThan(40_000);
-    expect(openai.calls[0]?.options?.timeout).toBeLessThan(
-      IMPORT_DEADLINE_MS,
-    );
+    expect(openai.calls[0]?.options?.timeout).toBeLessThan(IMPORT_DEADLINE_MS);
     expect(openai.calls[0]?.options?.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -1387,10 +1384,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
         headers: { location: "http://169.254.169.254/latest/meta-data/" },
       }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
@@ -1402,10 +1396,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
 
   it("refuses a public name that resolves to a private address", async () => {
     const page = fakePageFetch([], "10.0.0.7");
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
@@ -1429,10 +1420,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
     const page = fakePageFetch([
       new Response(stream, { headers: { "content-type": "text/html" } }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
@@ -1473,10 +1461,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
         headers: { "content-type": "application/json" },
       }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
     const result = await caller.dishImport.fromUrl({ url: INSTAGRAM_URL });
@@ -1494,10 +1479,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
         headers: { "content-type": "application/json" },
       }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
     const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
@@ -1510,10 +1492,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
       htmlPage(fixture("russianfood-plain.html")),
       firecrawlOk("Cookies"),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
 
@@ -1532,10 +1511,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
         headers: { "content-type": "application/json" },
       }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
 
@@ -1553,10 +1529,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
       htmlPage(fixture("russianfood-plain.html")),
       new Response("{}", { headers: { "content-type": "application/json" } }),
     ]);
-    const { caller } = urlCallerWith(
-      [...urlPreamble(), [], []],
-      page.factory,
-    );
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
 
     vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
     const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });

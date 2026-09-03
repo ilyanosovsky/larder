@@ -34,9 +34,9 @@ describe("decideUrlStrategy — the three verified sites (VISION §6.4)", () => 
     });
 
     expect(strategy.kind).toBe("microdata");
-    expect(
-      strategy.kind === "microdata" && strategy.skeleton.title,
-    ).toBe("Блины на молоке");
+    expect(strategy.kind === "microdata" && strategy.skeleton.title).toBe(
+      "Блины на молоке",
+    );
   });
 
   it("sends russianfood.com to FireCrawl — it has nothing structured", () => {
@@ -126,6 +126,8 @@ describe("pageTitle — what a failed import can still prefill", () => {
 
   it("returns null when there is no title at all", () => {
     expect(pageTitle("<html><body>ничего</body></html>")).toBeNull();
-    expect(pageTitle("<html><head><title>   </title></head></html>")).toBeNull();
+    expect(
+      pageTitle("<html><head><title>   </title></head></html>"),
+    ).toBeNull();
   });
 });

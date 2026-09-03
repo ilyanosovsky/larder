@@ -193,5 +193,8 @@ export function condenseMarkdown(markdown: string): string {
     lines.push(line);
   }
 
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

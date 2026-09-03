@@ -396,10 +396,8 @@ function partialFor(
 
   return {
     title: partial.title,
-    photoUrl:
-      partial.photoUrl ?? (run.kind === "photo" ? run.photo.url : null),
-    photoKey:
-      partial.photoKey ?? (run.kind === "photo" ? run.photo.key : null),
+    photoUrl: partial.photoUrl ?? (run.kind === "photo" ? run.photo.url : null),
+    photoKey: partial.photoKey ?? (run.kind === "photo" ? run.photo.key : null),
     sourceUrl: partial.sourceUrl ?? (run.kind === "url" ? run.url : null),
   };
 }
