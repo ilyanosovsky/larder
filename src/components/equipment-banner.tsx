@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
 
 import { cx } from "@/lib/cx";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
@@ -39,8 +38,8 @@ import styles from "./equipment-banner.module.css";
  * 5. **Something is missing** — the same ✓/✗ list, plus a plain-words
  *    «Не хватает: …» sentence naming the missing appliances (never a bare
  *    glyph as the only carrier of that fact — see the a11y note below), an
- *    explanatory caption, and the `aria-disabled` «Адаптировать (ИИ)» button
- *    task 4.6 wires up.
+ *    explanatory caption, and the «Адаптировать (ИИ)» button — a real
+ *    control since task 4.6, which opens the proposal sheet.
  *
  * `missingEquipment` runs the household's profile through
  * `coerceEquipmentSlug` (task 4.5's own `src/server/recipes/equipment-check
@@ -76,7 +75,7 @@ export function EquipmentBanner({
   missingText,
   adaptLabel,
   adaptHint,
-  adaptSoonText,
+  onAdapt,
   profileMissingText,
   settingsLinkLabel,
 }: {
@@ -107,24 +106,20 @@ export function EquipmentBanner({
   adaptLabel: string;
   /** The caption shown beside the button while something is missing. */
   adaptHint: string;
-  /** «„Адаптировать (ИИ)“ — скоро» — both announced and shown on tap, the
-   *  same split every other not-yet-wired S7 control uses. */
-  adaptSoonText: string;
+  /**
+   * Opens task 4.6's proposal sheet. Called with the button that was
+   * activated, which is what `useSheetOpener` needs to hand focus back on
+   * close — and the only reason this is not a bare `() => void`.
+   *
+   * Deliberately carries **no** list of missing appliances: `dish.adapt`
+   * runs `missingEquipment` itself, against the profile the server reads, so
+   * a client can neither widen nor narrow what an adaptation is asked to work
+   * around.
+   */
+  onAdapt: (opener: HTMLElement) => void;
   profileMissingText: string;
   settingsLinkLabel: string;
 }) {
-  /** Spoken only: the button stays visibly `aria-disabled` either way. */
-  const [announced, setAnnounced] = useState<{
-    text: string;
-    seq: number;
-  } | null>(null);
-  const announceSeq = useRef(0);
-
-  function announceSoon() {
-    announceSeq.current += 1;
-    setAnnounced({ text: adaptSoonText, seq: announceSeq.current });
-  }
-
   if (required.length === 0) {
     return null;
   }
@@ -173,32 +168,19 @@ export function EquipmentBanner({
             {missingText(missing.map((slug) => labels[slug]).join(", "))}
           </p>
           <span className={styles.hint}>{adaptHint}</span>
+          {/* A real button since task 4.6 — no `aria-disabled`, and the
+              banner's own «скоро» live region is gone with it: the sheet it
+              opens is where every message about an adaptation now lives,
+              inside that sheet's own `aria-modal` subtree. */}
           <button
             type="button"
             className={styles.adaptButton}
-            aria-disabled="true"
-            onClick={announceSoon}
+            onClick={(event) => onAdapt(event.currentTarget)}
           >
             {adaptLabel}
           </button>
-          {/* Spoken *and* shown — mirrors `dish-screen.tsx`'s own
-              `announceSoon` for its four disabled actions. A sighted tap
-              on an `aria-disabled` control (opacity change only, no
-              `:active` state) otherwise gets no feedback at all. */}
-          {announced === null ? null : (
-            <p className={styles.hint} aria-hidden="true">
-              {announced.text}
-            </p>
-          )}
         </>
       )}
-
-      {/* The banner's own live region — never the screen's global hint
-          slot, which is reserved for the four disabled screen-level actions
-          (see `dish-screen.tsx`'s doc comment). */}
-      <p className={styles.srOnly} role="status">
-        <span key={announced?.seq ?? "empty"}>{announced?.text ?? ""}</span>
-      </p>
     </div>
   );
 }

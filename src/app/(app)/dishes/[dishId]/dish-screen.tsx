@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Suspense, useEffect, useRef, useState } from "react";
 
+import {
+  AdaptationSheet,
+  RevertSheet,
+} from "@/components/adaptation-sheet";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { CookingOverlay } from "@/components/cooking-overlay";
 import { EquipmentBanner } from "@/components/equipment-banner";
@@ -37,6 +41,18 @@ import styles from "./dish-screen.module.css";
 
 /** Which panel the «…» sheet is showing. */
 type SheetView = "menu" | "confirm";
+
+/**
+ * One open adaptation request. `seq` is what makes the sheet a fresh mount
+ * per tap (`key={adapt.seq}`), so its mutation fires once on mount, its state
+ * resets on close, and asking twice is two independent requests rather than
+ * one component trying to remember which open it is on.
+ */
+interface AdaptRequest {
+  seq: number;
+  /** The slider's own count when it differs from the base, else `null`. */
+  targetPortions: number | null;
+}
 
 /**
  * S7 «Карточка блюда» (DESIGN_BRIEF S7, VISION §3.3) — the read-only view of
@@ -90,6 +106,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
   const t = useTranslations("dish");
   const common = useTranslations("common");
   const tp = useTranslations("dishPortions");
+  const ta = useTranslations("dishAdapt");
   // Reuses the S12 checklist's own labels (`kitchen-profile-form.tsx` builds
   // the identical record the same way) — the equipment banner and the
   // profile's own checklist must never word an appliance differently.
@@ -110,6 +127,10 @@ export function DishScreen({ dishId }: { dishId: string }) {
    * is the whole of "reset to portionsBase on every open, never persisted".
    */
   const [portionsOverride, setPortionsOverride] = useState<number | null>(null);
+  /** Task 4.6: the proposal sheet, and the «Вернуть как было» confirmation. */
+  const [adapt, setAdapt] = useState<AdaptRequest | null>(null);
+  const [reverting, setReverting] = useState(false);
+  const adaptSeq = useRef(0);
   /**
    * The screen's one announcement slot. `visible` separates the two things
    * that use it: a «скоро» tap has nothing else on screen to show for itself,
@@ -127,6 +148,10 @@ export function DishScreen({ dishId }: { dishId: string }) {
   /** Synchronous mutex — render state lands a re-render too late for a double tap. */
   const pendingRef = useRef(false);
   const sheetOpener = useSheetOpener();
+  /** Its own opener: the adaptation sheet is opened from the banner or the
+   *  slider row, never from the «…» menu. */
+  const adaptOpener = useSheetOpener();
+  const revertOpener = useSheetOpener();
   const online = useIsOnline();
 
   /** The «Отмена» button of the confirmation view; see `C1` in the effect below. */
@@ -293,6 +318,35 @@ export function DishScreen({ dishId }: { dishId: string }) {
       moreButtonRef.current?.focus();
     }
   }, [dish.data]);
+
+  /**
+   * Task 4.6's two entry points, and the one place the sheet is opened.
+   *
+   * `captureOpener` runs in the tap itself (the only place that both knows
+   * the answer and is allowed to look — see `useSheetOpener`), and the
+   * request's `seq` is bumped so a second tap after a cancel is a genuinely
+   * new request rather than a remount of the old one.
+   */
+  function openAdapt(element: HTMLElement | null, targetPortions: number | null) {
+    adaptSeq.current += 1;
+    adaptOpener.captureOpener(element);
+    setAdapt({ seq: adaptSeq.current, targetPortions });
+  }
+
+  /**
+   * What both sheets do on success: seed the cache with the aggregate the
+   * save just returned — so `detail.version` is already the bumped token and
+   * an immediate second adaptation does not re-send a version the server has
+   * spent — then invalidate, then say what happened.
+   */
+  function onAdaptationApplied(saved: DishDetailOutput, message: string) {
+    setAdapt(null);
+    setReverting(false);
+    setBannerError(null);
+    queryClient.setQueryData(dishKey, saved);
+    announceVisible(message);
+    invalidateDish();
+  }
 
   /** Spoken only — the screen already shows what happened. */
   function announce(text: string) {
@@ -501,11 +555,43 @@ export function DishScreen({ dishId }: { dishId: string }) {
         increaseAria={tp("increaseAria")}
       />
 
+      {/* «Пересчитать на 4 — ИИ проверит шаги»: the slider already rescaled
+          every quantity for free, and this is the part arithmetic cannot do —
+          a bake time that does not halve with the batch, a tin that no longer
+          fits. Offered only once the slider has actually moved, because at
+          the recipe's own yield there is nothing to recalculate. */}
+      {portions === base ? null : (
+        <button
+          type="button"
+          className={styles.rescaleButton}
+          onClick={(event) => openAdapt(event.currentTarget, portions)}
+        >
+          {ta("adaptPortions", { count: portions })}
+        </button>
+      )}
+
       {detail.recipe.adaptedNote === null ? null : (
-        <p className={styles.adapted}>
-          <span className={styles.adaptedLabel}>{t("adaptedTitle")}</span>
-          {detail.recipe.adaptedNote}
-        </p>
+        <div className={styles.adapted}>
+          <p className={styles.adaptedText}>
+            <span className={styles.adaptedLabel}>{t("adaptedTitle")}</span>
+            {detail.recipe.adaptedNote}
+          </p>
+          {/* Only when there is something to go back *to*: `original_draft`
+              is written by an import and nothing else, so a manually created
+              dish that was adapted has no earlier version to restore. */}
+          {detail.recipe.hasOriginalDraft ? (
+            <button
+              type="button"
+              className={styles.revertButton}
+              onClick={(event) => {
+                revertOpener.captureOpener(event.currentTarget);
+                setReverting(true);
+              }}
+            >
+              {ta("revert")}
+            </button>
+          ) : null}
+        </div>
       )}
 
       <EquipmentBanner
@@ -516,7 +602,9 @@ export function DishScreen({ dishId }: { dishId: string }) {
         missingText={(list) => tp("equipmentMissing", { list })}
         adaptLabel={tp("adaptButton")}
         adaptHint={tp("adaptHint")}
-        adaptSoonText={t("soonHint", { action: tp("adaptButton") })}
+        onAdapt={(opener) =>
+          openAdapt(opener, portions === base ? null : portions)
+        }
         profileMissingText={tp("profileMissing")}
         settingsLinkLabel={tp("profileMissingLink")}
       />
@@ -691,6 +779,37 @@ export function DishScreen({ dishId }: { dishId: string }) {
           </ul>
         )}
       </BottomSheet>
+
+      {/* Task 4.6. Mounted only while open and keyed on the request, so each
+          tap is a fresh component: the proposal call fires once in a mount
+          effect and every piece of sheet state resets on close. Unmounting is
+          also what closes it — `BottomSheet`'s own cleanup restores the body
+          scroll and hands focus back to the control that opened it. */}
+      {adapt === null ? null : (
+        <AdaptationSheet
+          key={adapt.seq}
+          dishId={dishId}
+          detail={detail}
+          beforeEquipment={requiredEquipment}
+          targetPortions={adapt.targetPortions}
+          equipmentLabels={equipmentLabels}
+          restoreFocusTo={adaptOpener.restoreFocusTo}
+          onClose={() => setAdapt(null)}
+          onConflict={() => void refreshAfterConflict()}
+          onApplied={onAdaptationApplied}
+        />
+      )}
+
+      {reverting ? (
+        <RevertSheet
+          dishId={dishId}
+          detail={detail}
+          restoreFocusTo={revertOpener.restoreFocusTo}
+          onClose={() => setReverting(false)}
+          onConflict={() => void refreshAfterConflict()}
+          onApplied={onAdaptationApplied}
+        />
+      ) : null}
 
       {/* `useSearchParams` needs a Suspense boundary per Next's own rule for
           any Client Component that reads it (nextjs.org/docs/messages/
