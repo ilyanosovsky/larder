@@ -332,6 +332,23 @@ describe("the keys the dish screens call by name", () => {
     expect(missing).toEqual([]);
   });
 
+  it("has copy for every warning an import can carry", () => {
+    // `review-screen.tsx` renders these through a `WARNING_COPY` map rather
+    // than as literal `t("…")` calls, so the call-site scan above cannot see
+    // them — and a renamed key would put «dishImport.warningNoSteps» on the
+    // screen of someone whose recipe came back half-parsed.
+    const t = translator("dishImport");
+
+    for (const key of [
+      "warningNoSteps",
+      "warningNoIngredients",
+      "warningNormalizationFailed",
+    ] as const) {
+      expect(t(key)).not.toBe(`dishImport.${key}`);
+      expect(t(key).trim().length).toBeGreaterThan(0);
+    }
+  });
+
   it("declines the saved-products count across Russian plural categories", () => {
     // The sweep above renders every key with `count: 1`, so it can only ever
     // exercise the `one` arm — and ICU falls back to `other` silently, so a

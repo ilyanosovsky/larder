@@ -328,23 +328,6 @@
   font-size: var(--t-meta);
 }
 
-.sourceSoon {
-  flex: none;
-  color: var(--mute-2);
-  font-family: var(--font-mono);
-  font-size: var(--t-label);
-  letter-spacing: var(--track-badge);
-  text-transform: uppercase;
-}
-
-.sheetStatus {
-  min-height: 18px;
-  padding-top: var(--s-3);
-  color: var(--mute);
-  font-family: var(--font-mono);
-  font-size: var(--t-meta);
-}
-
 @media (min-width: 640px) {
   .grid {
     grid-template-columns: repeat(3, 1fr);

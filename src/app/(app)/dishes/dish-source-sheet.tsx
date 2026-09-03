@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useRef, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 
 import { BottomSheet } from "@/components/bottom-sheet";
 
@@ -12,20 +12,13 @@ import styles from "./dish-library-screen.module.css";
  * «+ Блюдо» → the four ways to add one (DESIGN_BRIEF S6, in exactly this
  * order — photo first, because a screenshot is the main road).
  *
- * **«📷 С фото» and «✍️ Вручную» are real links; «🔗 По ссылке» and «📝
- * Текстом» are still `aria-disabled` and announce «скоро».** Those two are
- * task 4.4, and `main` auto-deploys to production, so every merged PR has to
- * be shippable — a row linking to a 404 would be worse than a row that says
- * honestly it is not ready.
+ * All four rows are real links now that task 4.4 has landed the URL and text
+ * panes; the «скоро» state and the live region that announced it are gone
+ * with them.
  *
- * `aria-disabled` rather than `disabled`, the rule this codebase already
- * follows for pending controls: a truly disabled button cannot be focused,
- * so a keyboard user tabbing the sheet would never find out these options
- * exist, and the hint would have no way to reach them.
- *
- * The hint renders **inside** the sheet's own `aria-modal` subtree. A
- * page-level toast would be both hidden behind the scrim and pruned from the
- * accessibility tree — the lesson `revision-mode.tsx` already encodes.
+ * Each row carries `?src=…`, which is what makes this a router rather than a
+ * menu: S8.1 opens with the source already chosen and its field focused, so
+ * choosing here costs one tap and not two.
  */
 export function DishSourceSheet({
   open,
@@ -38,26 +31,6 @@ export function DishSourceSheet({
 }) {
   const t = useTranslations("dishes");
   const common = useTranslations("common");
-  const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
-  const hintSeq = useRef(0);
-
-  /**
-   * The sheet unmounts its own DOM when it closes, but this component stays
-   * mounted — so the hint has to be dropped explicitly, or reopening the sheet
-   * would mount the live region with a stale «скоро» already inside it and
-   * assistive tech would announce a message about a tap from a minute ago.
-   * `BottomSheet` routes Esc and the scrim through `onClose` too, so this one
-   * handler covers every way out.
-   */
-  function close() {
-    setHint(null);
-    onClose();
-  }
-
-  function announce(action: string) {
-    hintSeq.current += 1;
-    setHint({ text: t("soonHint", { action }), seq: hintSeq.current });
-  }
 
   const sources = [
     {
@@ -70,8 +43,20 @@ export function DishSourceSheet({
       // and a tap that caused a navigation does not carry it across.
       href: "/dishes/import?src=photo",
     },
-    { key: "url", icon: "🔗", label: t("sourceUrl"), hint: null, href: null },
-    { key: "text", icon: "📝", label: t("sourceText"), hint: null, href: null },
+    {
+      key: "url",
+      icon: "🔗",
+      label: t("sourceUrl"),
+      hint: t("sourceUrlHint"),
+      href: "/dishes/import?src=url",
+    },
+    {
+      key: "text",
+      icon: "📝",
+      label: t("sourceText"),
+      hint: t("sourceTextHint"),
+      href: "/dishes/import?src=text",
+    },
     {
       key: "manual",
       icon: "✍️",
@@ -84,58 +69,26 @@ export function DishSourceSheet({
   return (
     <BottomSheet
       open={open}
-      onClose={close}
+      onClose={onClose}
       title={t("sourceTitle")}
       closeLabel={common("close")}
       restoreFocusTo={restoreFocusTo}
     >
       <ul className={styles.sourceList}>
-        {sources.map((source) => {
-          const body = (
-            <>
+        {sources.map((source) => (
+          <li key={source.key}>
+            <Link className={styles.sourceRow} href={source.href}>
               <span className={styles.sourceIcon} aria-hidden="true">
                 {source.icon}
               </span>
               <span className={styles.sourceText}>
                 <span className={styles.sourceLabel}>{source.label}</span>
-                {source.hint === null ? null : (
-                  <span className={styles.sourceHint}>{source.hint}</span>
-                )}
+                <span className={styles.sourceHint}>{source.hint}</span>
               </span>
-              {source.href === null ? (
-                <span className={styles.sourceSoon}>{t("soon")}</span>
-              ) : null}
-            </>
-          );
-
-          return (
-            <li key={source.key}>
-              {source.href === null ? (
-                <button
-                  type="button"
-                  className={styles.sourceRow}
-                  aria-disabled="true"
-                  onClick={() => announce(source.label)}
-                >
-                  {body}
-                </button>
-              ) : (
-                <Link className={styles.sourceRow} href={source.href}>
-                  {body}
-                </Link>
-              )}
-            </li>
-          );
-        })}
+            </Link>
+          </li>
+        ))}
       </ul>
-
-      {/* Mounted for the sheet's whole life so assistive tech is already
-          watching it before any text arrives; the keyed child forces a real
-          node replacement when two identical hints follow each other (the
-          same reasoning S3's and S5's live regions document). */}
-      <p className={styles.sheetStatus} role="status">
-        <span key={hint?.seq ?? "empty"}>{hint?.text ?? ""}</span>
-      </p>
     </BottomSheet>
   );
 }

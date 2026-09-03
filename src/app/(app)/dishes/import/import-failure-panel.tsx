@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 
 import {
   DishPhotoUpload,
@@ -14,21 +15,24 @@ import {
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
 
+import { isLongEnough } from "./import-screen";
 import styles from "./import-screen.module.css";
 
 /**
  * S8.2's failure state (DESIGN_BRIEF S8.2) — the honest fork, not an error
  * screen.
  *
- * Amber and calm, never `--neg`: nothing broke. A photo the model could not
+ * Amber and calm, never `--neg`: nothing broke. A page the server could not
  * read is a fork in the road, and every branch below leads somewhere — the
  * ordering comes from `fallbackActions`, which also guarantees «вручную» is
  * always the last one.
  *
- * The «Вставить текст» action renders `aria-disabled` with «скоро» until task
- * 4.4 gives it a field. `aria-disabled` rather than `disabled` for the reason
- * this codebase repeats everywhere: a disabled control cannot be focused, so
- * a keyboard user would never learn the option exists.
+ * **«Вставь текст рецепта» is a field, not a button.** DESIGN_BRIEF S8.2
+ * spells the requirement out — «без тупика, сразу поля» — so the textarea is
+ * rendered inline and focused when text is the *primary* way out (every URL
+ * failure), and sits under the screenshot button when it is not (a login
+ * wall, where a screenshot genuinely works better). One tap fewer at exactly
+ * the moment somebody has already had one thing not work.
  */
 export function ImportFailurePanel({
   reason,
@@ -36,9 +40,10 @@ export function ImportFailurePanel({
   onRetryPhoto,
   onRetry,
   onPicked,
-  onSoon,
+  onUseText,
   manualHref,
   photoPickerHref,
+  textPaneHref,
 }: {
   reason: ImportFailureReason;
   partial: {
@@ -57,16 +62,21 @@ export function ImportFailurePanel({
    * moment later.
    */
   onPicked?: (photo: UploadedPhoto) => void;
-  /** Announces «скоро» for an action task 4.4 has not landed yet. */
-  onSoon: (label: string) => void;
+  /**
+   * Where pasted text goes. Omitted on the review route for the same reason
+   * as `onPicked`: that screen owns no import mutation, so the action becomes
+   * a link back to S8.1's «Текстом» pane.
+   */
+  onUseText?: (text: string) => void;
   manualHref: string;
   /** Used for «Загрузить скриншот» when `onPicked` is absent. */
   photoPickerHref: string;
+  /** Used for «Вставить текст» when `onUseText` is absent. */
+  textPaneHref: string;
 }) {
   const t = useTranslations("dishImport");
-  const actions = fallbackActions(reason, {
-    hasPhoto: partial.photoKey !== null,
-  });
+  const hasPhoto = partial.photoKey !== null;
+  const actions = fallbackActions(reason, { hasPhoto });
 
   return (
     <div className={styles.failure}>
@@ -83,7 +93,9 @@ export function ImportFailurePanel({
         />
       )}
 
-      <p className={styles.failureText}>{t(importFailureCopyKey(reason))}</p>
+      <p className={styles.failureText}>
+        {t(importFailureCopyKey(reason, { hasPhoto }))}
+      </p>
 
       <div className={styles.actions}>
         {actions.map((action, index) => (
@@ -94,9 +106,10 @@ export function ImportFailurePanel({
             onRetryPhoto={onRetryPhoto}
             onRetry={onRetry}
             onPicked={onPicked}
-            onSoon={onSoon}
+            onUseText={onUseText}
             manualHref={manualHref}
             photoPickerHref={photoPickerHref}
+            textPaneHref={textPaneHref}
           />
         ))}
       </div>
@@ -110,18 +123,20 @@ function Action({
   onRetryPhoto,
   onRetry,
   onPicked,
-  onSoon,
+  onUseText,
   manualHref,
   photoPickerHref,
+  textPaneHref,
 }: {
   action: FallbackAction;
   primary: boolean;
   onRetryPhoto: () => void;
   onRetry: () => void;
   onPicked?: (photo: UploadedPhoto) => void;
-  onSoon: (label: string) => void;
+  onUseText?: (text: string) => void;
   manualHref: string;
   photoPickerHref: string;
+  textPaneHref: string;
 }) {
   const t = useTranslations("dishImport");
   const className = primary ? styles.primaryAction : styles.secondaryAction;
@@ -156,17 +171,14 @@ function Action({
         />
       );
     case "useText":
-      // Task 4.4 turns this into the inline field DESIGN_BRIEF S8.2 draws.
-      return (
-        <button
-          type="button"
-          className={className}
-          aria-disabled="true"
-          onClick={() => onSoon(t("actionUseText"))}
-        >
-          {t("actionUseText")} · {t("soon")}
-        </button>
-      );
+      if (onUseText === undefined) {
+        return (
+          <Link className={className} href={textPaneHref}>
+            {t("actionUseText")}
+          </Link>
+        );
+      }
+      return <TextFallback autoFocus={primary} onSubmit={onUseText} />;
     case "retry":
       return (
         <button type="button" className={className} onClick={onRetry}>
@@ -180,4 +192,62 @@ function Action({
         </Link>
       );
   }
+}
+
+/**
+ * The inline «вставь текст» field DESIGN_BRIEF S8.2 draws.
+ *
+ * Focused on mount when it is the primary way out — this component mounts
+ * *because* an import failed, so the focus move is the answer to something
+ * the person just did rather than a grab on page load.
+ */
+function TextFallback({
+  autoFocus,
+  onSubmit,
+}: {
+  autoFocus: boolean;
+  onSubmit: (text: string) => void;
+}) {
+  const t = useTranslations("dishImport");
+  const [value, setValue] = useState("");
+  const [invalid, setInvalid] = useState(false);
+  const valid = isLongEnough(value);
+
+  return (
+    <form
+      className={styles.fallbackText}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) {
+          setInvalid(true);
+          return;
+        }
+        onSubmit(value.trim());
+      }}
+    >
+      <textarea
+        className={styles.fallbackTextField}
+        aria-label={t("byTextFieldLabel")}
+        aria-invalid={invalid ? "true" : undefined}
+        placeholder={t("byTextPlaceholder")}
+        value={value}
+        rows={3}
+        autoFocus={autoFocus}
+        onChange={(event) => {
+          setValue(event.target.value);
+          setInvalid(false);
+        }}
+      />
+      <p className={styles.fallbackTextHint} role="status">
+        {invalid ? t("byTextTooShort") : ""}
+      </p>
+      <button
+        type="submit"
+        className={styles.primaryAction}
+        aria-disabled={valid ? undefined : "true"}
+      >
+        {t("byTextSubmit")}
+      </button>
+    </form>
+  );
 }

@@ -10,21 +10,43 @@ import messages from "@/messages/ru.json";
 
 describe("importFailureCopyKey", () => {
   it("has a distinct key for every reason", () => {
-    const keys = IMPORT_FAILURE_REASONS.map(importFailureCopyKey);
+    const keys = IMPORT_FAILURE_REASONS.map((reason) =>
+      importFailureCopyKey(reason, { hasPhoto: true }),
+    );
     expect(new Set(keys).size).toBe(IMPORT_FAILURE_REASONS.length);
   });
 
-  it("names a key that actually exists in the dictionary", () => {
-    // next-intl has no type augmentation here and renders a missing key as
-    // its own path, so a typo would ship «dishImport.failedTooLarge» on
-    // screen and pass every other gate.
-    const dictionary = messages.dishImport as Record<string, unknown>;
+  it.each([true, false])(
+    "names a key that actually exists in the dictionary (hasPhoto: %s)",
+    (hasPhoto) => {
+      // next-intl has no type augmentation here and renders a missing key as
+      // its own path, so a typo would ship «dishImport.failedTooLarge» on
+      // screen and pass every other gate.
+      const dictionary = messages.dishImport as Record<string, unknown>;
 
-    for (const reason of IMPORT_FAILURE_REASONS) {
-      expect(dictionary[importFailureCopyKey(reason)], reason).toBeTypeOf(
-        "string",
-      );
-    }
+      for (const reason of IMPORT_FAILURE_REASONS) {
+        expect(
+          dictionary[importFailureCopyKey(reason, { hasPhoto })],
+          reason,
+        ).toBeTypeOf("string");
+      }
+    },
+  );
+
+  it("says «на фото не рецепт» only when there is a photo", () => {
+    // The same reason reaches S8.2 from a screenshot and from a link, and
+    // «Похоже, на фото не рецепт» after a pasted URL is a sentence about
+    // something that never happened.
+    expect(importFailureCopyKey("notARecipe", { hasPhoto: true })).toBe(
+      "failedNotARecipe",
+    );
+    expect(importFailureCopyKey("notARecipe", { hasPhoto: false })).toBe(
+      "failedNotARecipeSource",
+    );
+  });
+
+  it("defaults to the source wording — a page import carries no photo", () => {
+    expect(importFailureCopyKey("notARecipe")).toBe("failedNotARecipeSource");
   });
 });
 

@@ -64,13 +64,25 @@ export type FallbackAction =
   /** «✍️ Вручную» — the empty form, prefilled with whatever was salvaged. */
   | "manual";
 
-/** The `dishImport.*` key holding the sentence shown above the actions. */
-export function importFailureCopyKey(reason: ImportFailureReason): string {
+/**
+ * The `dishImport.*` key holding the sentence shown above the actions.
+ *
+ * `hasPhoto` is the same context `fallbackActions` takes, and for the same
+ * reason: «Похоже, на фото не рецепт» is the right sentence after a
+ * screenshot and nonsense after a link, where the honest one is «на этой
+ * странице нет рецепта». One reason, two sources, two sentences — and the
+ * *actions* already differed on exactly this flag, so a copy that did not
+ * would have been the odd one out.
+ */
+export function importFailureCopyKey(
+  reason: ImportFailureReason,
+  { hasPhoto }: { hasPhoto: boolean } = { hasPhoto: false },
+): string {
   switch (reason) {
     case "photoUnreadable":
       return "failedPhotoUnreadable";
     case "notARecipe":
-      return "failedNotARecipe";
+      return hasPhoto ? "failedNotARecipe" : "failedNotARecipeSource";
     case "pageUnreachable":
       return "failedPageUnreachable";
     case "pageBlocked":
