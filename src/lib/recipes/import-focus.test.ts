@@ -56,19 +56,36 @@ describe("pickImportFocusTarget", () => {
     ).toBe("photo");
   });
 
-  it("never names two controls", () => {
-    // The single-valued shape is the invariant; a mutant returning to
-    // per-control booleans cannot type-check against this signature.
-    const targets = new Set<string | null>();
+  it("ranks picker over pane over link, for every combination", () => {
+    // The full table, generated from the rule's stated precedence rather
+    // than listed by hand, so a swapped branch fails here even for the
+    // combinations the screen cannot currently produce.
     for (const refocusPicker of [false, true]) {
       for (const refocusPane of ["url", "text", null] as const) {
-        for (const requested of ["photo", "url", "text", null]) {
-          targets.add(
+        for (const requested of ["photo", "url", "text", null, "junk"]) {
+          const expected = refocusPicker
+            ? "photo"
+            : (refocusPane ??
+              (requested === "photo" ||
+              requested === "url" ||
+              requested === "text"
+                ? requested
+                : null));
+          expect(
             pickImportFocusTarget({ refocusPicker, refocusPane, requested }),
-          );
+            JSON.stringify({ refocusPicker, refocusPane, requested }),
+          ).toBe(expected);
         }
       }
     }
-    expect([...targets].sort()).toEqual(["photo", "text", "url", null].sort());
+    // The pair the screen never produces today, pinned on its own so the
+    // precedence is a stated rule and not an accident of reachability.
+    expect(
+      pickImportFocusTarget({
+        refocusPicker: true,
+        refocusPane: "url",
+        requested: "text",
+      }),
+    ).toBe("photo");
   });
 });

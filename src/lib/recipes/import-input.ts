@@ -51,8 +51,16 @@ export function looksLikeUrl(value: string): boolean {
  * Not a URL at all → `false`: `looksLikeUrl` owns that message.
  */
 export function isUrlTooLong(value: string): boolean {
+  const trimmed = value.trim();
+  // Both halves of `fromUrlInput`'s rule: the string as typed (its payload
+  // cap) and the normalized href (what gets stored). A dot-segment path can
+  // shrink on normalization, so measuring only the href would let a 2 500-
+  // character paste through to a server refusal worded as `blockedUrl`.
+  if (trimmed.length > MAX_SOURCE_URL) {
+    return true;
+  }
   try {
-    return new URL(value.trim()).href.length > MAX_SOURCE_URL;
+    return new URL(trimmed).href.length > MAX_SOURCE_URL;
   } catch {
     return false;
   }

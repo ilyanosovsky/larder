@@ -100,15 +100,6 @@ export type FallbackAction =
   | "manual";
 
 /**
- * The `dishImport.*` key holding the sentence shown above the actions.
- *
- * Keyed on the reason **and the source**, because one reason is not one
- * sentence: `notARecipe` arrives from a screenshot, from a link and from
- * pasted text, and each deserves to be told about the thing it actually sent.
- * A boolean got two of the three right and told the third that «на этой
- * странице» — a page it never had — has no recipe on it.
- */
-/**
  * What a `BAD_REQUEST` — input the server refuses before it opens a job row,
  * so there is no `jobId` — means per source. A URL pointing inside the
  * network is `blockedUrl` (decision C.8's validation rejection); a paste past
@@ -129,6 +120,15 @@ export function badRequestReason(source: ImportSource): ImportFailureReason {
   }
 }
 
+/**
+ * The `dishImport.*` key holding the sentence shown above the actions.
+ *
+ * Keyed on the reason **and the source**, because one reason is not one
+ * sentence: `notARecipe` arrives from a screenshot, from a link and from
+ * pasted text, and each deserves to be told about the thing it actually sent.
+ * A boolean got two of the three right and told the third that «на этой
+ * странице» — a page it never had — has no recipe on it.
+ */
 export function importFailureCopyKey(
   reason: ImportFailureReason,
   source: ImportSource,

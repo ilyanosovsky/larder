@@ -37,6 +37,28 @@ describe("isUrlTooLong / isSubmittableUrl", () => {
     expect(fromUrlInput.safeParse({ url: long }).success).toBe(false);
     expect(isSubmittableUrl(fits)).toBe(true);
     expect(fromUrlInput.safeParse({ url: fits }).success).toBe(true);
+
+    // The other direction: a paste that *shrinks* on normalization is still
+    // refused by the server's payload cap, so the field refuses it too.
+    const shrinking = `https://povar.ru/${"a/../".repeat(500)}`;
+    expect(shrinking.length).toBeGreaterThan(MAX_SOURCE_URL);
+    expect(new URL(shrinking).href).toBe("https://povar.ru/");
+    expect(isSubmittableUrl(shrinking)).toBe(false);
+    expect(fromUrlInput.safeParse({ url: shrinking }).success).toBe(false);
+  });
+
+  it("pins the cap at MAX_SOURCE_URL itself, on both sides", () => {
+    const exact = `https://example.com/${"a".repeat(MAX_SOURCE_URL - 20)}`;
+    const over = `${exact}a`;
+    expect(new URL(exact).href.length).toBe(MAX_SOURCE_URL);
+
+    expect(isUrlTooLong(exact)).toBe(false);
+    expect(isSubmittableUrl(exact)).toBe(true);
+    expect(fromUrlInput.safeParse({ url: exact }).success).toBe(true);
+
+    expect(isUrlTooLong(over)).toBe(true);
+    expect(isSubmittableUrl(over)).toBe(false);
+    expect(fromUrlInput.safeParse({ url: over }).success).toBe(false);
   });
 });
 
