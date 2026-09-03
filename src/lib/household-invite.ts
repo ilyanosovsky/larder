@@ -21,22 +21,32 @@ export function isCallerMember(
 }
 
 /**
- * Whether a rejected `navigator.share()` call was the person simply closing
- * the share sheet, as opposed to a real failure.
+ * Whether a rejected `navigator.share()` call is silent — not an error the
+ * section should show — rather than a real failure that falls back to the
+ * copy hint.
  *
- * Browsers reject the share promise with a `DOMException` named `AbortError`
- * for a user-cancelled share — silent, not an error the section should show.
+ * Two names, both benign:
+ * - `AbortError` — the person simply closed the share sheet.
+ * - `InvalidStateError` — a share was already in progress. The mint button's
+ *   `mintingRef` sibling for «Поделиться» (`household-section.tsx`) is meant
+ *   to stop a second `navigator.share()` call from ever firing, but the W3C
+ *   spec rejects this way for *any* overlapping call, including one this
+ *   component did not make (another share affordance on the page, a stray
+ *   double tap the ref lock has not yet armed for) — showing a failure alert
+ *   over a share that is, from the person's point of view, already working
+ *   would be a lie.
+ *
  * Anything else (no share target installed, a payload the OS rejects, a
- * permission problem) is a genuine failure that falls back to the copy hint.
- * Checked structurally rather than with `instanceof DOMException`: that
- * constructor does not exist in the `node` environment this runs under in
- * vitest, and the real objects the browser throws already carry a `name`.
+ * permission problem) is a genuine failure. Checked structurally rather than
+ * with `instanceof DOMException`: that constructor does not exist in the
+ * `node` environment this runs under in vitest, and the real objects the
+ * browser throws already carry a `name`.
  */
 export function isShareCancelled(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    (error as { name: unknown }).name === "AbortError"
-  );
+  if (typeof error !== "object" || error === null || !("name" in error)) {
+    return false;
+  }
+
+  const { name } = error as { name: unknown };
+  return name === "AbortError" || name === "InvalidStateError";
 }

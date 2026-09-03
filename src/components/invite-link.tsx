@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import styles from "./invite-link.module.css";
 
@@ -23,24 +23,37 @@ import styles from "./invite-link.module.css";
  * Keyed by the caller on `url` (`<InviteLink key={url} .../>`): a fresh link
  * needs a fresh "not yet copied" state, and remounting is simpler than a
  * `useEffect` that resets it by hand.
+ *
+ * **The copy confirmation has its own permanently-mounted, keyed sr-only
+ * `role="status"` region** (review round 2, G3) — the same shape
+ * `cart-screen.tsx`'s toast uses, and for the same reason: the visible
+ * change is only the button's own accessible name («Скопировать» →
+ * «Скопировано»), and a name change on the element that already holds
+ * focus is not reliably announced across screen readers. `copied` is a
+ * sequence number, not a boolean — the same link can be copied more than
+ * once in a row, and a live region only re-announces on an actual node
+ * change, not an identical text update (see the comment `cart-screen.tsx`
+ * carries on the same pattern).
  */
 export function InviteLink({ url }: { url: string }) {
   const t = useTranslations("inviteLink");
   const fieldId = useId();
-  const [copied, setCopied] = useState(false);
+  const copySeq = useRef(0);
+  const [copied, setCopied] = useState<number | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
 
   async function copy() {
     setCopyFailed(false);
     // A later attempt on the same mounted instance can fail after an
-    // earlier one succeeded (a permission revoked mid-session, say) — reset
-    // both flags so «Скопировано» never sits on the button next to the
-    // failure alert it should have replaced.
-    setCopied(false);
+    // earlier one succeeded (a permission revoked mid-session, say) — clear
+    // the success state too, so «Скопировано» never sits on the button next
+    // to the failure alert it should have replaced.
+    setCopied(null);
 
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
+      copySeq.current += 1;
+      setCopied(copySeq.current);
     } catch {
       // No clipboard permission, or an insecure context — the link stays
       // visible and selectable, so this is a nudge rather than a failure.
@@ -66,13 +79,23 @@ export function InviteLink({ url }: { url: string }) {
         className={styles.copyButton}
         onClick={() => void copy()}
       >
-        {copied ? t("copied") : t("copy")}
+        {copied === null ? t("copy") : t("copied")}
       </button>
       {copyFailed ? (
         <p className={styles.error} role="alert">
           {t("copyFailed")}
         </p>
       ) : null}
+
+      {/* Mounted for the component's whole life, with a keyed child, so a
+          second copy of the same link still registers as a fresh mutation
+          inside the live region instead of an identical, silently-skipped
+          text update. */}
+      <p className={styles.srOnly} role="status">
+        <span key={copied ?? "empty"}>
+          {copied === null ? "" : t("copied")}
+        </span>
+      </p>
     </div>
   );
 }

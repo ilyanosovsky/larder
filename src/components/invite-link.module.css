@@ -63,3 +63,16 @@
   color: var(--neg);
   font-size: var(--t-meta);
 }
+
+/* The permanently-mounted "copied" live region (review round 2, G3) — same
+   shape as `cart-screen.module.css`'s own `.srOnly`: not `display: none`,
+   which would take it out of the accessibility tree along with the
+   announcement it exists to make. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

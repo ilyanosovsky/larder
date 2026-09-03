@@ -8,6 +8,7 @@ import {
   anonymousContext,
   createDbStub,
   signedInContext,
+  testUser,
   unusableDb,
   type StubResult,
 } from "@/server/api/test-support";
@@ -78,18 +79,25 @@ describe("household.current", () => {
   });
 
   /**
-   * The tenancy guard (VISION §6.7): the members query is scoped by this
-   * household's id, not by trusting the row it just looked up. `createDbStub`
-   * replays queued results by call order without ever evaluating a `where`,
-   * so `resolves.toEqual(...)` above stays green even if the predicate below
-   * is deleted entirely — this is what would actually catch that (task 7.1a
-   * review round 1, F3: pre-existing gap, newly worth closing now that this
-   * list renders as a named roster on `/settings`).
+   * The tenancy guard (VISION §6.7), both halves: the first statement is
+   * scoped to the caller (`household_members.user_id = ctx.user.id`), and
+   * the second — the members roster — is scoped to the household that first
+   * statement resolved (`household_members.household_id = ...`), not
+   * trusted blind. `createDbStub` replays queued results by call order
+   * without ever evaluating a `where`, so `resolves.toEqual(...)` above
+   * stays green even if either predicate is deleted entirely — this is what
+   * would actually catch that (task 7.1a review, F3 + G1: pre-existing gap,
+   * newly worth closing now that this list renders as a named roster on
+   * `/settings`).
    */
-  it("scopes the members lookup by this household's id, with the join and order it depends on", async () => {
+  it("scopes both the caller lookup and the members roster by their own predicates, with the join and order the roster depends on", async () => {
     const { caller, stub } = callerWith([[{ household: HOUSEHOLD }], [MEMBER]]);
 
     await caller.household.current();
+
+    const membership = compile(stub.statements[0]?.wheres[0]);
+    expect(membership.sql).toContain('"user_id"');
+    expect(membership.params).toEqual([testUser.id]);
 
     const members = stub.statements[1];
     expect(members).toMatchObject({
@@ -108,7 +116,10 @@ describe("household.current", () => {
     expect(join.sql).toContain('"household_members"."user_id"');
 
     const orderBy = compile(members?.orderBys[0]);
-    expect(orderBy.sql).toContain('"joined_at"');
+    // The whole fragment, not a substring — `toContain('"joined_at"')` alone
+    // would still pass for `desc(householdMembers.joinedAt)`, silently
+    // flipping the roster from oldest-member-first to newest-first.
+    expect(orderBy.sql).toBe('"household_members"."joined_at"');
   });
 });
 

@@ -50,6 +50,10 @@ function MemberAvatar({ name, image }: { name: string; image: string | null }) {
  * alone.** `isPending` lands a render after the tap; two fast taps before
  * that render would send two mints. `aria-disabled`, never `disabled` — a
  * disabled control drops the keyboard focus of the button just activated.
+ * «Поделиться» carries the same ref guard (review round 2, G4): a second
+ * tap landing between `navigator.share()` and the OS sheet taking over
+ * rejects with `InvalidStateError`, which is not something to show as a
+ * failure — `isShareCancelled` treats it the same as a cancelled share.
  *
  * **`navigator.share` is detected in a `useEffect`, never during render.** A
  * render-time `typeof navigator.share` check would hydrate differently on
@@ -87,8 +91,10 @@ export function HouseholdSection({
   const [minting, setMinting] = useState(false);
   const [inviteFailed, setInviteFailed] = useState(false);
   const [canShare, setCanShare] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [shareFailed, setShareFailed] = useState(false);
   const mintingRef = useRef(false);
+  const sharingRef = useRef(false);
 
   const createInvite = useMutation(
     trpc.invite.create.mutationOptions({ networkMode: "always" }),
@@ -124,6 +130,16 @@ export function HouseholdSection({
     if (invite === null || data === null || data === undefined) {
       return;
     }
+    // Same synchronous-ref guard as `mintInvite` — a second tap landing
+    // between `navigator.share()` and the OS sheet taking over would
+    // otherwise reject with `InvalidStateError` (review round 2, G4), and
+    // `isShareCancelled` treating that name as benign is a second line of
+    // defence, not a substitute for stopping the redundant call here.
+    if (sharingRef.current) {
+      return;
+    }
+    sharingRef.current = true;
+    setSharing(true);
     setShareFailed(false);
 
     try {
@@ -138,6 +154,9 @@ export function HouseholdSection({
       if (!isShareCancelled(error)) {
         setShareFailed(true);
       }
+    } finally {
+      sharingRef.current = false;
+      setSharing(false);
     }
   }
 
@@ -251,6 +270,7 @@ export function HouseholdSection({
                 <button
                   type="button"
                   className={styles.retryButton}
+                  aria-disabled={sharing || undefined}
                   onClick={() => void share()}
                 >
                   {t("householdShare")}

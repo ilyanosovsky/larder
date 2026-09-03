@@ -31,6 +31,19 @@ describe("isShareCancelled", () => {
     expect(isShareCancelled({ name: "AbortError", message: "" })).toBe(true);
   });
 
+  it("is true for InvalidStateError — a share already in progress, not a failure", () => {
+    // Review round 2, G4: a share overlapping an earlier one (a race the
+    // ref lock in household-section.tsx is meant to prevent, but the W3C
+    // rejection is not scoped to calls this component itself made) must not
+    // read as "не получилось поделиться" over a share that is, from the
+    // person's point of view, already working.
+    const error = Object.assign(new Error("already sharing"), {
+      name: "InvalidStateError",
+    });
+
+    expect(isShareCancelled(error)).toBe(true);
+  });
+
   it("is false for any other error", () => {
     expect(isShareCancelled(new TypeError("nope"))).toBe(false);
     expect(isShareCancelled(new Error("network"))).toBe(false);
