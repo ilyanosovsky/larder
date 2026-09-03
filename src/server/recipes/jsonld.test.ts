@@ -254,6 +254,25 @@ describe("a page nested far deeper than any recipe", () => {
     },
   );
 
+  it("still reads a value at the last permitted level", () => {
+    // The off-by-one this pins: handing a scalar to another reader is not a
+    // level of nesting, and counting it as one made `MAX_DEPTH` mean five.
+    for (const depth of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(
+        skeletonOf(
+          page(
+            JSON.stringify({
+              "@type": "Recipe",
+              name: "Тест",
+              recipeIngredient: nested(depth, "Мука 285 г"),
+            }),
+          ),
+        ).ingredients,
+        `depth ${depth}`,
+      ).toEqual(["Мука 285 г"]);
+    }
+  });
+
   it("clips the nesting rather than reading through it", () => {
     // Six levels is the same limit `findRecipeNode` and `instructionSteps`
     // already use, and it clips nothing real: every fixture and every shape

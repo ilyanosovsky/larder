@@ -557,6 +557,14 @@ function SourcePane({
   return (
     <form
       className={styles.pane}
+      // **`noValidate`, and it is load-bearing.** The URL field is
+      // `type="url"`, so the browser runs its own constraint check first and
+      // *cancels submission* for exactly the value this pane exists to
+      // explain — «povar.ru/recipes/…» pasted without a scheme. `submit()`
+      // would never run, `aria-invalid` would never be set, and the Russian
+      // line saying what is missing would never appear; the person would get
+      // the browser's own bubble instead, in whatever words it chose.
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
         submit();

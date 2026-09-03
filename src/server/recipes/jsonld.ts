@@ -292,15 +292,19 @@ function stringList(value: unknown, depth = 0): string[] {
   if (depth > MAX_DEPTH) {
     return [];
   }
+  // `depth`, not `depth + 1`, on the way into `firstString`: handing the
+  // *same* value to another reader is not a level of nesting, and counting it
+  // as one made the last permitted level unreachable — a line six arrays deep
+  // was dropped by a limit that says it allows six.
   if (typeof value === "string" || typeof value === "number") {
-    const text = firstString(value, depth + 1);
+    const text = firstString(value, depth);
     return text === null ? [] : [text];
   }
   if (Array.isArray(value)) {
     return value.flatMap((item) => stringList(item, depth + 1));
   }
   if (isRecord(value)) {
-    const text = firstString(value, depth + 1);
+    const text = firstString(value, depth);
     return text === null ? [] : [text];
   }
   return [];
