@@ -139,7 +139,10 @@ export function ImportScreen() {
     } catch (caught) {
       if (isRateLimitedError(caught)) {
         // Thrown, not an outcome, so the existing helper keeps working — and
-        // so «вручную» is still one tap away.
+        // so «вручную» is still one tap away. The photo goes back with it:
+        // this screen forgets the key when it returns to the picker, so
+        // keeping the blob would leak one every time somebody hits the limit.
+        discardPhoto.mutate({ fileKey: photo.key });
         setError(t("rateLimited"));
         setPhase({ kind: "source" });
         return;
