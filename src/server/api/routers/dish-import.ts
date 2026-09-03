@@ -14,6 +14,10 @@ import {
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
 import { recipeDraftSchema, type RecipeDraft } from "@/lib/recipes/draft";
+import {
+  MAX_IMPORT_TEXT,
+  MIN_IMPORT_TEXT,
+} from "@/lib/recipes/import-input";
 import { parseRecipe, type ParsedRecipe } from "@/server/ai/parse-recipe";
 import { formatCostUsd } from "@/server/ai/pricing";
 import { assertWithinRateLimit } from "@/server/ai/rate-limit-guard";
@@ -171,7 +175,11 @@ export const fromUrlInput = z.object({
 });
 
 export const fromTextInput = z.object({
-  text: z.string().trim().min(20).max(20_000),
+  // The bounds come from `@/lib/recipes/import-input`, which S8.1's field
+  // also reads: a client that refuses at a different length than the server
+  // either shows a spinner before a 400 or blocks a text the server would
+  // have taken.
+  text: z.string().trim().min(MIN_IMPORT_TEXT).max(MAX_IMPORT_TEXT),
 });
 
 /**

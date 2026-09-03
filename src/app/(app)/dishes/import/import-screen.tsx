@@ -12,6 +12,7 @@ import {
   type UploadedPhoto,
 } from "@/components/dish-photo-upload";
 import type { ImportFailureReason } from "@/lib/recipes/import-failure";
+import { isLongEnough, looksLikeUrl } from "@/lib/recipes/import-input";
 import { isRateLimitedError, trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
@@ -401,16 +402,6 @@ function partialFor(
       partial.photoKey ?? (run.kind === "photo" ? run.photo.key : null),
     sourceUrl: partial.sourceUrl ?? (run.kind === "url" ? run.url : null),
   };
-}
-
-/** The shape of a link, checked before a round trip rather than after one. */
-export function looksLikeUrl(value: string): boolean {
-  return /^https?:\/\/[^\s/]+\./i.test(value.trim());
-}
-
-/** `fromTextInput`'s own floor, so the refusal is instant instead of a 400. */
-export function isLongEnough(value: string): boolean {
-  return value.trim().length >= 20;
 }
 
 /**

@@ -14,8 +14,8 @@ import {
   type FallbackAction,
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
+import { isLongEnough } from "@/lib/recipes/import-input";
 
-import { isLongEnough } from "./import-screen";
 import styles from "./import-screen.module.css";
 
 /**
