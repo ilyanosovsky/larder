@@ -1,4 +1,19 @@
-import type { DishSourceType, RecipeDraft } from "@/lib/recipes/draft";
+import {
+  MAX_EQUIPMENT,
+  MAX_INGREDIENTS,
+  MAX_NAME,
+  MAX_NOTE,
+  MAX_PORTIONS,
+  MAX_RAW_TEXT,
+  MAX_STEP_TEXT,
+  MAX_STEPS,
+  MAX_TIMER_SEC,
+  MAX_TITLE,
+  MAX_TOTAL_TIME_MIN,
+  MAX_YIELD_UNIT,
+  type DishSourceType,
+  type RecipeDraft,
+} from "@/lib/recipes/draft";
 import { normalizeTags } from "@/lib/recipes/tags";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import { normalizeProductName, splitWords } from "@/server/catalog/normalize";
@@ -34,19 +49,15 @@ import type { IngredientMatch } from "@/server/recipes/match-ingredients";
  * Pure — no database, no network — so every rule is unit-tested directly.
  */
 
-/** The upper bound `recipeDraftSchema` puts on each field, mirrored here. */
-const MAX_TITLE = 120;
-const MAX_RAW_TEXT = 300;
-const MAX_NAME = 100;
-const MAX_NOTE = 100;
-const MAX_STEP_TEXT = 2000;
-const MAX_INGREDIENTS = 60;
-const MAX_STEPS = 60;
-const MAX_EQUIPMENT = 12;
-const MAX_YIELD_UNIT = 24;
-const MAX_TIMER_SEC = 86_400;
-const MAX_PORTIONS = 100;
-const MAX_TOTAL_TIME_MIN = 6000;
+/**
+ * Every field cap is **imported** from `recipeDraftSchema`'s own module, never
+ * re-declared here: this function truncates to exactly the numbers that schema
+ * then validates against, so a mirror that drifted would make a correctly
+ * parsed recipe fail its own output validation — which the router can only
+ * report as «фото не читается», for a call the household already paid for.
+ *
+ * The one local constant is below, and it is not a schema bound.
+ */
 
 /**
  * Longest a *buyable noun* may be. Well below `MAX_NAME`, on purpose: this is
@@ -180,7 +191,26 @@ function toIngredient(
 
   // The unmapped measure survives as words on the row instead of becoming a
   // wrong number: «2 зубчика» stays «2» + note «зубчик».
-  const note = capped(joinNote(row.note, coerced.leftover), MAX_NOTE);
+  //
+  // The model's own prose is capped *first*, with room reserved for the
+  // leftover and the ", " that joins them. Capping the joined string instead
+  // truncates from the end — which is exactly where the leftover sits — so a
+  // long enough note would silently eat the one word this module promises
+  // never to drop, and `note` has no upper bound in the strict schema
+  // (bounds are forbidden there) so "long enough" is entirely up to the model.
+  const note =
+    coerced.leftover === null
+      ? capped(row.note, MAX_NOTE)
+      : capped(
+          joinNote(
+            capped(
+              row.note,
+              Math.max(0, MAX_NOTE - coerced.leftover.length - 2),
+            ),
+            coerced.leftover,
+          ),
+          MAX_NOTE,
+        );
 
   const qty = usableQty(row.qty);
 

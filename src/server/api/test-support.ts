@@ -1,6 +1,7 @@
 import { getTableName, type Table } from "drizzle-orm";
 
 import type { AiChatClient } from "@/server/ai/openai";
+import type { UploadedFileStore } from "@/server/uploadthing-files";
 
 import type { TRPCContext } from "./trpc";
 
@@ -55,18 +56,31 @@ export const unusableOpenai = (): AiChatClient => {
   throw new Error("ctx.openai() must not be called in unit tests");
 };
 
+/**
+ * The upload store must never be reached either — same idea again. A test that
+ * exercises `discardPhoto` has to hand over a fake and assert what it was
+ * asked to delete; without this the deletion branch would run against a real
+ * (or absent) token and pass either way, which is exactly how it went
+ * untested.
+ */
+export const unusableUploadThing = (): UploadedFileStore => {
+  throw new Error("ctx.uploadThing() must not be called in unit tests");
+};
+
 export function anonymousContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
+  uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
 ): TRPCContext {
-  return { session: null, user: null, db, openai };
+  return { session: null, user: null, db, openai, uploadThing };
 }
 
 export function signedInContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
+  uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
 ): TRPCContext {
-  return { session: testSession, user: testUser, db, openai };
+  return { session: testSession, user: testUser, db, openai, uploadThing };
 }
 
 /** One statement the router ran, in the order it ran it. */

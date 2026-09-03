@@ -56,25 +56,37 @@ export type DishSourceType = (typeof DISH_SOURCE_TYPES)[number];
 
 export const dishSourceTypeSchema = z.enum(DISH_SOURCE_TYPES);
 
+/**
+ * The bounds `recipeDraftSchema` enforces, **exported** because a producer has
+ * to truncate to exactly these numbers before it validates against them.
+ *
+ * `draftFromParsed` (task 4.3) is the producer that needs them: it turns an
+ * unbounded model answer into a draft, and a cap that drifted from the schema
+ * would make it emit drafts the schema then rejects — which the import router
+ * can only report as «фото не читается» for a parse the household was already
+ * billed for. They were duplicated there once; importing them makes the drift
+ * unrepresentable rather than merely tested for.
+ */
+
 /** Longest a verbatim source line may be before it stops being a line. */
-const MAX_RAW_TEXT = 300;
+export const MAX_RAW_TEXT = 300;
 /** The buyable noun only — anything longer is a sentence, not a name. */
-const MAX_NAME = 100;
+export const MAX_NAME = 100;
 /** «(холодное)», «крупными кусками», «по вкусу». */
-const MAX_NOTE = 100;
-const MAX_TITLE = 120;
-const MAX_STEP_TEXT = 2000;
-const MAX_INGREDIENTS = 60;
-const MAX_STEPS = 60;
-const MAX_EQUIPMENT = 12;
+export const MAX_NOTE = 100;
+export const MAX_TITLE = 120;
+export const MAX_STEP_TEXT = 2000;
+export const MAX_INGREDIENTS = 60;
+export const MAX_STEPS = 60;
+export const MAX_EQUIPMENT = 12;
 /** «печений», «шт» — the source's own yield noun, not a sentence. */
-const MAX_YIELD_UNIT = 24;
+export const MAX_YIELD_UNIT = 24;
 /** A day. Longer than any countdown a step can honestly ask a cook to wait. */
-const MAX_TIMER_SEC = 86_400;
+export const MAX_TIMER_SEC = 86_400;
 /** A hundred portions is a catering job, not a household recipe. */
-const MAX_PORTIONS = 100;
+export const MAX_PORTIONS = 100;
 /** 100 hours. A cold ferment is long; nothing is longer than this. */
-const MAX_TOTAL_TIME_MIN = 6000;
+export const MAX_TOTAL_TIME_MIN = 6000;
 
 /**
  * A URL we are willing to store and later render.

@@ -1,12 +1,13 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UploadThingError } from "uploadthing/server";
 
 import { db } from "@/db";
 import { householdMembers, photoUploads } from "@/db/schema";
 import { getSession } from "@/lib/session";
+import { checkRateLimit, rateLimitWindows } from "@/server/ai/rate-limit";
 
 /**
  * The UploadThing file router — the browser's direct upload lane for recipe
@@ -24,8 +25,11 @@ import { getSession } from "@/lib/session";
  * excludes `/api/**`, so nothing gates this route the way the optimistic
  * cookie check gates a page. `.middleware()` therefore re-does exactly what
  * `householdProcedure` does for tRPC: a validated session *and* a household
- * membership, both before the upload is authorized. Without it any visitor
- * with the URL could fill the household's storage tier.
+ * membership, both before the upload is authorized — **plus a cap**, because
+ * sign-up is open and `household.create` is a plain `protectedProcedure`, so
+ * anyone with an email address can obtain the membership this gate asks for.
+ * The UploadThing tier is app-wide, not per household, so an ungated uploader
+ * is the one surface where one account can exhaust everybody's storage.
  *
  * Nothing here runs at import time: `db()`, `getSession()` and the route
  * handler's token are all read inside a request (`pnpm build` runs with no
@@ -40,6 +44,29 @@ const f = createUploadthing();
  * refusing it at 1 MB would turn a working long-tail case into a dead end.
  */
 const MAX_PHOTO_SIZE = "4MB";
+
+/**
+ * How many blobs one person may be holding, per window.
+ *
+ * Reuses the AI limiter's own numbers and decision function (10/minute,
+ * 100/day, `src/server/ai/rate-limit.ts`) rather than inventing a second set:
+ * a photo import is one upload followed by one AI call, so the two limits
+ * describe the same human behaviour and drifting them apart would only mean
+ * one of the pair silently doing nothing.
+ *
+ * **These are live rows, so the cap is on storage held, not on requests
+ * made** — `discardPhoto` deletes the row with the blob, and a person who
+ * uploads and immediately discards is not capped. That is the honest shape
+ * for what this defends: the risk is somebody filling a shared 2 GB tier, and
+ * an uploader who deletes every file as they go is not filling anything. A
+ * true request-rate limit would have to count something append-only, which is
+ * what `ai_jobs` already does one step later in the flow.
+ *
+ * Counted with `household_id` alongside `user_id` so the existing
+ * `photo_uploads_householdId_idx` serves the query — a household holds tens
+ * of rows, so the user filter is applied to a handful of them and no new
+ * index (and no migration) is needed.
+ */
 
 export const larderFileRouter = {
   dishPhoto: f({
@@ -65,6 +92,39 @@ export const larderFileRouter = {
 
       if (!membership) {
         throw new UploadThingError("FORBIDDEN");
+      }
+
+      // Checked here, before the presign is issued, so a refusal costs no
+      // bytes at all — the browser never starts the transfer.
+      const { minuteStart, dayStart } = rateLimitWindows(new Date());
+      const [held] = await db()
+        .select({
+          minute: sql<number>`(count(*) filter (where ${gte(photoUploads.createdAt, minuteStart)}))::int`,
+          day: sql<number>`(count(*))::int`,
+        })
+        .from(photoUploads)
+        .where(
+          and(
+            eq(photoUploads.householdId, membership.householdId),
+            eq(photoUploads.userId, session.user.id),
+            gte(photoUploads.createdAt, dayStart),
+          ),
+        );
+
+      const decision = checkRateLimit({
+        recentMinuteCount: held?.minute ?? 0,
+        recentDayCount: held?.day ?? 0,
+      });
+
+      if (!decision.allowed) {
+        // An options object, not a bare string: a string forces
+        // INTERNAL_SERVER_ERROR, and `TOO_MANY_REQUESTS` is not one of the
+        // SDK's codes, so FORBIDDEN with a readable message is the closest
+        // honest answer the client can render.
+        throw new UploadThingError({
+          code: "FORBIDDEN",
+          message: `Upload limit reached (${decision.reason})`,
+        });
       }
 
       return { householdId: membership.householdId, userId: session.user.id };

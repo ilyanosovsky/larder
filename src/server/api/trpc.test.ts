@@ -32,6 +32,9 @@ const anonymousContext: TRPCContext = {
   openai: () => {
     throw new Error("ctx.openai() must not be called in unit tests");
   },
+  uploadThing: () => {
+    throw new Error("ctx.uploadThing() must not be called in unit tests");
+  },
 };
 
 const signedInContext: TRPCContext = {

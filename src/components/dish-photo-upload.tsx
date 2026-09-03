@@ -117,6 +117,13 @@ export function DishPhotoUpload({
         type="file"
         accept="image/*"
         tabIndex={-1}
+        // Hidden with `clip-path` rather than `display: none` so it stays
+        // clickable — which also leaves it in the accessibility tree as a
+        // second, browser-named «Выбрать файл» control right beside the real
+        // button. `aria-hidden` removes that duplicate. Safe: it is not
+        // tab-focusable and is only ever reached through
+        // `inputRef.current?.click()`, which does not move focus into it.
+        aria-hidden="true"
         onChange={(event) => {
           const file = event.target.files?.[0];
           // Cleared before the async work so picking the *same* file again

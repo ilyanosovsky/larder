@@ -1,4 +1,4 @@
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import { z } from "zod";
 
 import { RECIPE_UNITS } from "@/lib/units";
@@ -298,10 +298,53 @@ export async function parseRecipe({
       costUsd: usage === null ? 0 : computeCostUsd(usage),
     };
   } catch (error) {
-    // The request itself failed — network, timeout, abort, 5xx, auth. Nothing
-    // was billed, so `usage` stays as it was: `null`.
-    return failure(errorMessage(error), "aiUnavailable", usage);
+    // The request itself failed — network, timeout, abort, 4xx, 5xx. Nothing
+    // was billed, so `usage` stays as it was: `null`. The *reason* is
+    // classified rather than assumed: see `reasonFor`.
+    return failure(errorMessage(error), reasonFor(error, input), usage);
   }
+}
+
+/**
+ * OpenAI error codes that mean «this picture», not «this service».
+ *
+ * The distinction decides which fallback S8.2 offers, and getting it wrong is
+ * not cosmetic: `aiUnavailable` leads with «Ещё раз», which re-runs the import
+ * against the *same* file key and fails identically, while never offering
+ * «Другое фото» — the one action that discards the unusable blob. A HEIC
+ * picked in desktop Chrome reaches the vision call exactly this way
+ * (`compressImage` uploads the original when `createImageBitmap` cannot decode
+ * it, and the upload route accepts any `image/*`), so this is a path the
+ * design deliberately leaves open.
+ */
+const IMAGE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "invalid_image_format",
+  "invalid_image_url",
+  "image_parse_error",
+  "unsupported_image_media_type",
+]);
+
+function reasonFor(
+  error: unknown,
+  input: ParseRecipeInput,
+): "aiUnavailable" | "photoUnreadable" {
+  // Only a photo can be unreadable. A 400 on the text or skeleton path is
+  // about the request, and «попробуй другой скриншот» would be nonsense.
+  if (input.kind !== "photo" || !(error instanceof OpenAI.APIError)) {
+    return "aiUnavailable";
+  }
+
+  const code = typeof error.code === "string" ? error.code : "";
+  if (IMAGE_ERROR_CODES.has(code) || error.status === 415) {
+    return "photoUnreadable";
+  }
+
+  // A bare 400 whose message names the image — but deliberately not every
+  // 400: a strict-mode or schema rejection is our bug, and telling someone to
+  // pick a different photo would send them round a loop that cannot end.
+  return error.status === 400 && /image/i.test(error.message)
+    ? "photoUnreadable"
+    : "aiUnavailable";
 }
 
 /**

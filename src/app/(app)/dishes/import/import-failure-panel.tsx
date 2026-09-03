@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
-import { DishPhotoUpload, type UploadedPhoto } from "@/components/dish-photo-upload";
+import {
+  DishPhotoUpload,
+  type UploadedPhoto,
+} from "@/components/dish-photo-upload";
 import {
   fallbackActions,
   importFailureCopyKey,
@@ -61,7 +64,9 @@ export function ImportFailurePanel({
   photoPickerHref: string;
 }) {
   const t = useTranslations("dishImport");
-  const actions = fallbackActions(reason, { hasPhoto: partial.photoKey !== null });
+  const actions = fallbackActions(reason, {
+    hasPhoto: partial.photoKey !== null,
+  });
 
   return (
     <div className={styles.failure}>

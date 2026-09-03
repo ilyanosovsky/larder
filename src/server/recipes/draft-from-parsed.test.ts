@@ -286,6 +286,27 @@ describe("the name sanity check", () => {
     expect(draft.ingredients[0]?.needsReview).toBe(true);
   });
 
+  it.each([
+    ["Столовая ложка мёда", "ст.л."],
+    ["Чайная ложка соли", "ч.л."],
+    ["Ст.л. сахара", "ст.л."],
+    ["Ч.л. соли", "ч.л."],
+    ["Ст ложка масла", "ст.л."],
+    ["Ч.л соли", "ч.л."],
+  ])("falls back on the spoon phrase «%s»", (name, unit) => {
+    // `UNIT_WORDS` is built by `coerce-unit`'s normalizer (spaces collapsed,
+    // dots stripped) but read through `splitWords(normalizeProductName(…))`,
+    // which splits on whitespace only and keeps dots. Every multi-word and
+    // trailing-dot spelling was therefore unreachable, and these four phrases
+    // passed the buyable-noun check — straight into a permanent catalog
+    // product named after the phrase, with no «уточнить» chip on the way.
+    const draft = draftOf(
+      parsed({ ingredients: [ingredient({ rawText: name, name, unit })] }),
+    );
+
+    expect(draft.ingredients[0]?.needsReview).toBe(true);
+  });
+
   it("drops a row with neither a name nor a source line", () => {
     const recipe = parsed({
       ingredients: [ingredient(), ingredient({ rawText: "  ", name: "  " })],
@@ -548,6 +569,26 @@ describe("caps", () => {
 
     expect(draft.ingredients).toHaveLength(60);
     expect(draft.steps).toHaveLength(60);
+    expect(recipeDraftSchema.safeParse(draft).success).toBe(true);
+  });
+
+  it("keeps the unmapped measure when the model's note is long enough to evict it", () => {
+    // `capped` truncates from the end, which is exactly where the leftover
+    // sits — so a long enough note used to silently eat the one word this
+    // module promises never to drop. `note` has no upper bound in the strict
+    // schema (bounds are forbidden there), so "long enough" is the model's
+    // choice, not ours.
+    const draft = draftOf(
+      parsed({
+        ingredients: [
+          ingredient({ note: "о".repeat(120), unit: "зубчик", qty: 2 }),
+        ],
+      }),
+    );
+
+    const note = draft.ingredients[0]?.note ?? "";
+    expect(note).toContain("зубчик");
+    expect(note.length).toBeLessThanOrEqual(100);
     expect(recipeDraftSchema.safeParse(draft).success).toBe(true);
   });
 

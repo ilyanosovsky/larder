@@ -82,8 +82,21 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
   }, [consumedDishId, router]);
 
   const cancellingRef = useRef(false);
+  /**
+   * The photo the *form* is holding right now, which is not the seed's once
+   * «Заменить фото» has run: `DishForm` owns that state and hands it down to
+   * the slot on every render. Cancelling on the frozen seed key would leave
+   * the replacement's blob and `photo_uploads` row orphaned, and — when the
+   * seed carried no photo at all — discard nothing whatsoever.
+   */
+  const livePhotoRef = useRef<{
+    url: string | null;
+    key: string | null;
+  } | null>(null);
 
-  function cancel(photoKey: string | null) {
+  function cancel(seedPhotoKey: string | null) {
+    const photoKey = livePhotoRef.current?.key ?? seedPhotoKey;
+
     if (cancellingRef.current) {
       return;
     }
@@ -160,7 +173,7 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
       <div className={styles.header}>
         <button
           type="button"
-          className={styles.back}
+          className={styles.backButton}
           onClick={() => cancel(draft.photoKey)}
         >
           {t("cancel")}
@@ -194,18 +207,24 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
           // dish instead of offering a second copy.
           jobId,
         }}
-        photoUploadSlot={({ onPicked }) => (
-          <DishPhotoUpload
-            label={t("replacePhoto")}
-            busyLabel={t("compressing")}
-            errorLabels={{
-              tooLarge: t("photoTooBig"),
-              notAnImage: t("photoNotImage"),
-              uploadFailed: t("uploadFailed"),
-            }}
-            onPicked={onPicked}
-          />
-        )}
+        photoUploadSlot={({ current, onPicked }) => {
+          // Read during render and stashed for «Отмена»; `DishForm` re-invokes
+          // the slot whenever its photo state changes, so the ref is never
+          // more than a render behind.
+          livePhotoRef.current = current;
+          return (
+            <DishPhotoUpload
+              label={t("replacePhoto")}
+              busyLabel={t("compressing")}
+              errorLabels={{
+                tooLarge: t("photoTooBig"),
+                notAnImage: t("photoNotImage"),
+                uploadFailed: t("uploadFailed"),
+              }}
+              onPicked={onPicked}
+            />
+          );
+        }}
       />
     </section>
   );

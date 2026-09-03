@@ -1,4 +1,4 @@
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 
 import type { AiChatClient, AiRequestOptions } from "@/server/ai/openai";
@@ -281,6 +281,124 @@ describe("failures", () => {
 
     expect(result.ok === false && result.reason).toBe("aiUnavailable");
     expect(result.costUsd).toBeGreaterThan(0);
+  });
+
+  it.each([
+    "invalid_image_format",
+    "invalid_image_url",
+    "image_parse_error",
+    "unsupported_image_media_type",
+  ])("maps the image-specific 400 %s to photoUnreadable", async (code) => {
+    // The reason picks the fallback: `aiUnavailable` leads with «Ещё раз»,
+    // which re-runs the import against the same file key and fails
+    // identically, and never offers «Другое фото» — the one action that
+    // discards the unusable blob. A HEIC picked in desktop Chrome reaches the
+    // vision call exactly this way.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(400, { code }, "bad image", new Headers()),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      ok: false,
+      reason: "photoUnreadable",
+    });
+  });
+
+  it("maps a bare 400 whose message names the image to photoUnreadable", async () => {
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          { message: "Invalid image: the image could not be decoded" },
+          undefined,
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "photoUnreadable",
+    });
+  });
+
+  it("leaves a 400 about fetching the URL as aiUnavailable", async () => {
+    // The one this actually happened to in testing: «Unable to download
+    // content from the provided URL before the timeout» — a cold CDN object
+    // right after upload, which a retry fixed. The picture was fine, so
+    // «Ещё раз» is the right offer and «другое фото» would be a lie.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          {
+            message:
+              "Unable to download content from the provided URL before the timeout.",
+          },
+          undefined,
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "aiUnavailable",
+    });
+  });
+
+  it("leaves a schema 400 as aiUnavailable — «другое фото» would not help", async () => {
+    // A strict-mode or schema rejection is our bug, not the picture's, and
+    // sending someone off to pick another screenshot is a loop with no end.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          { code: "invalid_request_error" },
+          "Invalid schema for response_format",
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "aiUnavailable",
+    });
+  });
+
+  it.each([429, 500, 503])("leaves a %s as aiUnavailable", async (status) => {
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.APIError(
+          status,
+          { code: "server_error" },
+          "boom",
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(photo(fake.client)).resolves.toMatchObject({
+      reason: "aiUnavailable",
+    });
+  });
+
+  it("never blames the picture on the text path", async () => {
+    // There is no photo to swap out, so «попробуй другой скриншот» is nonsense.
+    const fake = fakeClient(() =>
+      Promise.reject(
+        new OpenAI.BadRequestError(
+          400,
+          { code: "invalid_image_format" },
+          "bad image",
+          new Headers(),
+        ),
+      ),
+    );
+
+    await expect(
+      parseRecipe({ client: fake.client, input: { kind: "text", text: "x" } }),
+    ).resolves.toMatchObject({ reason: "aiUnavailable" });
   });
 
   it("handles a response with no choices at all", async () => {

@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "@/db";
 import { getSession } from "@/lib/session";
 import { openaiClient } from "@/server/ai/openai";
+import { uploadedFileStore } from "@/server/uploadthing-files";
 
 import type { TRPCContext } from "./trpc";
 
@@ -30,5 +31,7 @@ export async function createTRPCContext(): Promise<TRPCContext> {
     // Passed uncalled on purpose: building the client reads OPENAI_API_KEY,
     // and only the procedures that actually make an AI call should need it.
     openai: openaiClient,
+    // Same reasoning for UPLOADTHING_TOKEN, which the store reads per call.
+    uploadThing: () => uploadedFileStore,
   };
 }

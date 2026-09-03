@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeAppId,
@@ -71,6 +71,40 @@ describe("UPLOADTHING_KEY_RE", () => {
 });
 
 describe("uploadThingUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("builds the public URL from the app id inside the token", async () => {
+    // The happy path was pinned nowhere, which is why the router suite could
+    // pass a stored column to OpenAI instead of rebuilding — the whole point
+    // of decision D5. `cachedAppId` is memoized at module scope, so the
+    // module is re-imported after the env is in place.
+    vi.stubEnv(
+      "UPLOADTHING_TOKEN",
+      token({ apiKey: "sk_live_secret", appId: "app1", regions: ["sea1"] }),
+    );
+    vi.resetModules();
+
+    const fresh = await import("@/server/uploadthing-url");
+
+    expect(fresh.uploadThingUrl("aBcD1234_-key")).toBe(
+      "https://app1.ufs.sh/f/aBcD1234_-key",
+    );
+  });
+
+  it("throws with a message naming the variable when it is not set", async () => {
+    vi.stubEnv("UPLOADTHING_TOKEN", "");
+    vi.resetModules();
+
+    const fresh = await import("@/server/uploadthing-url");
+
+    expect(() => fresh.uploadThingUrl("aBcD1234_-key")).toThrow(
+      /UPLOADTHING_TOKEN/,
+    );
+  });
+
   it("refuses a key that is not key-shaped before reading any environment", () => {
     // The guard has to fire *before* `uploadThingAppId()`, or a malformed key
     // in a fully-configured deployment would be interpolated into the path.

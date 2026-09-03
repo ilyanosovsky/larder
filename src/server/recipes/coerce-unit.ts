@@ -43,7 +43,6 @@ const SPELLINGS: Readonly<Record<string, RecipeUnit>> = {
   штук: "шт",
   штука: "шт",
   штуки: "шт",
-  штуки́: "шт",
   штучек: "шт",
   // граммы
   г: "г",
@@ -170,16 +169,6 @@ export function coerceRecipeUnit(raw: string | null): CoercedUnit {
 }
 
 /**
- * Every word this module recognizes as a measure, normalized — the canon and
- * `SPELLINGS`' own keys, in one set.
- *
- * Exported for `draft-from-parsed.ts`'s name check: a `name` whose words
- * include one of these is a source line the model failed to reduce to a
- * buyable noun («Стакан йогурта»), and binding the catalog on it would mint a
- * near-duplicate product. Derived from the same two lists the coercion uses,
- * so a spelling added above is covered here without a second edit.
- */
-/**
  * Spoons, in every declension, by rule rather than by enumeration.
  *
  * Real recipes write «2 ст. ложки», «1 чайной ложки», «столовых ложек» —
@@ -208,7 +197,33 @@ function coerceSpoon(normalized: string): RecipeUnit | null {
   return null;
 }
 
-export const UNIT_WORDS: ReadonlySet<string> = new Set([
-  ...RECIPE_UNITS.map(normalize),
-  ...Object.keys(SPELLINGS),
-]);
+/**
+ * Every word this module recognizes as a measure — the canon and `SPELLINGS`'
+ * own keys, exploded into the tokens a *consumer* will actually see.
+ *
+ * Exported for `draft-from-parsed.ts`'s name check: a `name` whose words
+ * include one of these is a source line the model failed to reduce to a
+ * buyable noun («Стакан йогурта»), and binding the catalog on it would mint a
+ * near-duplicate product.
+ *
+ * **The explosion is the point, and it was a real bug.** The keys above are
+ * normalized by *this* module — spaces collapsed, dots stripped — while the
+ * consumer tokenizes with `splitWords(normalizeProductName(name))`, which
+ * splits on whitespace and hyphens only and keeps dots exactly where they
+ * were. So a multi-word key like «чайная ложка» could never match a single
+ * token, and the dot-stripped «ч.л» could never match the source's «ч.л.».
+ * Ten of the sixty-odd entries were unreachable, and «Чайная ложка соли»
+ * sailed through the check as a buyable noun — straight into a permanent
+ * catalog product named after the phrase, with no «уточнить» chip.
+ *
+ * Each key therefore contributes itself, its individual words, and each of
+ * those words with a trailing dot. That admits the bare «ч» and «ст» as unit
+ * words, which is consistent: «ст» is already a live key in its own right
+ * («стакан»).
+ */
+export const UNIT_WORDS: ReadonlySet<string> = new Set(
+  [...RECIPE_UNITS.map(normalize), ...Object.keys(SPELLINGS)].flatMap((key) => {
+    const words = key.split(/[\s-]+/).filter((word) => word.length > 0);
+    return [key, ...words, ...words.map((word) => `${word}.`)];
+  }),
+);

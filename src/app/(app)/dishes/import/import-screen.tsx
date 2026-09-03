@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { onlineManager, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -13,7 +13,6 @@ import {
 } from "@/components/dish-photo-upload";
 import type { ImportFailureReason } from "@/lib/recipes/import-failure";
 import { isRateLimitedError } from "@/lib/trpc-errors";
-import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useTRPC } from "@/trpc/client";
 
 import { ImportFailurePanel } from "./import-failure-panel";
@@ -62,7 +61,6 @@ export function ImportScreen() {
   const trpc = useTRPC();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const online = useIsOnline();
 
   const [phase, setPhase] = useState<Phase>({ kind: "source" });
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +165,14 @@ export function ImportScreen() {
         partial: { title: null, photoUrl: photo.url, photoKey: photo.key },
         jobId: null,
       });
-      if (!online) {
+      // Read from the store at failure time, not from the render that picked
+      // the file: that closure is frozen through compression, upload and a
+      // parse that can take half a minute, so connectivity dropping in the
+      // middle would show the generic failure with no «нет связи» line.
+      // `onlineManager.isOnline()` is a synchronous field the window's own
+      // `offline` listener writes, and it is the same source of truth
+      // `useIsOnline()` and the header dot read.
+      if (!onlineManager.isOnline()) {
         setError(t("offline"));
       }
     } finally {

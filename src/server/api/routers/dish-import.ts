@@ -408,7 +408,10 @@ export const dishImportRouter = createTRPCRouter({
           ),
         );
 
-      await deleteUploadedFile(input.fileKey);
+      // Not wrapped: `uploadedFileStore.deleteFiles` never throws, by design
+      // — the ownership row is already gone, so the key can never be spent
+      // again, and a third-party delete failure must not become a dead end.
+      await ctx.uploadThing().deleteFiles([input.fileKey]);
 
       return { ok: true };
     }),
@@ -575,30 +578,4 @@ async function markJobError(
       finishedAt: sql`now()`,
     })
     .where(and(eq(aiJobs.id, jobId), eq(aiJobs.householdId, householdId)));
-}
-
-/**
- * Deletes the blob itself.
- *
- * The token is read **inside** the function and the SDK is imported lazily,
- * for the reason every other env reader in this codebase is lazy: `pnpm
- * build` runs with no environment at all. With no token there is no
- * UploadThing to talk to, so the call is skipped outright rather than
- * attempted and failed — which is also what keeps the router's unit tests off
- * the network.
- */
-async function deleteUploadedFile(fileKey: string): Promise<void> {
-  const token = process.env.UPLOADTHING_TOKEN;
-  if (token === undefined || token.length === 0) {
-    return;
-  }
-
-  try {
-    const { UTApi } = await import("uploadthing/server");
-    await new UTApi({ token }).deleteFiles([fileKey]);
-  } catch {
-    // Hygiene, not correctness (R5): the ownership row is already gone, so
-    // the key can never be spent again, and an orphaned 300 KB blob costs the
-    // free tier nothing measurable. A post-MVP sweep collects them.
-  }
 }

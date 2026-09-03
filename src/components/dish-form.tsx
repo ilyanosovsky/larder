@@ -560,6 +560,16 @@ export function DishForm({
         ...trpc.product.pathFilter(),
         refetchType: "none",
       });
+      // The import job this save consumed. `dish.create` writes
+      // `consumedDishId` server-side, but the review route decides whether to
+      // redirect from its *cached* `getJob` — and a browser Back is restored
+      // from Next's router cache with no server render, so inside the 30 s
+      // staleTime nothing would refetch. Without this, Back onto
+      // `/dishes/import/<jobId>` re-opens a live form for an already-saved
+      // recipe and «Сохранить блюдо» mints a second complete dish (dishes
+      // archive, never delete). Unconditional: the path is cheap, and a form
+      // with no `jobId` simply has nothing cached to drop.
+      void queryClient.invalidateQueries(trpc.dishImport.pathFilter());
 
       // The version this form just authored. Without it the refetch above
       // raises `latest.version` past `expectedVersion` and the form tells the
