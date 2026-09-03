@@ -847,3 +847,54 @@ export const recipeSteps = pgTable(
     index("recipe_steps_householdId_idx").on(table.householdId),
   ],
 );
+
+/**
+ * Who uploaded which UploadThing blob (task 4.3).
+ *
+ * The ownership record that turns a file key into a **capability only its
+ * uploader's household can spend**. `dishImport.fromPhoto` takes a bare key
+ * and rebuilds the image URL server-side (`src/server/uploadthing-url.ts`),
+ * so nothing a client sends is ever fetched verbatim — but a key is a short,
+ * guessable-shaped string, and without this table any signed-in user could
+ * hand the parser a key belonging to another household and have OpenAI read
+ * that household's screenshot back to them. The row is what makes
+ * `WHERE file_key = $1 AND household_id = $2` expressible at all.
+ *
+ * **Written from the UploadThing `onUploadComplete` callback**, because that
+ * is the only place the key is born: the browser talks to UploadThing
+ * directly (Vercel's 4.5 MB body limit is why the bytes never cross tRPC), so
+ * the app first learns a key exists when UploadThing calls back. The route's
+ * `.middleware()` re-checks the session and the household membership before
+ * the upload is even authorized — `src/middleware.ts` excludes `/api/**`, so
+ * that callback is a second public entry point and needs the same gate
+ * `householdProcedure` gives tRPC.
+ *
+ * `file_key` is the primary key, not a surrogate id: UploadThing already
+ * guarantees it unique, and every lookup is by it. `url` is stored rather
+ * than recomputed so a future change of the app id (or of UploadThing's URL
+ * shape) cannot orphan the photos already attached to dishes.
+ *
+ * **A row here is not a promise the blob still exists.** `discardPhoto`
+ * deletes both together, and an abandoned import leaves both behind — the
+ * orphan hygiene VISION's post-MVP sweep is for (R5). Nothing reads this
+ * table except the import router's ownership checks.
+ */
+export const photoUploads = pgTable(
+  "photo_uploads",
+  {
+    /** The UploadThing file key — the only handle that can delete the blob. */
+    fileKey: text("file_key").primaryKey(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The public URL as UploadThing served it at upload time. */
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("photo_uploads_householdId_idx").on(table.householdId)],
+);
