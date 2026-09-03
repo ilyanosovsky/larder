@@ -70,6 +70,7 @@ export interface CookingState {
 
 const FRESH_STATE: CookingState = { stepIndex: 0, timer: null };
 
+/** `0` for anything that is not a plain integer; otherwise clamped into `[0, totalSteps - 1]`. Shared by `stepIndex` and `timer.stepIndex` restoration below. */
 function clampStepIndex(value: unknown, totalSteps: number): number {
   if (typeof value !== "number" || !Number.isInteger(value)) {
     return 0;

@@ -56,6 +56,7 @@ const SPRING_BACK_DURATION_MS = 200;
 /** The overlay's single tick — see `CookingSession`'s own doc comment on why this lives here and not inside `cook-timer.tsx`. */
 const TICK_MS = 250;
 
+/** Checked at the moment of each swipe release, not cached — a setting change mid-session takes effect on the very next drag. Copied from `revision-mode.tsx` rather than shared; see `FOCUSABLE_SELECTOR`'s own note on why. */
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -144,6 +145,14 @@ export function CookingOverlay({
   );
 }
 
+/**
+ * One actual cooking run: the recipe snapshot, the `endsAt`-anchored step
+ * timer and its single 250ms tick, `localStorage` persistence, focus trap /
+ * Esc / body scroll lock, pointer-based swipe, the ingredients drawer and
+ * the inline exit confirmation. Mounted fresh (see `CookingOverlay`'s own
+ * doc comment on `sessionKey`) every time `?cook=1` reappears; never mounted
+ * during SSR or the first client render.
+ */
 function CookingSession({
   dishId,
   initialDetail,
@@ -743,6 +752,11 @@ function CookingSession({
   );
 }
 
+/**
+ * One ingredient line inside the S9 drawer — name, amount (or the plain-text
+ * note in its place, «по вкусу»-style) and a muted «уточнить»/«опционально»
+ * flag. Rendered at `portionsBase` only; no slider inside cooking mode.
+ */
 function DrawerIngredientRow({
   row,
   td,

@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
  */
 export type WakeLockStatus = "unsupported" | "active" | "inactive";
 
+/** `false` on the server (no `navigator`) and on any browser without the Screen Wake Lock API — iOS standalone below 18.4 chief among them (VISION §6.6). */
 function wakeLockSupported(): boolean {
   return typeof navigator !== "undefined" && "wakeLock" in navigator;
 }
