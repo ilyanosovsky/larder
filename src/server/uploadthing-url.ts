@@ -1,7 +1,5 @@
 import "server-only";
 
-import { env } from "@/lib/env";
-
 /**
  * Rebuilding an UploadThing image URL from a file key, server-side
  * (blueprint §3.5, decision D5).
@@ -38,15 +36,27 @@ let cachedAppId: string | undefined;
  * runs in CI with no environment at all, the same rule `env()`, `db()` and
  * `openaiClient()` already follow.
  *
+ * **`process.env` directly rather than `env()`**, and for the same reason
+ * `src/app/api/uploadthing/route.ts` reads it directly: `env()` validates the
+ * *whole* schema on its first call, so an unrelated missing variable would
+ * make a photo import fail with a message about `RESEND_API_KEY`. The
+ * variable is still declared in `src/lib/env.ts` — that is where it is
+ * documented and where a deployment is checked — and the value itself is
+ * validated below, which is the check that actually matters here.
+ *
  * A token that does not decode, or decodes without a usable `appId`, throws
- * here with a message naming the variable. That is deliberately louder than
- * returning a fallback: a wrong app id would produce URLs that 404 at OpenAI,
- * and the import would fail as «фото не читается» — a misleading answer to a
+ * with a message naming the variable. That is deliberately louder than a
+ * fallback: a wrong app id produces URLs that 404 at OpenAI, and the import
+ * would surface as «фото не читается» — a misleading answer to a
  * misconfigured deployment.
  */
 export function uploadThingAppId(): string {
   if (cachedAppId === undefined) {
-    cachedAppId = decodeAppId(env().UPLOADTHING_TOKEN);
+    const token = process.env.UPLOADTHING_TOKEN;
+    if (token === undefined || token.length === 0) {
+      throw new Error("UPLOADTHING_TOKEN is not set");
+    }
+    cachedAppId = decodeAppId(token);
   }
   return cachedAppId;
 }
