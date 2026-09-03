@@ -75,6 +75,18 @@ export const importPartialOutput = z.object({
   sourceUrl: z.string().nullable(),
 });
 
+/**
+ * The import's answer — and, because the draft is stored rather than held in
+ * memory, **the on-disk shape of `ai_jobs.output_json` as well**.
+ *
+ * That dual role is the reason every field this schema gains later must be
+ * readable as absent. `getJob` parses rows written by whatever deploy created
+ * them, and a strictly-required new key would make every older document fail
+ * validation — which `getJob` can only report as `aiUnavailable`, quietly
+ * turning «на фото не рецепт» into «попробуй ещё раз». So a field added after
+ * the first release carries `.default(null)`, and a *new* field is nullable
+ * rather than optional (the same rule the drafts follow).
+ */
 export const importResultOutput = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("parsed"),
@@ -86,8 +98,11 @@ export const importResultOutput = z.discriminatedUnion("outcome", [
      * Set once the draft has been saved as a dish, so reopening the review
      * route redirects instead of offering to create a second copy of a recipe
      * the household already has.
+     *
+     * `.default(null)` because this schema **also parses documents written by
+     * an earlier deploy** — see the note on `importResultOutput`.
      */
-    consumedDishId: z.uuid().nullable(),
+    consumedDishId: z.uuid().nullable().default(null),
   }),
   z.object({
     outcome: z.literal("failed"),
@@ -99,7 +114,7 @@ export const importResultOutput = z.discriminatedUnion("outcome", [
      * saves with the same `jobId`, so `dish.create` stamps it here too and
      * reopening the import URL redirects instead of re-offering a dead end.
      */
-    consumedDishId: z.uuid().nullable(),
+    consumedDishId: z.uuid().nullable().default(null),
   }),
   z.object({
     /** The job row exists and the call has not come back yet (decision C.5). */

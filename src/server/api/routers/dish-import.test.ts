@@ -639,6 +639,44 @@ describe("dishImport.getJob", () => {
     });
   });
 
+  it("still reads a document written before consumedDishId existed", async () => {
+    // `output_json` is the on-disk shape, so `getJob` parses rows written by
+    // whatever deploy created them. A strictly-required new key would fail
+    // validation on every older document — and the only thing `getJob` could
+    // report then is `aiUnavailable`, quietly turning «на фото не рецепт»
+    // into «попробуй ещё раз».
+    const { caller } = callerWith([
+      [membershipRow],
+      [
+        {
+          id: JOB_ID,
+          type: "parse_photo",
+          status: "done",
+          inputRef: FILE_KEY,
+          outputJson: {
+            outcome: "failed",
+            jobId: JOB_ID,
+            reason: "notARecipe",
+            partial: {
+              title: null,
+              photoUrl: PHOTO_URL,
+              photoKey: FILE_KEY,
+              sourceUrl: null,
+            },
+          },
+          createdAt: new Date("2026-09-03T10:00:00.000Z"),
+        },
+      ],
+    ]);
+
+    await expect(caller.dishImport.getJob({ jobId: JOB_ID })).resolves
+      .toMatchObject({
+        outcome: "failed",
+        reason: "notARecipe",
+        consumedDishId: null,
+      });
+  });
+
   it("does not read a URL job's input_ref as a photo key", async () => {
     // Task 4.4's `parse_url` rows carry a URL in `input_ref`. Reading it as a
     // `photoKey` would hand the client a delete handle for nothing — and put
