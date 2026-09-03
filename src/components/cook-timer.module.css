@@ -1,0 +1,92 @@
+/* S9 step timer (DESIGN_BRIEF S9) — three states, never rendered at once. */
+
+.idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.startButton {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-5);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-badge);
+  cursor: pointer;
+}
+
+.startButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.startButton[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.blockedHint {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  text-align: center;
+}
+
+.running {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clock {
+  border: var(--bd-hair) solid var(--green-rule);
+  background: var(--green-soft);
+  padding: var(--s-2) var(--s-5);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-val-lg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-badge);
+}
+
+.finished {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.finishedText {
+  border: var(--bd-hair) solid var(--green-rule);
+  background: var(--green-soft);
+  padding: var(--s-2) var(--s-5);
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-semibold);
+}
+
+.resetButton {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.resetButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}

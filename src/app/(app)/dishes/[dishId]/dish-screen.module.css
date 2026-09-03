@@ -360,7 +360,16 @@
   cursor: pointer;
 }
 
+/* Task 4.7 made «Готовить» a real `<Link>` sharing this class with the
+   zero-steps fallback `<button>` (orchestrator review round 1, K5) — the
+   same "blockified anchor" gap `.linkAction`'s own comment already
+   documents for «Редактировать». These four lines are inert on the button
+   variant (a `<button>` already centers its content and has no underline),
+   so one class keeps serving both branches. */
 .primaryAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 48px;
   border: 0;
   border-radius: var(--radius);
@@ -369,6 +378,7 @@
   font-family: var(--font-sans);
   font-size: var(--t-field);
   font-weight: var(--w-medium);
+  text-decoration: none;
   cursor: pointer;
 }
 

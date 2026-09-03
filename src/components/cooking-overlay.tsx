@@ -1,0 +1,994 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
+
+import { CookTimer } from "@/components/cook-timer";
+import { useWakeLock } from "@/components/use-wake-lock";
+import { cx } from "@/lib/cx";
+import { COOK_TIMER_FINISH_SOUND_DATA_URI } from "@/lib/cooking/finish-sound";
+import { decideStepSwipe } from "@/lib/cooking/step-swipe";
+import {
+  blockingTimerStepIndex,
+  needsExitConfirmation,
+  restoreCookingState,
+  stepNavigation,
+  type CookingState,
+  type StepNavAction,
+} from "@/lib/cooking/steps";
+import { ingredientsForMessage } from "@/lib/recipes/portions";
+import { formatRecipeQty } from "@/lib/recipes/rescale";
+import {
+  formatTimerClock,
+  startTimer,
+  timerDisplay,
+  timerRemainingMs,
+  timerState,
+  type TimerRunState,
+} from "@/lib/recipes/timer";
+import type {
+  DishDetailOutput,
+  DishIngredientOutput,
+} from "@/server/api/routers/dish";
+import { isUnquantifiable } from "@/server/recipes/needs-review";
+
+import styles from "./cooking-overlay.module.css";
+
+/** Same set `bottom-sheet.tsx`/`revision-mode.tsx` trap Tab within, copied rather than imported — see `revision-mode.tsx`'s own doc comment on why this is not shared. */
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+/** How far back (ms) release velocity looks — same window `revision-mode.tsx` uses, for the same reason (a drag that holds still and then flings at the end must still read as fast). */
+const VELOCITY_WINDOW_MS = 100;
+const SPRING_BACK_DURATION_MS = 200;
+/** The overlay's single tick — see `CookingSession`'s own doc comment on why this lives here and not inside `cook-timer.tsx`. */
+const TICK_MS = 250;
+
+/** Checked at the moment of each swipe release, not cached — a setting change mid-session takes effect on the very next drag. Copied from `revision-mode.tsx` rather than shared; see `FOCUSABLE_SELECTOR`'s own note on why. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/** One recorded pointermove sample, trimmed to `VELOCITY_WINDOW_MS` on every move. */
+interface DragSample {
+  readonly x: number;
+  readonly t: number;
+}
+
+interface DragState {
+  readonly pointerId: number;
+  readonly startX: number;
+  readonly startY: number;
+  readonly recent: readonly DragSample[];
+}
+
+/**
+ * S9 «Режим готовки» (DESIGN_BRIEF S9, VISION §6.6) — the fixed, full-screen
+ * overlay `dish-screen.tsx` mounts unconditionally, driven entirely by its
+ * own `?cook=1` search param.
+ *
+ * **Two components, one reason.** `CookingOverlay` (this one) owns only the
+ * URL ↔ open-state wiring; `CookingSession` (below) owns everything about
+ * one actual cooking run — step, timer, drawer, focus trap. They are split
+ * because those two concerns need to *reset* on different events:
+ * `CookingOverlay` must survive for `dish-screen.tsx`'s whole life (mounted
+ * once, alongside `BottomSheet`, exactly like every other always-mounted
+ * overlay in this app), while a fresh `CookingSession` — a fresh recipe
+ * snapshot in particular — is needed **every time `?cook=1` reappears**, not
+ * only the first time this component ever mounts. `key={sessionKey}`, bumped
+ * on every closed→open transition, is what forces that remount; without the
+ * split, `CookingSession`'s own `useState(() => initialDetail)` snapshot
+ * would run exactly once, on this component's first-ever render, and every
+ * later re-open would cook from data that might be edits old.
+ *
+ * **SSR-safe by construction.** `open` starts `false` and only ever changes
+ * inside a `useEffect` — never read from `searchParams` during the first
+ * render — so the very first client render matches the server's (nothing
+ * rendered) regardless of whether the URL already carries `?cook=1` (a
+ * reload while cooking). This task's own addendum calls this out explicitly;
+ * see also PR #28's `HydrateClient` fix for the same class of bug on the
+ * data side. The visible cost is one client-only paint after mount before
+ * the overlay appears — imperceptible next to a hydration mismatch.
+ */
+export function CookingOverlay({
+  dishId,
+  detail,
+  restoreFocusTo,
+}: {
+  dishId: string;
+  detail: DishDetailOutput;
+  restoreFocusTo?: RefObject<HTMLElement | null>;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [open, setOpen] = useState(false);
+  const [sessionKey, setSessionKey] = useState(0);
+  const wasOpenRef = useRef(false);
+  // Whether *this* open transition arrived via the app's own in-app
+  // navigation (tapping «Готовить», a `Link` push) rather than `?cook=1`
+  // already being in the URL the very first time this effect ever runs (a
+  // direct load or a reload while cooking) — see `onClose` below for why
+  // this distinction matters (orchestrator review round 1, K11).
+  // `hasRunEffectRef` flips `true` after the first run regardless of `next`,
+  // so it really is "has this component observed at least one render before
+  // this open", not "was cooking mode open before".
+  const openedByPushRef = useRef(false);
+  const hasRunEffectRef = useRef(false);
+
+  useEffect(() => {
+    const next = searchParams.get("cook") === "1";
+    setOpen(next);
+    if (next && !wasOpenRef.current) {
+      setSessionKey((key) => key + 1);
+      openedByPushRef.current = hasRunEffectRef.current;
+    }
+    wasOpenRef.current = next;
+    hasRunEffectRef.current = true;
+  }, [searchParams]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <CookingSession
+      key={sessionKey}
+      dishId={dishId}
+      initialDetail={detail}
+      onClose={() =>
+        openedByPushRef.current
+          ? router.back()
+          : router.replace(`/dishes/${dishId}`)
+      }
+      restoreFocusTo={restoreFocusTo}
+    />
+  );
+}
+
+/**
+ * One actual cooking run: the recipe snapshot, the `endsAt`-anchored step
+ * timer and its single 250ms tick, `localStorage` persistence, focus trap /
+ * Esc / body scroll lock, pointer-based swipe, the ingredients drawer and
+ * the inline exit confirmation. Mounted fresh (see `CookingOverlay`'s own
+ * doc comment on `sessionKey`) every time `?cook=1` reappears; never mounted
+ * during SSR or the first client render.
+ */
+function CookingSession({
+  dishId,
+  initialDetail,
+  onClose,
+  restoreFocusTo,
+}: {
+  dishId: string;
+  initialDetail: DishDetailOutput;
+  /**
+   * `CookingOverlay` picks `router.back()` (a session opened by the app's
+   * own «Готовить» push — the common case) or `router.replace` (`?cook=1`
+   * was already in the URL on the very first render — a direct load or a
+   * reload while cooking) so that closing never leaves two adjacent
+   * identical `/dishes/<id>` history entries behind a `replace`-after-
+   * `push` (orchestrator review round 1, K11: a bare `replace` here always
+   * left one dead entry per open/close cycle, so the first hardware Back
+   * press after closing did nothing). Both branches land on the exact same
+   * URL, and the hardware Back gesture itself still never runs through this
+   * component's own confirmation at all — it is a `searchParams` change
+   * `CookingOverlay` reacts to from the outside, not a call into here.
+   */
+  onClose: () => void;
+  restoreFocusTo?: RefObject<HTMLElement | null>;
+}) {
+  const t = useTranslations("cooking");
+  const td = useTranslations("dish");
+  const common = useTranslations("common");
+  const wakeLockStatus = useWakeLock();
+
+  // The recipe as it stood the instant this session started — see this
+  // module's own doc comment on why a fresh one is taken per session
+  // (`sessionKey`) rather than once for this component's whole life.
+  const [recipe] = useState(() => initialDetail);
+  const totalSteps = recipe.steps.length;
+  const storageKey = `larder.cook.${dishId}`;
+
+  const [cooking, setCooking] = useState<CookingState>(() => {
+    let raw: unknown = null;
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      raw = stored === null ? null : JSON.parse(stored);
+    } catch {
+      raw = null;
+    }
+    return restoreCookingState(raw, totalSteps);
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(cooking));
+    } catch {
+      // Private browsing / a full quota — cooking mode still works for the
+      // rest of this tab's life, it just won't resume on the next open.
+    }
+  }, [cooking, storageKey]);
+
+  // The single 250ms tick for the whole session (this file's own doc
+  // comment on `cook-timer.tsx` explains why it lives here): only runs
+  // while a timer is actually set, and restarts only when `cooking.timer`
+  // itself is reassigned (a start or a reset), not on every `stepIndex`
+  // change — `cooking.timer`'s object identity is stable across a plain
+  // step navigation, since `setCooking` spreads the previous timer through
+  // unchanged.
+  //
+  // **Self-clears the instant the deadline passes** (orchestrator review
+  // round 1, K7) — without this, a finished timer left un-reset (the only
+  // clear is the cook's own «Сбросить» tap) kept ticking 4×/s for the rest
+  // of the session, on a screen `useWakeLock` is deliberately holding awake,
+  // even though every timer-derived value is already pinned at "finished"/
+  // 0ms and has nothing left to re-render for. A restored, already-expired
+  // `endsAt` (the tab was reopened long after a bake would have rung) never
+  // starts an interval at all — it renders "finished" from the one
+  // synchronous `setNow` below and stops there.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = cooking.timer;
+    if (timer === null) {
+      return;
+    }
+    if (Date.now() >= timer.endsAt) {
+      setNow(Date.now());
+      return;
+    }
+    const id = window.setInterval(() => {
+      const tick = Date.now();
+      setNow(tick);
+      if (tick >= timer.endsAt) {
+        window.clearInterval(id);
+      }
+    }, TICK_MS);
+    return () => window.clearInterval(id);
+  }, [cooking.timer]);
+
+  const activeTimer = cooking.timer;
+  const timerRunState: TimerRunState | null =
+    activeTimer === null ? null : timerState(activeTimer.endsAt, now);
+  const timerRemaining =
+    activeTimer === null ? null : timerRemainingMs(activeTimer.endsAt, now);
+
+  // Primed on the «запустить» tap (iOS: the first `play()` on an element
+  // must originate in a real gesture) and never re-created for the
+  // session's whole life — see `cook-timer.tsx`'s own doc comment on why
+  // that component cannot own this itself.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const finishAnnouncedRef = useRef(false);
+
+  const [announce, setAnnounce] = useState<{
+    text: string;
+    seq: number;
+  } | null>(null);
+  const announceSeq = useRef(0);
+  function announceLive(text: string) {
+    announceSeq.current += 1;
+    setAnnounce({ text, seq: announceSeq.current });
+  }
+
+  // Fires exactly once per finish, regardless of which step is on screen —
+  // the whole reason the tick lives at this level rather than per-step. The
+  // ref resets the moment a *new* timer is started (`timerRunState` reads
+  // "running" again), so a second bake in the same session gets its own alert.
+  useEffect(() => {
+    if (timerRunState === "finished") {
+      if (!finishAnnouncedRef.current) {
+        finishAnnouncedRef.current = true;
+        audioRef.current?.play().catch(() => {
+          // Priming on the start tap failed, or this browser refuses an
+          // unprompted play regardless — the in-app alert text is the part
+          // of the promise that always holds (VISION §6.6).
+        });
+        announceLive(t("timerFinishedSr"));
+      }
+    } else {
+      finishAnnouncedRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerRunState]);
+
+  // Announces every step change, including the very first render — a
+  // screen-reader user must hear "шаг 1 из 6" the instant the overlay opens,
+  // not only after their first navigation (the same gap `revision-mode.tsx`
+  // closes with its own once-on-mount effect). Also resets `.body`'s own
+  // scroll position (orchestrator review round 2, R3): `.body` is one
+  // un-keyed DOM node reused across every step (never remounted — a remount
+  // would drop the pointer capture `handlePointerDown` takes on it, breaking
+  // the very swipe that often triggers this step change), so without an
+  // explicit reset a step scrolled while reading it left the *next* step
+  // opening mid-scroll, past its own opening line, with no cue anything was
+  // above. `scrollTo` rather than `scrollTop =` for the explicit (and
+  // future-proof) `behavior: "auto"` — this app sets no global
+  // `scroll-behavior`, but an instant jump here must never start animating
+  // just because one is added elsewhere later.
+  useEffect(() => {
+    announceLive(
+      t("progress", { current: cooking.stepIndex + 1, total: totalSteps }),
+    );
+    bodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cooking.stepIndex]);
+
+  function startStepTimer(stepIndex: number, timerSec: number) {
+    // Only a *running* timer blocks a new one (orchestrator review round 1,
+    // K2) — `cooking.timer !== null` alone also matched a finished-but-not-
+    // yet-reset timer, silently refusing to start a new bake anywhere in the
+    // recipe until the cook found their way back to the rung step and
+    // tapped «Сбросить». `setCooking` below replaces `timer` wholesale, so
+    // starting here already clears whatever stale timer was there.
+    if (timerRunState === "running") {
+      return;
+    }
+    if (audioRef.current === null) {
+      audioRef.current = new Audio(COOK_TIMER_FINISH_SOUND_DATA_URI);
+    }
+    const audio = audioRef.current;
+    // Muted for this priming pass only (CodeRabbit finding on this PR):
+    // `play()` resolves *after* playback has already started, so without
+    // this the cook would hear a short burst of the finish chime on every
+    // single «запустить» tap, not just on the one that actually finishes.
+    // Restored to audible before the real, unprompted finish playback.
+    audio.volume = 0;
+    audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1;
+      })
+      .catch(() => {
+        // Priming failed — the later automatic play on finish likely will
+        // too, silently. Nothing else to do here; see the finish effect above.
+        audio.volume = 1;
+      });
+
+    // One shared timestamp, and `now` is seeded with it explicitly
+    // (orchestrator review round 1, K10): the tick effect above only
+    // advances `now` while a timer is set, so without this the first paint
+    // after the tap would compute `endsAt - now` against whatever stale
+    // `now` was left over from before this timer existed (however long the
+    // session had been open with nothing running) — a wrong duration for
+    // one frame, until the next 250ms tick quietly corrected it.
+    const startedAt = Date.now();
+    const { endsAt } = startTimer(startedAt, timerSec);
+    setNow(startedAt);
+    setCooking((previous) => ({ ...previous, timer: { endsAt, stepIndex } }));
+  }
+
+  function resetTimer() {
+    setCooking((previous) => ({ ...previous, timer: null }));
+  }
+
+  function goToStep(action: StepNavAction) {
+    setCooking((previous) => ({
+      ...previous,
+      stepIndex: stepNavigation(previous.stepIndex, totalSteps, action),
+    }));
+  }
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Synchronous re-entrancy guard around `onClose()` (orchestrator review
+  // round 2, R1 — the same `closingRef` shape `cart-screen.tsx` uses for its
+  // own close button): `onClose` resolves to `router.back()` on the common
+  // (in-app-push) path, and Next's `back()` is a bare, non-idempotent
+  // `history.back()` — a second call in the same tick or the same auto-
+  // repeat burst pops a second history entry instead of no-op'ing. Render
+  // state (`confirmOpen`) is not a substitute here: it lands a render too
+  // late to stop a held key's next repeat from re-entering before React
+  // re-renders.
+  const closingRef = useRef(false);
+
+  function requestClose() {
+    // First thing, unconditionally (orchestrator review round 1, K9): a
+    // drag can be mid-flight when this fires (Esc, or Enter/Space on a
+    // focused ✕, while a finger/pointer is still down) — `needsExitConfirmation`
+    // below can unmount the swipe surface (`.body`) into the confirm panel,
+    // which drops every one of its pointer handlers, including `releaseDrag`,
+    // so `dragRef` would otherwise stay non-null forever and silently
+    // disable swipe for the rest of this session. `cancelActiveDrag` is a
+    // no-op when nothing is dragging.
+    cancelActiveDrag();
+    if (confirmOpen) {
+      // Already showing the confirmation — its own two buttons are the
+      // only way out of it; a second ✕ tap is a no-op rather than a
+      // shortcut that bypasses «Выйти» / «Продолжить».
+      return;
+    }
+    if (needsExitConfirmation(cooking.stepIndex, timerRunState)) {
+      setConfirmOpen(true);
+      return;
+    }
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
+    onClose();
+  }
+
+  function cancelExit() {
+    setConfirmOpen(false);
+  }
+
+  function confirmExit() {
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
+    setConfirmOpen(false);
+    onClose();
+  }
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const confirmStayRef = useRef<HTMLButtonElement>(null);
+  /** The always-mounted ✕ — where focus is rescued to once «Продолжить» unmounts the confirm panel (see the effect below). */
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  /** Set only while `confirmOpen` is actually true, so the rescue below never fires on the initial mount (which also starts at `confirmOpen === false`). */
+  const wasConfirmOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (confirmOpen) {
+      confirmStayRef.current?.focus();
+      wasConfirmOpenRef.current = true;
+      return;
+    }
+    if (!wasConfirmOpenRef.current) {
+      return;
+    }
+    wasConfirmOpenRef.current = false;
+    // Rescue, not a steal (orchestrator review round 1, K6 — the same
+    // pattern `dish-screen.tsx`'s own focus-rescue effects use): «Продолжить»
+    // unmounts the button that held focus (it exists only inside the
+    // `confirmOpen` branch), and a browser drops that to `<body>` — outside
+    // this dialog's own `aria-modal` subtree — rather than picking a
+    // neighbour. Guarded on `activeElement` so this can never steal focus
+    // from wherever Tab or a click has since moved it.
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      if (closeButtonRef.current) {
+        closeButtonRef.current.focus();
+      } else {
+        panelRef.current?.focus();
+      }
+    }
+  }, [confirmOpen]);
+
+  // Refreshed every render so the stable `keydown` listener below (added
+  // once, on mount) always routes through the *current* render's state and
+  // callbacks — the same `onCloseRef`/`arrowCommitRef` trick
+  // `revision-mode.tsx` and `bottom-sheet.tsx` both use.
+  const routingRef = useRef({
+    confirmOpen,
+    drawerOpen,
+    cancelExit,
+    closeDrawer: () => setDrawerOpen(false),
+    requestClose,
+    next: () => goToStep({ type: "next" }),
+    prev: () => goToStep({ type: "prev" }),
+  });
+  useEffect(() => {
+    routingRef.current = {
+      confirmOpen,
+      drawerOpen,
+      cancelExit,
+      closeDrawer: () => setDrawerOpen(false),
+      requestClose,
+      next: () => goToStep({ type: "next" }),
+      prev: () => goToStep({ type: "prev" }),
+    };
+  });
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (panel && !panel.contains(document.activeElement)) {
+      panel.focus();
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event: KeyboardEvent) {
+      const routing = routingRef.current;
+
+      if (event.key === "Escape" && !event.repeat) {
+        // `!event.repeat` (orchestrator review round 2, R1), matching the
+        // ArrowRight/ArrowLeft branches below: without it, a held Esc's OS
+        // auto-repeat re-enters `requestClose()` on every repeat event —
+        // and on the unconfirmed close path (step 0, no running timer)
+        // that resolves to `router.back()`, a bare, non-idempotent
+        // `history.back()` that pops one more entry per call. The
+        // `closingRef` guard inside `requestClose`/`confirmExit` is the
+        // belt to this suspenders' braces.
+        if (routing.confirmOpen) {
+          routing.cancelExit();
+        } else if (routing.drawerOpen) {
+          routing.closeDrawer();
+        } else {
+          routing.requestClose();
+        }
+        return;
+      }
+
+      if (routing.confirmOpen) {
+        // Tab still cycles below; arrow-key navigation is suppressed while
+        // the confirmation is up so a stray ArrowRight cannot walk the
+        // recipe forward behind it.
+      } else if (event.key === "ArrowRight" && !event.repeat) {
+        event.preventDefault();
+        routing.next();
+        return;
+      } else if (event.key === "ArrowLeft" && !event.repeat) {
+        event.preventDefault();
+        routing.prev();
+        return;
+      }
+
+      if (event.key !== "Tab" || !panel) {
+        return;
+      }
+
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (!first || !last) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const active = document.activeElement;
+      const inside = panel.contains(active);
+
+      if (event.shiftKey) {
+        if (!inside || active === first || active === panel) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (!inside || active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      // Read fresh at cleanup, not captured up front — same reasoning
+      // `revision-mode.tsx`'s own cleanup documents.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const opener = restoreFocusTo?.current ?? null;
+      if (opener?.isConnected) {
+        opener.focus();
+      }
+    };
+  }, [restoreFocusTo]);
+
+  /**
+   * Releases whatever drag is in progress without resolving it either way —
+   * no spring-back, no commit — mirroring `revision-mode.tsx`'s own
+   * `cancelActiveDrag`. Called first thing inside `requestClose` (see that
+   * function's own comment) and safe to call when there is nothing to
+   * cancel.
+   */
+  function cancelActiveDrag() {
+    const drag = dragRef.current;
+    const el = bodyRef.current;
+    dragRef.current = null;
+    if (!drag || !el) {
+      return;
+    }
+    try {
+      el.releasePointerCapture(drag.pointerId);
+    } catch {
+      // Already released — a pointerup/pointercancel/lostpointercapture
+      // that raced this call already did it, or the browser took capture
+      // away on its own. Nothing left to undo.
+    }
+    el.style.transition = "none";
+    el.style.transform = "";
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      confirmOpen ||
+      drawerOpen ||
+      !event.isPrimary ||
+      event.button !== 0 ||
+      dragRef.current !== null
+    ) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        "button, a, input, select, textarea, [role='button']",
+      )
+    ) {
+      // A tap that started on an interactive control inside the swipe
+      // surface — the step timer's «запустить»/«Сбросить», rendered as a
+      // descendant of this same div — must not begin a drag (orchestrator
+      // review round 1, K1, verified with real pointer events in a
+      // browser): `setPointerCapture` below retargets every subsequent
+      // pointer event, *including the eventual `click`*, to the captured
+      // element, so the button's own React `onClick` would never fire and
+      // the timer would be reachable only by keyboard. Bailing here before
+      // capture is ever taken leaves those controls on the normal hit-test
+      // path.
+      return;
+    }
+    const el = bodyRef.current;
+    if (!el) {
+      return;
+    }
+    el.setPointerCapture(event.pointerId);
+    const now = performance.now();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      recent: [{ x: event.clientX, t: now }],
+    };
+    el.style.transition = "none";
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const el = bodyRef.current;
+    if (!drag || !el || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const now = performance.now();
+    const recent = [...drag.recent, { x: event.clientX, t: now }].filter(
+      (sample) => now - sample.t <= VELOCITY_WINDOW_MS,
+    );
+    dragRef.current = { ...drag, recent };
+    el.style.transform = `translateX(${event.clientX - drag.startX}px)`;
+  }
+
+  function releaseDrag(
+    event: ReactPointerEvent<HTMLDivElement>,
+    commit: boolean,
+  ) {
+    const drag = dragRef.current;
+    const el = bodyRef.current;
+    if (!drag || !el || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    // Cleared before evaluating the decision — the same discipline
+    // `revision-mode.tsx`'s `commitDecision` documents: whatever happens
+    // next must never be able to re-enter this drag.
+    dragRef.current = null;
+
+    if (commit) {
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      const releaseTime = performance.now();
+      const windowStart =
+        drag.recent.find(
+          (sample) => releaseTime - sample.t <= VELOCITY_WINDOW_MS,
+        ) ?? drag.recent[drag.recent.length - 1];
+      const recentDx = windowStart ? event.clientX - windowStart.x : 0;
+      const recentElapsedMs = windowStart ? releaseTime - windowStart.t : 0;
+
+      const decision = decideStepSwipe({ dx, dy, recentDx, recentElapsedMs });
+      if (decision !== null) {
+        el.style.transition = "none";
+        el.style.transform = "";
+        goToStep({ type: decision });
+        return;
+      }
+    }
+
+    if (prefersReducedMotion()) {
+      el.style.transition = "none";
+      el.style.transform = "";
+    } else {
+      el.style.transition = `transform ${SPRING_BACK_DURATION_MS}ms var(--ease-out)`;
+      el.style.transform = "translateX(0px)";
+    }
+  }
+
+  if (totalSteps === 0) {
+    // Defensive only — `dish-screen.tsx` gates the «Готовить» link itself
+    // on `steps.length > 0`, so this is unreachable except via a hand-typed
+    // `?cook=1` on a dish saved with no steps at all.
+    return (
+      <div className={styles.overlay}>
+        <div
+          ref={panelRef}
+          className={styles.panel}
+          role="dialog"
+          aria-modal="true"
+          aria-label={recipe.title}
+          tabIndex={-1}
+        >
+          <div className={styles.header}>
+            <span />
+            <button
+              type="button"
+              className={styles.close}
+              onClick={onClose}
+              aria-label={common("close")}
+            >
+              ✕
+            </button>
+          </div>
+          <div className={styles.emptyBody}>
+            <p>{t("noSteps")}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const step = recipe.steps[cooking.stepIndex];
+  if (!step) {
+    return null;
+  }
+  const stepTimerSec = step.timerSec;
+  const stepTimer = timerDisplay(step.timerSec, step.timerMaxSec);
+  const timerBelongsHere =
+    activeTimer !== null && activeTimer.stepIndex === cooking.stepIndex;
+  // Existence-based (any timer elsewhere, running or already finished) —
+  // drives the header's own «jump back» chip, which should keep surfacing a
+  // rung timer as «Готово!» rather than vanishing the instant it finishes.
+  const timerElsewhereStepIndex =
+    activeTimer !== null && activeTimer.stepIndex !== cooking.stepIndex
+      ? activeTimer.stepIndex
+      : null;
+  // Running-only (orchestrator review round 1, K2) — drives whether a
+  // *different* step's own «запустить» is refused. A timer that has already
+  // rung has nothing left to protect; blocking every other step's start
+  // button behind a stale «Готовится другой шаг» hint would be actively
+  // misleading. See `blockingTimerStepIndex`'s own doc comment.
+  const blockingStepIndex = blockingTimerStepIndex(
+    activeTimer,
+    cooking.stepIndex,
+    timerRunState,
+  );
+  const ingredientsForMsg = ingredientsForMessage(
+    recipe.recipe,
+    recipe.recipe.portionsBase,
+  );
+  const ingredientsFor = td(ingredientsForMsg.key, ingredientsForMsg.values);
+  // Computed once and reused for both the header's own visible progress and
+  // `.body`'s accessible name below (orchestrator review round 2, R2) — the
+  // two can never word the same step differently.
+  const progressText = t("progress", {
+    current: cooking.stepIndex + 1,
+    total: totalSteps,
+  });
+
+  return (
+    <div className={styles.overlay}>
+      <div
+        ref={panelRef}
+        className={styles.panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("dialogTitle", { title: recipe.title })}
+        tabIndex={-1}
+      >
+        <div className={styles.header}>
+          <span className={styles.progress}>{progressText}</span>
+          {!confirmOpen && timerElsewhereStepIndex !== null ? (
+            <button
+              type="button"
+              className={styles.timerChip}
+              aria-label={t("timerJumpAria")}
+              onClick={() =>
+                goToStep({ type: "goto", index: timerElsewhereStepIndex })
+              }
+            >
+              <span aria-hidden="true">⏱</span>{" "}
+              {timerRunState === "finished"
+                ? t("timerFinished")
+                : formatTimerClock(timerRemaining ?? 0)}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            ref={closeButtonRef}
+            className={styles.close}
+            onClick={requestClose}
+            aria-label={common("close")}
+          >
+            ✕
+          </button>
+        </div>
+
+        {confirmOpen ? (
+          <div className={styles.confirmBody}>
+            <p className={styles.confirmTitle}>{t("exitTitle")}</p>
+            <p className={styles.confirmHint}>{t("exitHint")}</p>
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                ref={confirmStayRef}
+                className={styles.confirmStay}
+                onClick={cancelExit}
+              >
+                {t("exitCancel")}
+              </button>
+              <button
+                type="button"
+                className={styles.confirmLeave}
+                onClick={confirmExit}
+              >
+                {t("exitConfirm")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* `tabIndex={0}` + `role="group"` + `aria-label` (orchestrator
+                review round 2, R2): every browser engine scrolls the
+                focused element's nearest scrollable *ancestor*, never a
+                scrollable descendant, so once K3 made this a scroll
+                container it became unreachable by keyboard on any step
+                whose `<CookTimer>` isn't itself present to carry focus.
+                `aria-label` reuses `progressText` rather than inventing a
+                second string for the same fact. Both this and `.drawerBody`
+                below already satisfy `FOCUSABLE_SELECTOR`
+                (`[tabindex]:not([tabindex="-1"])`), so they join the
+                existing Tab trap with no change to its logic. */}
+            <div
+              ref={bodyRef}
+              className={styles.body}
+              tabIndex={0}
+              role="group"
+              aria-label={progressText}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={(event) => releaseDrag(event, true)}
+              onPointerCancel={(event) => releaseDrag(event, false)}
+              onLostPointerCapture={(event) => releaseDrag(event, false)}
+            >
+              <span className={styles.stepNumber} aria-hidden="true">
+                {cooking.stepIndex + 1}
+              </span>
+              <p className={styles.stepText}>{step.text}</p>
+
+              {stepTimer && stepTimerSec !== null ? (
+                <CookTimer
+                  display={stepTimer}
+                  runState={timerBelongsHere ? timerRunState : null}
+                  remainingMs={timerBelongsHere ? timerRemaining : null}
+                  blockedByOtherStep={blockingStepIndex !== null}
+                  onStart={() =>
+                    startStepTimer(cooking.stepIndex, stepTimerSec)
+                  }
+                  onReset={resetTimer}
+                />
+              ) : null}
+            </div>
+
+            {wakeLockStatus === "unsupported" ? (
+              <p className={styles.wakeLockHint}>{t("wakeLockHint")}</p>
+            ) : null}
+
+            <div className={cx(styles.drawer, drawerOpen && styles.drawerOpen)}>
+              <button
+                type="button"
+                className={styles.drawerHandle}
+                aria-expanded={drawerOpen}
+                onClick={() => setDrawerOpen((previous) => !previous)}
+              >
+                <span aria-hidden="true">{drawerOpen ? "˅" : "˄"}</span>{" "}
+                {t("ingredientsToggle")}
+              </button>
+              {drawerOpen ? (
+                <div
+                  className={styles.drawerBody}
+                  tabIndex={0}
+                  role="group"
+                  aria-label={ingredientsFor}
+                >
+                  <p className={styles.drawerHeading}>{ingredientsFor}</p>
+                  <ul className={styles.drawerList}>
+                    {recipe.ingredients.map((row) => (
+                      <DrawerIngredientRow key={row.id} row={row} td={td} />
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={styles.footer}>
+              <button
+                type="button"
+                className={styles.navButton}
+                aria-disabled={cooking.stepIndex === 0 || undefined}
+                onClick={() => goToStep({ type: "prev" })}
+              >
+                {t("prev")}
+              </button>
+              <button
+                type="button"
+                className={styles.navButtonPrimary}
+                aria-disabled={
+                  cooking.stepIndex === totalSteps - 1 || undefined
+                }
+                onClick={() => goToStep({ type: "next" })}
+              >
+                {t("next")}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Permanently mounted, same reasoning as `revision-mode.tsx`'s own
+            live region: assistive tech must already be watching this node
+            before the first announcement lands. */}
+        <p className={styles.srOnly} role="status">
+          <span key={announce?.seq ?? "empty"}>{announce?.text ?? ""}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One ingredient line inside the S9 drawer — name, amount (or the plain-text
+ * note in its place, «по вкусу»-style) and a muted «уточнить»/«опционально»
+ * flag. Rendered at `portionsBase` only; no slider inside cooking mode.
+ */
+function DrawerIngredientRow({
+  row,
+  td,
+}: {
+  row: DishIngredientOutput;
+  td: ReturnType<typeof useTranslations<"dish">>;
+}) {
+  const noteIsAmount =
+    row.qty === null &&
+    !row.needsReview &&
+    !row.isOptional &&
+    isUnquantifiable(row.note);
+
+  return (
+    <li className={styles.drawerRow}>
+      <span className={styles.drawerName}>
+        {row.name}
+        {row.needsReview ? (
+          <span className={styles.drawerFlag}> · {td("needsReview")}</span>
+        ) : row.isOptional ? (
+          <span className={styles.drawerFlag}> · {td("optional")}</span>
+        ) : null}
+      </span>
+      <span className={styles.drawerAmount}>
+        {noteIsAmount ? row.note : formatRecipeQty(row.qty, row.unit)}
+      </span>
+    </li>
+  );
+}

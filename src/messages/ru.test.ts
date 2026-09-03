@@ -51,7 +51,13 @@ function importCopyCallSites(): string[] {
  * every other gate.
  */
 function translator(
-  namespace: "dish" | "dishes" | "dishForm" | "dishImport" | "dishPortions",
+  namespace:
+    | "dish"
+    | "dishes"
+    | "dishForm"
+    | "dishImport"
+    | "dishPortions"
+    | "cooking",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -202,6 +208,7 @@ describe("the keys the dish screens call by name", () => {
     "toMenu",
     "toCart",
     "cook",
+    "cookNoSteps",
     "edit",
     "moreAria",
     "archive",
@@ -392,6 +399,61 @@ describe("the keys the dish screens call by name", () => {
       expect(rendered.trim().length).toBeGreaterThan(0);
     },
   );
+});
+
+describe("cooking (task 4.7)", () => {
+  const t = translator("cooking");
+
+  /** Every entry here is a literal in `cooking-overlay.tsx` / `cook-timer.tsx` — see `dish.%s` above for why this sweep exists at all. `timerRunningAria` takes a `{clock}` param, so it gets its own parameterized test below instead. */
+  const COOKING_KEYS = [
+    "prev",
+    "next",
+    "noSteps",
+    "timerFinished",
+    "timerFinishedSr",
+    "timerReset",
+    "timerBusy",
+    "timerJumpAria",
+    "wakeLockHint",
+    "ingredientsToggle",
+    "exitTitle",
+    "exitHint",
+    "exitCancel",
+    "exitConfirm",
+  ] as const;
+
+  it.each(COOKING_KEYS)("cooking.%s resolves to real copy", (key) => {
+    const rendered = t(key);
+
+    expect(rendered).not.toBe(`cooking.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("titles the dialog with the dish's own name", () => {
+    expect(t("dialogTitle", { title: "NYC Cookies" })).toBe(
+      "Готовим «NYC Cookies»",
+    );
+  });
+
+  it("renders «шаг N из M» from the two integers `cooking-overlay.tsx` tracks", () => {
+    expect(t("progress", { current: 3, total: 6 })).toBe("шаг 3 из 6");
+    expect(t("progress", { current: 1, total: 1 })).toBe("шаг 1 из 1");
+  });
+
+  it("composes the start button from the reused dish.timer* label, not a second copy of it", () => {
+    // `cook-timer.tsx` builds `label` from `timerMessage`/`dish.timer*` —
+    // see that file's own doc comment — and hands the already-translated
+    // string in here as a plain parameter.
+    expect(t("timerStart", { label: "9–11 мин" })).toBe("9–11 мин · запустить");
+  });
+
+  it("composes the running clock's accessible name with the live digits, not a static «Осталось»", () => {
+    // `role="timer"` permits an author-provided name (a generic `<span>`
+    // does not — orchestrator review round 1, K8), and that name must
+    // actually carry the remaining time, since the digits are the sole
+    // content the clock renders.
+    expect(t("timerRunningAria", { clock: "09:00" })).toBe("Осталось 09:00");
+  });
 });
 
 describe("the equipment banner's «скоро» hint", () => {
