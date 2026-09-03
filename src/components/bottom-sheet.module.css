@@ -83,6 +83,13 @@
   cursor: pointer;
 }
 
+/* Held open by the caller while a write is in flight — dimmed like the body's
+   own `aria-disabled` buttons, and still focusable. */
+.close[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
 .close:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;

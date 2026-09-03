@@ -1,3 +1,4 @@
+import { MAX_PORTIONS } from "@/lib/recipes/draft";
 import { MIN_QTY, roundQty } from "@/server/cart/merge";
 
 /**
@@ -47,9 +48,17 @@ const NO_QUANTITY = "—";
  * `Math.max(12, base * 2)` rather than a flat ceiling: a batch recipe already
  * stated for 12 (a cookie tray) is not artificially capped at its own base,
  * and a two-portion recipe is not stuck offering only up to 4.
+ *
+ * **Clamped at `MAX_PORTIONS`**, because the slider is not the only consumer
+ * of the number it produces: a recipe stored for 60 portions would otherwise
+ * offer 120, which `recipeDraftSchema` could never persist and which
+ * `dish.adapt`'s own input rejects outright — leaving «Пересчитать на 120»
+ * failing with a generic error and an «Ещё раз» that re-sends the same
+ * impossible number. The "always reaches its own base" invariant survives:
+ * `base` is itself `<= MAX_PORTIONS` everywhere it is stored.
  */
 export function portionsRange(base: number): { min: number; max: number } {
-  return { min: 1, max: Math.max(12, base * 2) };
+  return { min: 1, max: Math.min(MAX_PORTIONS, Math.max(12, base * 2)) };
 }
 
 /**

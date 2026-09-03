@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { RecipeDraft } from "@/lib/recipes/draft";
+import { MAX_STEP_TEXT, type RecipeDraft } from "@/lib/recipes/draft";
 import { RECIPE_UNITS } from "@/lib/units";
 import {
   toStrictJsonSchema,
@@ -91,6 +91,21 @@ export const recipeAdaptationSchema = z.object({
       timerMaxSec: z.number().nullable(),
     }),
   ),
+  /**
+   * The appliances the model actually worked around, in its own Russian
+   * words — the **evidence** for removing them from `recipe.equipment`.
+   *
+   * Asking rather than assuming, because the alternative is a lie the
+   * household cannot see through: an earlier version dropped every missing
+   * appliance unconditionally, so a proposal that reworked nothing (rule 13
+   * invites exactly that) still stripped «миксер» from a recipe whose steps
+   * still said «взбить миксером» — permanently silencing S7's banner for a
+   * requirement that never went away. `applyAdaptation` intersects this list
+   * with the ones the household was actually missing and coerces it through
+   * `coerceEquipmentSlug`, so a word outside the preset vocabulary, or an
+   * appliance nobody asked about, changes nothing.
+   */
+  droppedEquipment: z.array(z.string()),
 });
 
 export type RecipeAdaptation = z.infer<typeof recipeAdaptationSchema>;
@@ -170,8 +185,29 @@ export interface AdaptRecipeArgs {
  */
 const MAX_OUTPUT_TOKENS = 4_000;
 
-/** Longest a single prompt line may run before it stops being a line. */
+/**
+ * Longest a single one-line field may run before it stops being a line.
+ *
+ * It bites nothing today by design: `rawText`, `name`, `note` and `title` are
+ * all schema-bounded at or below 300 characters, so this is a backstop for a
+ * stored row that predates a bound, not a routine truncation.
+ */
 const MAX_PROMPT_LINE = 300;
+
+/**
+ * Step text gets the schema's own ceiling instead, and that difference is
+ * load-bearing.
+ *
+ * A `steps[]` edit is a **full-text replacement by index** (prompt rule 10),
+ * so a model shown only the first 300 characters of a 500-character step
+ * would overwrite the 200 it never saw — invisibly, because the sheet renders
+ * only the new text for a changed step. Steps are the one field `MAX_PROMPT_
+ * LINE` could actually shorten (`MAX_STEP_TEXT` is 2000), which is exactly
+ * why they may not share it. The response side is already bounded by
+ * `MAX_OUTPUT_TOKENS`; the prompt side is one recipe, and one recipe fits.
+ */
+const MAX_PROMPT_STEP = MAX_STEP_TEXT;
+
 /** How many free-form profile entries are worth listing. */
 const MAX_PROFILE_ENTRIES = 20;
 
@@ -219,7 +255,9 @@ const SYSTEM_PROMPT = [
   "    Если способ изменился и время меняется — обнови его. Если времени в шаге нет — null.",
   "12. summary — ОДНА короткая фраза по-русски о том, что изменилось: «переделано под духовку вместо аэрогриля»,",
   "    «взбиваем венчиком вручную, пересчитано на 4 порции».",
-  "13. Если менять нечего — верни пустые массивы и summary «Ничего менять не нужно».",
+  "13. droppedEquipment — техника из списка «НЕТ на кухне», от которой ты ДЕЙСТВИТЕЛЬНО ушёл в шагах выше,",
+  "    её собственными словами («миксер», «аэрогриль»). Если шаги ты не переделывал — пустой массив.",
+  "14. Если менять нечего — верни пустые массивы и summary «Ничего менять не нужно».",
 ].join("\n");
 
 /**
@@ -281,7 +319,10 @@ export function describeDraftForModel(args: {
       row.qty === null
         ? "количество не указано"
         : `${row.qty}${row.unit === null ? "" : ` ${row.unit}`}`;
-    const note = row.note === null ? "" : ` (${row.note})`;
+    // Through `cap` like every other interpolated value: a note is the one
+    // field that reached this line raw, and a note with a newline in it can
+    // forge a prompt directive (see `cap`).
+    const note = row.note === null ? "" : ` (${cap(row.note)})`;
     const source = row.rawText.length === 0 ? row.name : row.rawText;
 
     lines.push(`${index}. ${cap(source)}${note} | ${amount}`);
@@ -299,7 +340,7 @@ export function describeDraftForModel(args: {
             step.timerMaxSec === null ? "" : `–${step.timerMaxSec}`
           } с]`;
 
-    lines.push(`${index}. ${cap(step.text)}${timer}`);
+    lines.push(`${index}. ${cap(step.text, MAX_PROMPT_STEP)}${timer}`);
   });
 
   return lines.join("\n");
@@ -428,7 +469,11 @@ function profileWords(equipment: readonly string[]): string[] {
 
   for (const entry of equipment.slice(0, MAX_PROFILE_ENTRIES)) {
     const slug = (EQUIPMENT_WORD as Record<string, string | undefined>)[entry];
-    const word = (slug ?? entry).trim();
+    // Free text the household typed itself, so the risk is self-injection
+    // rather than a hostile page — but it is interpolated into the same
+    // newline-joined document, and one rule for every value is cheaper to
+    // keep true than an exception with a reason attached.
+    const word = cap(slug ?? entry);
     const key = word.toLowerCase();
 
     if (word.length === 0 || seen.has(key)) {
@@ -441,12 +486,20 @@ function profileWords(equipment: readonly string[]): string[] {
   return words;
 }
 
-/** One line of prompt, never a whole pasted document. */
-function cap(value: string): string {
+/**
+ * One prompt line, never a whole pasted document — **and never more than one
+ * line**, which is the half that matters for anything a model wrote.
+ *
+ * The prompt is a numbered list joined by `\n`, so a stored value carrying an
+ * interior newline would emit extra unindented lines inside the ingredient
+ * block and could forge text that reads like the prompt's own directives.
+ * Nothing upstream collapses interior whitespace — `parseRecipe`'s note is a
+ * bare `z.string()`, `capped()` and `recipeDraftSchema` only trim the ends —
+ * so **every** interpolated value goes through here, with no exceptions.
+ */
+function cap(value: string, max: number = MAX_PROMPT_LINE): string {
   const trimmed = value.trim().replace(/\s+/g, " ");
-  return trimmed.length > MAX_PROMPT_LINE
-    ? `${trimmed.slice(0, MAX_PROMPT_LINE)}…`
-    : trimmed;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
 function failure(error: string, usage: AiUsage | null): AdaptRecipeResult {

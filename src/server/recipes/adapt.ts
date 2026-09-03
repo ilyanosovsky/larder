@@ -11,6 +11,7 @@ import { rescaleQty } from "@/lib/recipes/rescale";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
 import type { RecipeAdaptation } from "@/server/ai/adapt-recipe";
+import { coerceEquipmentList } from "@/server/recipes/coerce-equipment";
 import { coerceRecipeUnit } from "@/server/recipes/coerce-unit";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
 
@@ -64,6 +65,13 @@ export interface AdaptationDiff {
   readonly addedSteps: number[];
   /** Original steps the adaptation dropped. */
   readonly removedSteps: number[];
+  /**
+   * Appliances the recipe no longer requires. Part of the diff rather than a
+   * silent side effect: it is a persisted change to `recipe.equipment` that
+   * S7's banner reads forever after, so `isEmptyDiff` must not be able to say
+   * «менять ничего не пришлось» beside one.
+   */
+  readonly droppedEquipment: EquipmentSlug[];
 }
 
 export type ApplyAdaptationResult =
@@ -85,14 +93,21 @@ export interface ApplyAdaptationOptions {
    */
   readonly targetPortions: number | null;
   /**
-   * The appliances this adaptation was asked to work around — removed from
-   * `recipe.equipment`, because a recipe reworked to avoid a mixer no longer
-   * needs one, and S7's banner would otherwise keep reporting it missing
-   * forever after the fix was applied.
+   * The appliances this adaptation was asked to work around — the
+   * **candidates** for removal from `recipe.equipment`, not the answer.
    *
-   * Nothing is ever *added* here: the model is told to use only what the
-   * household already has, and inferring a new slug from prose would be a
-   * guess about the one field the banner reads.
+   * A slug is dropped only when the proposal's own `droppedEquipment` names
+   * it too: a recipe reworked to avoid a mixer no longer needs one, but a
+   * proposal that reworked nothing (prompt rule 14 invites exactly that) must
+   * not strip a requirement whose steps still say «взбить миксером».
+   * Removing it anyway silences S7's banner for that dish permanently, which
+   * is the one failure mode a proposal the household approves cannot warn
+   * them about — «Больше не нужно: Миксер» beside «менять ничего не пришлось»
+   * is contradictory copy over a wrong persisted column.
+   *
+   * Nothing is ever *added*: the model is told to use only what the household
+   * already has, and inferring a new slug from prose would be a guess about
+   * the one field the banner reads.
    */
   readonly dropEquipment: readonly EquipmentSlug[];
 }
@@ -183,7 +198,17 @@ export function applyAdaptation(
 
   const ingredients = applyIngredientEdits(rescaled, proposal);
   const steps = applyStepEdits(rescaled, proposal);
-  const dropped = new Set<string>(options.dropEquipment);
+  // The intersection, both ways: only an appliance the household was actually
+  // missing, and only one the model says it actually worked around. Coerced
+  // because the model answers in its own Russian words, and filtered against
+  // the candidates because a proposal cannot decide to remove a requirement
+  // nobody asked about.
+  const droppable = new Set<EquipmentSlug>(options.dropEquipment);
+  const dropped = new Set<EquipmentSlug>(
+    coerceEquipmentList(proposal.droppedEquipment).filter((slug) =>
+      droppable.has(slug),
+    ),
+  );
 
   const candidate: RecipeDraft = {
     ...rescaled,
@@ -271,7 +296,18 @@ export function describeAdaptation(
     .map((_, index) => index)
     .filter((index) => !kept.has(index));
 
-  return { changedIngredients, changedSteps, addedSteps, removedSteps };
+  const survives = new Set<string>(after.equipment);
+  const droppedEquipment = before.equipment.filter(
+    (slug) => !survives.has(slug),
+  );
+
+  return {
+    changedIngredients,
+    changedSteps,
+    addedSteps,
+    removedSteps,
+    droppedEquipment,
+  };
 }
 
 /** True when a diff says the recipe would come out exactly as it went in. */
@@ -280,7 +316,8 @@ export function isEmptyDiff(diff: AdaptationDiff): boolean {
     diff.changedIngredients.length === 0 &&
     diff.changedSteps.length === 0 &&
     diff.addedSteps.length === 0 &&
-    diff.removedSteps.length === 0
+    diff.removedSteps.length === 0 &&
+    diff.droppedEquipment.length === 0
   );
 }
 

@@ -139,6 +139,29 @@
   line-height: var(--lead-body);
 }
 
+/* The diff's markers are `−`/`→`/`+` glyphs over a colour difference, both
+   aria-hidden; these carry the same distinction in words. Same rule as
+   `cart-screen.module.css` / `dish-screen.module.css`. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Focused when the proposal lands, so its arrival is announced — it is not a
+   tab stop, so it must not draw a ring on a pointer-driven focus. */
+.summary:focus {
+  outline: none;
+}
+
+.summary:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 2px;
+}
+
 .error {
   border-left: var(--bd-ink) solid var(--neg);
   padding-left: var(--s-3);

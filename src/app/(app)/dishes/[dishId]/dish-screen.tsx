@@ -360,6 +360,18 @@ export function DishScreen({ dishId }: { dishId: string }) {
     queryClient.setQueryData(dishKey, saved);
     announceVisible(message);
     invalidateDish();
+    // Both sheets save through `dish.update`, which resolves unbound
+    // ingredient names — so «Вернуть как было», replaying an import-time
+    // draft whose rows are mostly unbound, can mint catalog rows. Without
+    // this the autocomplete's cached searches stay fresh for the client's
+    // 30 s `staleTime` and cannot see them; `dish-form.tsx` invalidates the
+    // same path after the identical mutation, for the identical reason.
+    // `refetchType: "none"` — nothing on this screen renders the catalog, so
+    // the next reader refetches rather than this one paying for it now.
+    void queryClient.invalidateQueries({
+      ...trpc.product.pathFilter(),
+      refetchType: "none",
+    });
   }
 
   /** Spoken only — the screen already shows what happened. */
@@ -804,7 +816,6 @@ export function DishScreen({ dishId }: { dishId: string }) {
           key={adapt.seq}
           dishId={dishId}
           detail={detail}
-          beforeEquipment={requiredEquipment}
           targetPortions={adapt.targetPortions}
           equipmentLabels={equipmentLabels}
           restoreFocusTo={adaptOpener.restoreFocusTo}

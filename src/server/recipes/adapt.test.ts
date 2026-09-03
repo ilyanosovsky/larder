@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   emptyDraft,
+  MAX_NOTE,
   MAX_STEPS,
   recipeDraftSchema,
   type RecipeDraft,
@@ -82,6 +83,7 @@ function proposal(overrides: Partial<RecipeAdaptation> = {}): RecipeAdaptation {
     steps: [],
     removedStepIndexes: [],
     addedSteps: [],
+    droppedEquipment: [],
     ...overrides,
   };
 }
@@ -235,6 +237,47 @@ describe("applyAdaptation — the index contract", () => {
     expect(result.draft.ingredients[1]?.rawText).toBe(
       "Масло сливочное холодное, 113 г",
     );
+  });
+
+  it("keeps the model's own note alongside the unit it could not map", () => {
+    const result = applied(nycCookies(), {
+      ingredients: [
+        { index: 0, qty: 2, unit: "зубчика", note: "крупно", rawText: null },
+      ],
+    });
+
+    expect(result.draft.ingredients[0]?.note).toBe("крупно, зубчика");
+  });
+
+  it("reserves room for the leftover, so a long note cannot eat it", () => {
+    // The comment above the merge presents this as an invariant; without the
+    // reservation a 100-character note truncates the one word this path
+    // promises never to drop.
+    const result = applied(nycCookies(), {
+      ingredients: [
+        {
+          index: 0,
+          qty: 2,
+          unit: "зубчика",
+          note: "я".repeat(MAX_NOTE),
+          rawText: null,
+        },
+      ],
+    });
+
+    const note = result.draft.ingredients[0]?.note ?? "";
+    expect(note.length).toBeLessThanOrEqual(MAX_NOTE);
+    expect(note.endsWith("зубчика")).toBe(true);
+  });
+
+  it("does not repeat a leftover the note already says", () => {
+    const result = applied(nycCookies(), {
+      ingredients: [
+        { index: 0, qty: 2, unit: "зубчик", note: "зубчик", rawText: null },
+      ],
+    });
+
+    expect(result.draft.ingredients[0]?.note).toBe("зубчик");
   });
 
   it("routes a unit it cannot map into the note instead of guessing one", () => {
@@ -407,16 +450,88 @@ describe("applyAdaptation — steps", () => {
 });
 
 describe("applyAdaptation — equipment", () => {
-  it("drops the appliance the adaptation was asked to work around", () => {
+  it("drops an appliance the proposal says it actually worked around", () => {
     const result = applied(
       nycCookies(),
-      {},
+      {
+        steps: [
+          {
+            index: 0,
+            text: "Взбить венчиком вручную",
+            timerSec: null,
+            timerMaxSec: null,
+          },
+        ],
+        droppedEquipment: ["миксер"],
+      },
       { targetPortions: null, dropEquipment: ["mixer"] },
     );
 
     // Otherwise S7's banner keeps reporting «Не хватает: Миксер» forever
     // after the fix has been applied.
     expect(result.draft.equipment).toEqual(["oven"]);
+    expect(result.diff.droppedEquipment).toEqual(["mixer"]);
+  });
+
+  it("keeps the appliance when the proposal reworked nothing", () => {
+    // The regression: prompt rule 14 invites an all-empty proposal, and an
+    // unconditional drop turned that into «Больше не нужно: Миксер» over
+    // steps that still say «взбить миксером» — silencing the banner for a
+    // requirement that never went away.
+    const result = applied(
+      nycCookies(),
+      {},
+      { targetPortions: null, dropEquipment: ["mixer"] },
+    );
+
+    expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+    expect(isEmptyDiff(result.diff)).toBe(true);
+  });
+
+  it("drops only the appliance it names, not every missing one", () => {
+    const draft: RecipeDraft = {
+      ...nycCookies(),
+      equipment: ["oven", "mixer", "airfryer"],
+    };
+
+    const result = applied(
+      draft,
+      {
+        steps: [
+          {
+            index: 0,
+            text: "Взбить венчиком вручную",
+            timerSec: null,
+            timerMaxSec: null,
+          },
+        ],
+        droppedEquipment: ["миксер"],
+      },
+      { targetPortions: null, dropEquipment: ["mixer", "airfryer"] },
+    );
+
+    expect(result.draft.equipment).toEqual(["oven", "airfryer"]);
+  });
+
+  it("ignores a slug the household was not missing in the first place", () => {
+    // A proposal cannot decide to remove a requirement nobody asked about.
+    const result = applied(
+      nycCookies(),
+      { droppedEquipment: ["духовка", "миксер"] },
+      { targetPortions: null, dropEquipment: ["mixer"] },
+    );
+
+    expect(result.draft.equipment).toEqual(["oven"]);
+  });
+
+  it("ignores a word outside the preset vocabulary", () => {
+    const result = applied(
+      nycCookies(),
+      { droppedEquipment: ["сувид", "штуковина"] },
+      { targetPortions: null, dropEquipment: ["mixer"] },
+    );
+
+    expect(result.draft.equipment).toEqual(["oven", "mixer"]);
   });
 
   it("never adds an appliance of its own", () => {
@@ -427,6 +542,17 @@ describe("applyAdaptation — equipment", () => {
     );
 
     expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+  });
+
+  it("counts an equipment removal as a change, so the sheet cannot say «nothing»", () => {
+    const result = applied(
+      nycCookies(),
+      { droppedEquipment: ["миксер"] },
+      { targetPortions: null, dropEquipment: ["mixer"] },
+    );
+
+    expect(isEmptyDiff(result.diff)).toBe(false);
+    expect(result.diff.droppedEquipment).toEqual(["mixer"]);
   });
 });
 
@@ -454,6 +580,7 @@ describe("applyAdaptation — NYC Cookies «без миксера», rescaled 8 
       ],
       removedStepIndexes: [],
       addedSteps: [],
+      droppedEquipment: ["миксер"],
     },
     { targetPortions: 4, dropEquipment: ["mixer"] },
   );
@@ -522,6 +649,7 @@ describe("describeAdaptation", () => {
       changedSteps: [],
       addedSteps: [1],
       removedSteps: [1, 2],
+      droppedEquipment: [],
     });
   });
 });

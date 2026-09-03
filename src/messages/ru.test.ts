@@ -477,6 +477,35 @@ describe("dishAdapt (task 4.6)", () => {
     );
   });
 
+  it("tells a failed save apart from a failed adaptation", () => {
+    // Two different events, and the save one must not blame the model: a
+    // BAD_REQUEST or a dropped connection on «Применить» keeps the proposal
+    // and retries the save, so «не получается адаптировать» would be a lie.
+    const t = translator("dishAdapt");
+
+    expect(t("applyFailed")).not.toBe(t("failed"));
+    expect(t("applyFailed")).toContain("сохранить");
+  });
+
+  it("gives every diff marker a word, not just a glyph", () => {
+    // `−`/`→`/`+` and the amount arrow are all aria-hidden; these are what a
+    // screen reader actually gets. Approving a proposal is unrecoverable for
+    // a dish that was never imported, so the verb has to be spoken.
+    const t = translator("dishAdapt");
+    const spoken = [
+      t("removedLabel"),
+      t("changedLabel"),
+      t("addedLabel"),
+      t("wasLabel"),
+      t("nowLabel"),
+    ];
+
+    expect(new Set(spoken).size).toBe(spoken.length);
+    for (const line of spoken) {
+      expect(line.trim().length).toBeGreaterThan(0);
+    }
+  });
+
   it("reuses dish.conflict for a stale version rather than a second wording", () => {
     // `adaptation-sheet.tsx`'s `report()` falls back to the screen's own
     // copy, so the sheet and the card word the same event the same way.

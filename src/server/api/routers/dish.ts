@@ -24,6 +24,7 @@ import { recipeUnitSchema, type RecipeUnit } from "@/lib/units";
 import { adaptRecipe } from "@/server/ai/adapt-recipe";
 import { formatCostUsd } from "@/server/ai/pricing";
 import { assertWithinRateLimit } from "@/server/ai/rate-limit-guard";
+import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
 import {
   createTRPCRouter,
   householdProcedure,
@@ -238,6 +239,17 @@ export const adaptationDiffOutput = z.object({
   changedSteps: z.array(z.int()),
   addedSteps: z.array(z.int()),
   removedSteps: z.array(z.int()),
+  /**
+   * Preset slugs the recipe no longer requires. Part of the diff so the sheet
+   * renders «Больше не нужно: …» from what actually happened rather than from
+   * a comparison it makes itself, and so `isEmptyDiff` cannot report «менять
+   * ничего не пришлось» beside a persisted requirement removal.
+   *
+   * `z.enum` rather than `z.string()`: these come out of `coerceEquipmentList`
+   * and are slugs by construction, and typing them as such is what lets the
+   * client import `AdaptationDiff` itself instead of re-declaring the shape.
+   */
+  droppedEquipment: z.array(z.enum(EQUIPMENT_PRESETS)),
 });
 
 /**

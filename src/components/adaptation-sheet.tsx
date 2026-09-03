@@ -13,6 +13,10 @@ import { useIsOnline } from "@/lib/sync/use-is-online";
 import { isConflictError, isRateLimitedError } from "@/lib/trpc-errors";
 import type { DishDetailOutput } from "@/server/api/routers/dish";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
+// Pure, database-free server helpers, imported into a client component the
+// same way `equipment-banner.tsx` imports `missingEquipment` — the alternative
+// is a second copy of the predicate that drifts from the one under test.
+import { isEmptyDiff, type AdaptationDiff } from "@/server/recipes/adapt";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./adaptation-sheet.module.css";
@@ -50,7 +54,6 @@ import styles from "./adaptation-sheet.module.css";
 export function AdaptationSheet({
   dishId,
   detail,
-  beforeEquipment,
   targetPortions,
   equipmentLabels,
   restoreFocusTo,
@@ -61,8 +64,6 @@ export function AdaptationSheet({
   dishId: string;
   /** The dish as the card is showing it — the «было» half of every row. */
   detail: DishDetailOutput;
-  /** `recipe.equipment` coerced to slugs, exactly as the banner reads it. */
-  beforeEquipment: readonly EquipmentSlug[];
   /** The slider's own count when it differs from the recipe's base, else `null`. */
   targetPortions: number | null;
   /** S12's checklist labels, so the banner and this sheet never disagree. */
@@ -80,8 +81,22 @@ export function AdaptationSheet({
   const trpc = useTRPC();
   const online = useIsOnline();
 
-  /** Frozen at mount — see the doc comment. */
+  /**
+   * Frozen at mount — see the doc comment — and **the whole aggregate with
+   * it**, not just the number.
+   *
+   * `diff`'s four index arrays are positions in the snapshot the server read
+   * under this exact version. Resolving them through a live `detail` means a
+   * partner's edit landing on a background `dish.get` refetch (default
+   * `refetchOnWindowFocus`, 30 s `staleTime`, inside a window the AI call can
+   * easily fill) would render a proposal-draft ingredient name beside a «было»
+   * amount belonging to a different ingredient. The write is already safe —
+   * the frozen version turns it into a `CONFLICT` — but the diff on screen has
+   * to describe the version it was computed for, or «Применить» is approving
+   * something other than what was read.
+   */
   const [expectedVersion] = useState(() => detail.version);
+  const [snapshot] = useState(() => detail);
   /**
    * The sheet's own phase, rather than `adapt.isPending` / `apply.isPending`.
    *
@@ -98,12 +113,18 @@ export function AdaptationSheet({
   /** Synchronous mutex: render state lands a re-render too late for a double tap. */
   const pendingRef = useRef(false);
   const startedRef = useRef(false);
+  /** The proposal a save is in flight for, so a failure can hand it back. */
+  const applyingRef = useRef<Proposal | null>(null);
+  /** The summary paragraph, focused when the proposal lands (see the effect). */
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  /** «Отмена» — where focus is rescued when the primary slot unmounts. */
+  const cancelRef = useRef<HTMLButtonElement>(null);
 
   /**
-   * One place decides both the sentence and whether «Ещё раз» is worth
-   * offering.
+   * A failure of the **adaptation call**: there is no proposal to keep, so the
+   * only thing «Ещё раз» can mean is "ask again".
    */
-  function report(cause: unknown) {
+  function reportAdapt(cause: unknown) {
     if (isConflictError(cause)) {
       onConflict();
       setPhase({ kind: "failed", text: dish("conflict"), retryable: false });
@@ -113,6 +134,29 @@ export function AdaptationSheet({
       kind: "failed",
       text: isRateLimitedError(cause) ? t("rateLimited") : t("failed"),
       retryable: true,
+    });
+  }
+
+  /**
+   * A failure of the **save**, which is a different event and must not be
+   * told as if it were the first one.
+   *
+   * The proposal the household just read and approved is kept, so «Ещё раз»
+   * retries *that save* rather than billing a fresh adaptation that would
+   * come back subtly different — and the copy stops blaming the model for a
+   * `BAD_REQUEST`, a lost connection or a 500. A `CONFLICT` stays terminal:
+   * the version this draft was built on is spent, and retrying re-sends it.
+   */
+  function reportApply(cause: unknown, accepted: Proposal) {
+    if (isConflictError(cause)) {
+      onConflict();
+      setPhase({ kind: "failed", text: dish("conflict"), retryable: false });
+      return;
+    }
+    setPhase({
+      kind: "applyFailed",
+      proposal: accepted,
+      text: isRateLimitedError(cause) ? t("rateLimited") : t("applyFailed"),
     });
   }
 
@@ -143,7 +187,7 @@ export function AdaptationSheet({
               },
         );
       },
-      onError: report,
+      onError: reportAdapt,
       onSettled: () => {
         pendingRef.current = false;
       },
@@ -156,7 +200,17 @@ export function AdaptationSheet({
       onSuccess: (result) => {
         onApplied(result.dish, t("applied"));
       },
-      onError: report,
+      onError: (cause) => {
+        const accepted = applyingRef.current;
+        // `applyingRef` is set synchronously by `applyProposal` and is the
+        // only thing that survives the failure — `phase` is `applying` at this
+        // point, but reading it here would close over a stale render.
+        if (accepted === null) {
+          reportAdapt(cause);
+          return;
+        }
+        reportApply(cause, accepted);
+      },
       onSettled: () => {
         pendingRef.current = false;
       },
@@ -175,11 +229,64 @@ export function AdaptationSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const busy = phase.kind === "running" || phase.kind === "applying";
+  const proposal =
+    phase.kind === "proposed" ||
+    phase.kind === "applying" ||
+    phase.kind === "applyFailed"
+      ? phase.proposal
+      : null;
+  const failureText =
+    phase.kind === "failed" || phase.kind === "applyFailed" ? phase.text : null;
+  /**
+   * Whether the action row has a second button at all. Both transitions that
+   * remove it — «Ещё раз» (`failed` → `running`) and a `CONFLICT` on apply
+   * (`applying` → terminal `failed`) — can unmount the element holding focus,
+   * and `BottomSheet`'s own focus effect is keyed on `open`, which does not
+   * change while the sheet is up.
+   */
+  const hasPrimary =
+    proposal !== null || (phase.kind === "failed" && phase.retryable);
+
+  /**
+   * Moves focus to the summary when the proposal lands (A5).
+   *
+   * The `running` → `proposed` transition unmounts the sheet's only live
+   * region (`AiProgress`'s `role="status"`) and inserts the diff with nothing
+   * to announce it, so after a 6–15 s wait a screen-reader user gets silence
+   * and a «Применить» button that appeared without a word. Moving focus both
+   * announces the summary and lands the reader at the top of the diff, one
+   * step ahead of the button — the same rescue shape `import-screen.tsx`
+   * uses, and cheaper than a second live region that would need its own copy.
+   */
+  useEffect(() => {
+    if (phase.kind === "proposed") {
+      summaryRef.current?.focus();
+    }
+  }, [phase.kind]);
+
+  /**
+   * Rescues focus when the primary slot disappears (A10). Guarded on
+   * `activeElement` exactly like `dish-screen.tsx`'s own rescue, so it is a
+   * rescue and never a steal — and a no-op on the initial mount, where
+   * `BottomSheet` has already focused the panel.
+   */
+  useEffect(() => {
+    if (hasPrimary) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      cancelRef.current?.focus();
+    }
+  }, [hasPrimary]);
+
   function retry() {
     if (pendingRef.current) {
       return;
     }
     pendingRef.current = true;
+    applyingRef.current = null;
     setPhase({ kind: "running" });
     adapt.mutate({ dishId, expectedVersion, targetPortions });
   }
@@ -189,6 +296,7 @@ export function AdaptationSheet({
       return;
     }
     pendingRef.current = true;
+    applyingRef.current = accepted;
     setPhase({ kind: "applying", proposal: accepted });
     apply.mutate({
       id: dishId,
@@ -201,16 +309,14 @@ export function AdaptationSheet({
     });
   }
 
-  const busy = phase.kind === "running" || phase.kind === "applying";
-  const proposal =
-    phase.kind === "proposed" || phase.kind === "applying"
-      ? phase.proposal
-      : null;
-
   return (
     <BottomSheet
       open
       onClose={busy ? () => undefined : onClose}
+      // Esc, the scrim and ✕ are all one handler, and it is a no-op while a
+      // call is in flight — so the ✕ has to *say* so rather than look
+      // ordinary and do nothing (never `disabled`: that drops focus).
+      closeDisabled={busy}
       title={t("title")}
       closeLabel={common("close")}
       restoreFocusTo={restoreFocusTo}
@@ -222,26 +328,27 @@ export function AdaptationSheet({
 
         {proposal === null ? null : (
           <ProposalView
-            before={detail}
-            beforeEquipment={beforeEquipment}
+            before={snapshot}
             proposal={proposal}
             equipmentLabels={equipmentLabels}
+            summaryRef={summaryRef}
           />
         )}
 
-        {phase.kind === "failed" ? (
+        {failureText === null ? null : (
           // Inside the `aria-modal` subtree, always — a page-level region is
           // behind the scrim and pruned from the accessibility tree.
           <p className={styles.error} role="alert">
-            {phase.text}
+            {failureText}
           </p>
-        ) : null}
+        )}
 
         {online || busy ? null : <p className={styles.offline}>{t("offline")}</p>}
 
         <div className={styles.actions}>
           <button
             type="button"
+            ref={cancelRef}
             className={styles.cancel}
             aria-disabled={busy || undefined}
             onClick={busy ? undefined : onClose}
@@ -256,13 +363,20 @@ export function AdaptationSheet({
               </button>
             ) : null
           ) : (
+            // One button for three phases: it re-sends the **same approved
+            // draft** after a save failure, and never falls back to a fresh
+            // billed adaptation that would return a different proposal.
             <button
               type="button"
               className={styles.primary}
               aria-disabled={phase.kind === "applying" || undefined}
               onClick={() => applyProposal(proposal)}
             >
-              {phase.kind === "applying" ? t("applying") : t("apply")}
+              {phase.kind === "applying"
+                ? t("applying")
+                : phase.kind === "applyFailed"
+                  ? t("retry")
+                  : t("apply")}
             </button>
           )}
         </div>
@@ -307,13 +421,24 @@ export function RevertSheet({
   const [error, setError] = useState<string | null>(null);
   /** True from the tap until both the fetch and the save have settled. */
   const [busy, setBusy] = useState(false);
+  /**
+   * A `CONFLICT` is terminal here, exactly as it is in `AdaptationSheet`.
+   *
+   * `expectedVersion` is frozen at mount and the screen renders this sheet
+   * without a `key`, so a second «Вернуть» would re-send the same spent token
+   * and fail identically — forever. The confirm button is withdrawn instead,
+   * leaving «Отмена» as the only action; the card behind the scrim has
+   * already been refreshed by `onConflict`.
+   */
+  const [conflicted, setConflicted] = useState(false);
   const pendingRef = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  /** Same split as the proposal sheet's — see `AdaptationSheet.report`. */
+  /** Same split as the proposal sheet's — see `AdaptationSheet.reportAdapt`. */
   function report(cause: unknown) {
     if (isConflictError(cause)) {
       onConflict();
+      setConflicted(true);
       setError(dish("conflict"));
       return;
     }
@@ -341,6 +466,21 @@ export function RevertSheet({
   useEffect(() => {
     cancelRef.current?.focus();
   }, []);
+
+  /**
+   * The confirm button is withdrawn on a conflict, and it may well be holding
+   * focus when that happens. Same `activeElement` guard as everywhere else, so
+   * it rescues and never steals.
+   */
+  useEffect(() => {
+    if (!conflicted) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      cancelRef.current?.focus();
+    }
+  }, [conflicted]);
 
   async function confirm() {
     if (pendingRef.current) {
@@ -392,6 +532,7 @@ export function RevertSheet({
     <BottomSheet
       open
       onClose={busy ? () => undefined : onClose}
+      closeDisabled={busy}
       title={t("revertTitle")}
       closeLabel={common("close")}
       restoreFocusTo={restoreFocusTo}
@@ -417,14 +558,16 @@ export function RevertSheet({
           >
             {common("cancel")}
           </button>
-          <button
-            type="button"
-            className={styles.primary}
-            aria-disabled={busy || undefined}
-            onClick={() => void confirm()}
-          >
-            {busy ? t("reverting") : t("revertConfirm")}
-          </button>
+          {conflicted ? null : (
+            <button
+              type="button"
+              className={styles.primary}
+              aria-disabled={busy || undefined}
+              onClick={() => void confirm()}
+            >
+              {busy ? t("reverting") : t("revertConfirm")}
+            </button>
+          )}
         </div>
       </div>
     </BottomSheet>
@@ -442,18 +585,27 @@ type Phase =
   | { kind: "running" }
   | { kind: "proposed"; proposal: Proposal }
   | { kind: "applying"; proposal: Proposal }
+  /**
+   * The save failed and the reviewed proposal is still on screen. Its own
+   * phase rather than a flag on `failed`, because the two differ in every way
+   * that matters: what is rendered, what the primary button says, and what
+   * pressing it does.
+   */
+  | { kind: "applyFailed"; proposal: Proposal; text: string }
   | { kind: "failed"; text: string; retryable: boolean };
 
 interface Proposal {
   draft: RecipeDraft;
   summary: string;
-  diff: {
-    changedIngredients: number[];
-    changedSteps: number[];
-    addedSteps: number[];
-    removedSteps: number[];
-  };
+  /**
+   * The server's own type, not a structural copy. `diff: result.diff` assigns
+   * a variable rather than an object literal, so TypeScript's excess-property
+   * check never fires — a field added to `AdaptationDiff` would be silently
+   * dropped by a local re-declaration and missed by every reader here.
+   */
+  diff: AdaptationDiff;
 }
+
 
 /**
  * The diff itself, in the MergePreview grammar: a summary line, then only the
@@ -465,32 +617,35 @@ interface Proposal {
  */
 function ProposalView({
   before,
-  beforeEquipment,
   proposal,
   equipmentLabels,
+  summaryRef,
 }: {
+  /** The dish as it stood when the proposal was computed — frozen upstream. */
   before: DishDetailOutput;
-  beforeEquipment: readonly EquipmentSlug[];
   proposal: Proposal;
   equipmentLabels: Readonly<Record<EquipmentSlug, string>>;
+  summaryRef: RefObject<HTMLParagraphElement | null>;
 }) {
   const t = useTranslations("dishAdapt");
   const dish = useTranslations("dish");
   const { draft, diff } = proposal;
 
   const portionsChanged = draft.portionsBase !== before.recipe.portionsBase;
-  const droppedEquipment = beforeEquipment.filter(
-    (slug) => !draft.equipment.includes(slug),
-  );
-  const nothing =
-    diff.changedIngredients.length === 0 &&
-    diff.changedSteps.length === 0 &&
-    diff.addedSteps.length === 0 &&
-    diff.removedSteps.length === 0;
+  // Read off the diff rather than recomputed here: the equipment removal is a
+  // persisted change like any other, and `isEmptyDiff` counts it — so «менять
+  // ничего не пришлось» can never sit above «Больше не нужно: Миксер».
+  const droppedEquipment = diff.droppedEquipment;
+  const nothing = isEmptyDiff(diff);
 
   return (
     <div className={styles.proposal}>
-      <p className={styles.summary}>{proposal.summary}</p>
+      {/* `tabIndex={-1}` + the focus effect upstream: the arrival of the
+          proposal has to be announced somehow, and the sheet's only live
+          region (AiProgress) is unmounted by the same transition. */}
+      <p className={styles.summary} ref={summaryRef} tabIndex={-1}>
+        {proposal.summary}
+      </p>
 
       {nothing ? <p className={styles.hint}>{t("noChanges")}</p> : null}
 
@@ -506,7 +661,9 @@ function ProposalView({
       {droppedEquipment.length === 0 ? null : (
         <p className={styles.meta}>
           {t("equipmentDropped", {
-            list: droppedEquipment.map((slug) => equipmentLabels[slug]).join(", "),
+            list: droppedEquipment
+              .map((slug) => equipmentLabels[slug])
+              .join(", "),
           })}
         </p>
       )}
@@ -538,6 +695,10 @@ function ProposalView({
                   <span className={styles.rowChange}>
                     {amountChanged ? (
                       <>
+                        {/* The `→` is decorative, so the two amounts need
+                            words of their own — otherwise the row reads as
+                            «Мука 285 г 142½ г» and the direction is lost. */}
+                        <span className={styles.srOnly}>{t("wasLabel")} </span>
                         <span className={styles.was}>
                           {formatRecipeQty(
                             original?.qty ?? null,
@@ -545,6 +706,7 @@ function ProposalView({
                           )}
                         </span>
                         <span aria-hidden="true"> → </span>
+                        <span className={styles.srOnly}>{t("nowLabel")} </span>
                       </>
                     ) : null}
                     <span className={styles.now}>
@@ -572,12 +734,21 @@ function ProposalView({
         <section className={styles.block}>
           <h3 className={styles.blockTitle}>{t("stepsTitle")}</h3>
           <ul className={styles.rows}>
+            {/* Removed, changed and added steps are siblings under one
+                heading, and the `−`/`→`/`+` markers are aria-hidden glyphs
+                over a colour difference — so each row carries its own
+                visually-hidden verb. Approving a proposal is unrecoverable
+                for a dish that was never imported, which is precisely when a
+                reader must not have to guess which group a step is in. */}
             {diff.removedSteps.map((index) => (
               <li key={`removed-${index}`} className={styles.stepRemoved}>
                 <span className={styles.marker} aria-hidden="true">
                   −
                 </span>
-                <span>{before.steps[index]?.text ?? ""}</span>
+                <span>
+                  <span className={styles.srOnly}>{t("removedLabel")} </span>
+                  {before.steps[index]?.text ?? ""}
+                </span>
               </li>
             ))}
             {[...diff.changedSteps, ...diff.addedSteps]
@@ -596,6 +767,9 @@ function ProposalView({
                       {added ? "+" : "→"}
                     </span>
                     <span>
+                      <span className={styles.srOnly}>
+                        {added ? t("addedLabel") : t("changedLabel")}{" "}
+                      </span>
                       {step.text}
                       {timer === null ? null : (
                         <span className={styles.timer}>

@@ -8,11 +8,16 @@ import type OpenAI from "openai";
 import {
   draftFromDetail,
   emptyDraft,
+  MAX_STEP_TEXT,
   type RecipeDraft,
 } from "@/lib/recipes/draft";
 import type { AiChatClient } from "@/server/ai/openai";
 import { AI_MODEL } from "@/server/ai/pricing";
 import { createCaller } from "@/server/api/root";
+import {
+  dishAdaptationStamp,
+  MAX_ADAPTED_NOTE,
+} from "@/server/api/routers/dish";
 import {
   anonymousContext,
   createDbStub,
@@ -2108,6 +2113,7 @@ describe("dish.adapt (task 4.6)", () => {
       ],
       removedStepIndexes: [],
       addedSteps: [],
+      droppedEquipment: ["миксер"],
       ...overrides,
     });
   }
@@ -2239,6 +2245,12 @@ describe("dish.adapt (task 4.6)", () => {
     expect(closed?.values).toMatchObject({ status: "done" });
     expect(Number((closed?.values as { costUsd: string }).costUsd)).toBeGreaterThan(0);
     expectScopedByHousehold(closed);
+    // And pinned to *this* job, not just to the household: without the id
+    // predicate the statement would close every running job the household
+    // has, and `expectScopedByHousehold` alone would still pass.
+    const closedWhere = compileWithParams(closed?.wheres[0]);
+    expect(closedWhere.sql).toContain('"id"');
+    expect(closedWhere.params).toContain(JOB_ID);
   });
 
   it("records the cost on the failure branch too, and never throws for it", async () => {
@@ -2299,6 +2311,24 @@ describe("dish.adapt (task 4.6)", () => {
       throw new Error("unreachable");
     }
     expect(result.draft.equipment).toEqual(["oven"]);
+    expect(result.diff.droppedEquipment).toEqual(["mixer"]);
+  });
+
+  it("keeps the appliance when the proposal never says it worked around it", async () => {
+    const { fake } = fakeOpenai(
+      adaptation({ steps: [], ingredients: [], droppedEquipment: [] }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    // The banner must keep saying «Не хватает: Миксер» for a recipe nobody
+    // actually reworked.
+    expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+    expect(result.diff.droppedEquipment).toEqual([]);
   });
 
   it("rescales deterministically and reports every quantity that moved", async () => {
@@ -2309,6 +2339,7 @@ describe("dish.adapt (task 4.6)", () => {
         steps: [],
         removedStepIndexes: [],
         addedSteps: [],
+        droppedEquipment: [],
       }),
     );
     const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
@@ -2358,6 +2389,7 @@ describe("dish.adapt (task 4.6)", () => {
           steps: [],
           removedStepIndexes: [],
           addedSteps: [],
+          droppedEquipment: [],
         }),
       );
       const { caller } = aiCallerWith(
@@ -2386,6 +2418,72 @@ describe("dish.adapt (task 4.6)", () => {
         "Про технику на кухне ничего не известно",
       );
     });
+  });
+
+  it("clamps the model's summary to what the save will accept back", async () => {
+    // `summary` is an unbounded `z.string()` from the model (strict mode
+    // forbids bounds), and «Применить» sends the same text back through
+    // `dishAdaptationStamp`'s `.max(MAX_ADAPTED_NOTE)`. The clamp is the only
+    // thing between the two.
+    const { fake } = fakeOpenai(
+      adaptation({ summary: "я".repeat(MAX_ADAPTED_NOTE + 50) }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    expect(result.summary).toHaveLength(MAX_ADAPTED_NOTE);
+    expect(dishAdaptationStamp.safeParse({ note: result.summary }).success).toBe(
+      true,
+    );
+  });
+
+  it("stamps the job as failed when the proposal assembles into a non-draft", async () => {
+    // A stored step longer than `MAX_STEP_TEXT` that the proposal does not
+    // replace: `applyAdaptation` re-validates and refuses, which is the one
+    // path that reaches `markJobError`.
+    const { fake } = fakeOpenai(adaptation({ steps: [] }));
+    const { caller, stub } = aiCallerWith(
+      [
+        [membershipRow],
+        [{ version: EXPECTED_VERSION }],
+        ...detailResults(
+          [detailDishRow({ equipment: ["oven", "mixer"] })],
+          [detailIngredientRow()],
+          [detailStepRow({ text: "я".repeat(MAX_STEP_TEXT + 1) })],
+        ),
+        [PROFILE_ROW],
+        [{ minute: 0, day: 0 }],
+        [{ id: JOB_ID }],
+        [], // the ledger close
+        [], // markJobError's UPDATE
+      ],
+      fake,
+    );
+
+    await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+      outcome: "failed",
+      jobId: JOB_ID,
+      reason: "aiUnavailable",
+    });
+
+    const updates = stub.statements.filter(
+      (s) => s.kind === "update" && s.table === "ai_jobs",
+    );
+    expect(updates).toHaveLength(2);
+    // The cost-bearing close comes first, and the stamp does not undo it.
+    expect(
+      Number((updates[0]?.values as { costUsd: string }).costUsd),
+    ).toBeGreaterThan(0);
+    expect(updates[1]?.values).toMatchObject({ status: "error" });
+    expect(Object.hasOwn(updates[1]?.values ?? {}, "costUsd")).toBe(false);
+    expectScopedByHousehold(updates[1]);
+    const stampWhere = compileWithParams(updates[1]?.wheres[0]);
+    expect(stampWhere.sql).toContain('"id"');
+    expect(stampWhere.params).toContain(JOB_ID);
   });
 
   it("drops a proposal index that no longer names a row", async () => {
