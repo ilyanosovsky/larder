@@ -558,6 +558,18 @@ export const dishImportRouter = createTRPCRouter({
       // The last stage takes what is left: a page that answered in two
       // seconds should not make the model give up at twenty-five.
       const normalizeMs = finalStageMs(deadline.remainingMs());
+      if (normalizeMs === 0) {
+        // A call with no budget can only be aborted, and an aborted call is
+        // still a request somebody's quota paid for. «Ещё раз» is the honest
+        // offer: whatever ate the budget — a slow page, a slow scrape — is
+        // usually not there the second time.
+        return await failImport(ctx.db, householdId, job.id, {
+          reason: "aiUnavailable",
+          partial,
+          error: "No budget left to read the page",
+        });
+      }
+
       const normalized = await normalizeRecipe({
         client: ctx.openai(),
         input: normalizeInput,

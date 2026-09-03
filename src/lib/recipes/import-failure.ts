@@ -7,11 +7,10 @@
  * calm amber register the rest of the app uses for «уточнить» (never `--neg`;
  * nothing went wrong with the app).
  *
- * The switches are **exhaustive with no `default` clause**, deliberately.
- * Task 4.4 adds URL and text reasons to `importFailureReason`, and without a
- * `default` the compiler refuses to build until S8.2 has copy and a way out
- * for each new one. A `default` would silently hand a new failure the generic
- * box and lose the specific fallback that is the whole point of the screen.
+ * The switches are **exhaustive with no `default` clause**, deliberately. It
+ * is what made task 4.4's six URL reasons impossible to ship without copy and
+ * a way out for each; a `default` would have handed them the generic box and
+ * lost the specific fallback that is the whole point of the screen.
  *
  * Pure and client-safe: the copy itself lives in `dishImport.*` (next-intl);
  * this module only ever returns keys.
@@ -57,7 +56,12 @@ export type FallbackAction =
   | "retryPhoto"
   /** Upload a screenshot (from a URL/text failure, where none exists yet). */
   | "usePhoto"
-  /** Paste the recipe text — task 4.4 turns this into a live field. */
+  /**
+   * Paste the recipe text. Rendered as an inline, focused field rather than a
+   * button wherever the screen owns an import mutation (S8.1) — DESIGN_BRIEF
+   * S8.2's «без тупика, сразу поля» — and as a link back to S8.1's «Текстом»
+   * pane on the review route, which owns none.
+   */
   | "useText"
   /** Run the same import again: for a transient AI failure only. */
   | "retry"

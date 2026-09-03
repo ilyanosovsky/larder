@@ -325,6 +325,30 @@ describe("fetchPage — what came back", () => {
   });
 });
 
+describe("fetchPage — a stream that dies mid-read", () => {
+  it("reports the page as unreachable rather than as half a document", async () => {
+    // Half a document is not a recipe, and calling it one would send a
+    // truncated `<head>` to the parsers and then to FireCrawl as though the
+    // page had simply had no structured data on it.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("<html><head>"));
+      },
+      pull(controller) {
+        controller.error(new Error("connection reset"));
+      },
+    });
+
+    const { fetch } = queuedFetch([
+      new Response(stream, { headers: { "content-type": "text/html" } }),
+    ]);
+
+    await expect(
+      fetchPage("https://povar.ru/r", { fetch, lookup: publicLookup }),
+    ).resolves.toEqual({ kind: "unreachable" });
+  });
+});
+
 describe("decodeHtml", () => {
   /** «Блины» in windows-1251 — the encoding russianfood.com still serves. */
   const cp1251 = new Uint8Array([0xc1, 0xeb, 0xe8, 0xed, 0xfb]);

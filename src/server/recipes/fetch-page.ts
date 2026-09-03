@@ -162,13 +162,13 @@ export async function fetchPage(
     }
 
     const body = await readCappedBody(response);
-    if (body === null) {
-      return { kind: "tooLarge" };
+    if (!body.ok) {
+      return { kind: body.reason };
     }
 
     return {
       kind: "html",
-      html: decodeHtml(body, contentType),
+      html: decodeHtml(body.bytes, contentType),
       // `response.url` is empty on a `Response` built by hand in a test, so
       // the URL we actually asked for is the fallback rather than the other
       // way round.
@@ -202,15 +202,20 @@ function isHtmlContentType(contentType: string): boolean {
 /**
  * Reads the body, stopping the moment it passes the cap.
  *
- * Returns `null` for "too large" rather than throwing, so the caller's switch
- * stays exhaustive. The reader is cancelled explicitly: an abandoned stream
- * on a serverless function keeps the socket — and the invocation — alive past
- * the answer we already decided not to use.
+ * Returns a reason rather than throwing, so the caller's switch stays
+ * exhaustive. The reader is cancelled explicitly on the way out: an abandoned
+ * stream on a serverless function keeps the socket — and the invocation —
+ * alive past the answer we already decided not to use.
  */
-async function readCappedBody(response: Response): Promise<Uint8Array | null> {
+async function readCappedBody(
+  response: Response,
+): Promise<
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: "tooLarge" | "unreachable" }
+> {
   const body = response.body;
   if (body === null) {
-    return new Uint8Array(0);
+    return { ok: true, bytes: new Uint8Array(0) };
   }
 
   const reader = body.getReader();
@@ -229,14 +234,16 @@ async function readCappedBody(response: Response): Promise<Uint8Array | null> {
       total += value.byteLength;
       if (total > MAX_HTML_BYTES) {
         await reader.cancel().catch(() => undefined);
-        return null;
+        return { ok: false, reason: "tooLarge" };
       }
       chunks.push(value);
     }
   } catch {
-    // A stream that died mid-read is an unreachable page as far as the
-    // cascade is concerned; whatever arrived first is not a recipe.
-    return new Uint8Array(0);
+    // A stream that died mid-read is a page nobody read: half a document is
+    // not a recipe, and reporting it as one would send a truncated `<head>`
+    // to the parsers and then to FireCrawl as though the page had simply had
+    // no structured data on it.
+    return { ok: false, reason: "unreachable" };
   }
 
   const merged = new Uint8Array(total);
@@ -245,7 +252,7 @@ async function readCappedBody(response: Response): Promise<Uint8Array | null> {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return merged;
+  return { ok: true, bytes: merged };
 }
 
 /**

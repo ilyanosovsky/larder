@@ -1429,6 +1429,43 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
   });
 });
 
+describe("dishImport.fromUrl — the deadline", () => {
+  it("does not start a model call it has no budget for", async () => {
+    // A call with no budget can only be aborted, and an aborted call is still
+    // a request the quota paid for. `unusableOpenai` is the context default,
+    // so reaching the model here throws something else entirely.
+    const clock = vi.spyOn(Date, "now");
+    const started = 1_800_000_000_000;
+    // The first reading is `Deadline`'s own construction; every one after it
+    // is a whole budget later.
+    clock.mockImplementation(
+      () => started + (clock.mock.calls.length > 1 ? IMPORT_DEADLINE_MS : 0),
+    );
+
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+    clock.mockRestore();
+
+    expect(result).toMatchObject({
+      outcome: "failed",
+      reason: "aiUnavailable",
+    });
+    // …and the row it opened is still closed, at no cost.
+    const ledger = stub.statements.find(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect((ledger?.values as Record<string, unknown>).costUsd).toBe(
+      "0.000000",
+    );
+  });
+});
+
 describe("dishImport.fromUrl — the FireCrawl branch", () => {
   it("scrapes a page with nothing structured on it", async () => {
     const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
