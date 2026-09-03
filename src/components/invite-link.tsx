@@ -34,15 +34,32 @@ import styles from "./invite-link.module.css";
  * once in a row, and a live region only re-announces on an actual node
  * change, not an identical text update (see the comment `cart-screen.tsx`
  * carries on the same pattern).
+ *
+ * **`copy()` is guarded by the same synchronous ref lock as
+ * `mintInvite`/`share` in `household-section.tsx`** (review round 3, H1):
+ * without it, a second tap firing while the first `writeText` is still
+ * pending could settle with a different outcome than the first and leave
+ * «Скопировано» showing next to the red copy-failed alert at once —
+ * exactly the state the reset above exists to prevent, just reachable a
+ * different way. `aria-disabled`, never `disabled`, while a copy is in
+ * flight — a disabled control drops the keyboard focus of the button just
+ * activated.
  */
 export function InviteLink({ url }: { url: string }) {
   const t = useTranslations("inviteLink");
   const fieldId = useId();
   const copySeq = useRef(0);
+  const copyingRef = useRef(false);
   const [copied, setCopied] = useState<number | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   async function copy() {
+    if (copyingRef.current) {
+      return;
+    }
+    copyingRef.current = true;
+    setCopying(true);
     setCopyFailed(false);
     // A later attempt on the same mounted instance can fail after an
     // earlier one succeeded (a permission revoked mid-session, say) — clear
@@ -58,6 +75,9 @@ export function InviteLink({ url }: { url: string }) {
       // No clipboard permission, or an insecure context — the link stays
       // visible and selectable, so this is a nudge rather than a failure.
       setCopyFailed(true);
+    } finally {
+      copyingRef.current = false;
+      setCopying(false);
     }
   }
 
@@ -77,6 +97,7 @@ export function InviteLink({ url }: { url: string }) {
       <button
         type="button"
         className={styles.copyButton}
+        aria-disabled={copying || undefined}
         onClick={() => void copy()}
       >
         {copied === null ? t("copy") : t("copied")}
