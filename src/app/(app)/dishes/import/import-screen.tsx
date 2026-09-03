@@ -16,7 +16,6 @@ import {
   isTooLong,
   isWithinTextBounds,
   looksLikeUrl,
-  MAX_IMPORT_TEXT,
 } from "@/lib/recipes/import-input";
 import { isRateLimitedError, trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
@@ -418,7 +417,6 @@ export function ImportScreen() {
             hint={t("byTextHint")}
             autoFocus={requested === "text" || refocusPane === "text"}
             multiline
-            maxLength={MAX_IMPORT_TEXT}
             value={textValue}
             onChange={setTextValue}
             // Which rule failed, not just that one did: «слишком коротко»
@@ -489,6 +487,13 @@ function partialFor(
  * told why. The telling is `aria-describedby` + `aria-invalid` + a
  * `role="status"` line, matching `TextFallback`; without them the message is
  * visible and nothing else, which is WCAG 4.1.3 all over.
+ *
+ * **No `maxLength` on the field, on purpose.** The browser enforces that
+ * attribute on every edit, pastes included, so a 25 000-character recipe
+ * would be cut to `MAX_IMPORT_TEXT` silently and the fragment submitted as
+ * the whole recipe — and the «слишком длинно» rule below could never fire.
+ * Refusing the paste with a message the person can act on is the point;
+ * the server's `.max()` still backs it.
  */
 function SourcePane({
   label,
@@ -499,7 +504,6 @@ function SourcePane({
   hint,
   autoFocus = false,
   multiline = false,
-  maxLength,
   value,
   onChange,
   isValid,
@@ -514,7 +518,6 @@ function SourcePane({
   hint: string;
   autoFocus?: boolean;
   multiline?: boolean;
-  maxLength?: number;
   value: string;
   onChange: (value: string) => void;
   isValid: (value: string) => boolean;
@@ -579,7 +582,6 @@ function SourcePane({
           {...fieldProps}
           className={styles.paneFieldTall}
           rows={4}
-          maxLength={maxLength}
           onChange={(event) => change(event.target.value)}
         />
       ) : (
@@ -591,7 +593,6 @@ function SourcePane({
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          maxLength={maxLength}
           onChange={(event) => change(event.target.value)}
         />
       )}

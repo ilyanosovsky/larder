@@ -18,7 +18,6 @@ import {
 import {
   isTooLong,
   isWithinTextBounds,
-  MAX_IMPORT_TEXT,
 } from "@/lib/recipes/import-input";
 
 import styles from "./import-screen.module.css";
@@ -269,7 +268,8 @@ function TextFallback({
         placeholder={t("byTextPlaceholder")}
         value={value}
         rows={3}
-        maxLength={MAX_IMPORT_TEXT}
+        // No `maxLength`: the browser would truncate a long paste silently
+        // instead of letting the «слишком длинно» rule below refuse it.
         autoFocus={autoFocus}
         onChange={(event) => {
           setValue(event.target.value);
