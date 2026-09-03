@@ -103,3 +103,34 @@ export function coerceEquipmentList(raw: readonly string[]): EquipmentSlug[] {
 
   return result;
 }
+
+/**
+ * The other direction: the word to *write* when talking about a slug.
+ *
+ * Task 4.6's adaptation prompt needs it — «НЕТ на кухне: миксер» reads to a
+ * model as a kitchen appliance, «НЕТ на кухне: mixer» reads as a token. It
+ * lives here rather than in the prompt module because this file is where the
+ * Russian↔slug vocabulary already lives, and a second copy of it somewhere
+ * else is how the two drift.
+ *
+ * **Not UI copy** and deliberately not in `ru.json`: nothing here reaches a
+ * screen. The checklist's own user-facing labels are the
+ * `kitchenProfile.equipment.<slug>` messages, which the server cannot read.
+ *
+ * The colocated test pins the round trip — `coerceEquipmentSlug(word) ===
+ * slug` for every preset — so a word added here that this module cannot read
+ * back fails immediately rather than in a prompt nobody re-reads.
+ */
+export const EQUIPMENT_WORD: Readonly<Record<EquipmentSlug, string>> = {
+  oven: "духовка",
+  microwave: "микроволновка",
+  kettle: "чайник",
+  induction_hob: "индукционная плита",
+  blender: "блендер",
+  grater: "тёрка",
+  garlic_press: "чеснокодавилка",
+  multicooker: "мультиварка",
+  mixer: "миксер",
+  airfryer: "аэрогриль",
+  food_processor: "кухонный комбайн",
+};

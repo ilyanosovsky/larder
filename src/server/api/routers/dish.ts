@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   aiJobs,
   dishes,
+  kitchenProfiles,
   pantryItems,
   products,
   recipeIngredients,
@@ -13,11 +14,16 @@ import {
 } from "@/db/schema";
 import {
   dishSourceTypeSchema,
+  draftFromDetail,
+  MAX_PORTIONS,
   normalizeDraftForSave,
   recipeDraftSchema,
   type RecipeDraft,
 } from "@/lib/recipes/draft";
 import { recipeUnitSchema, type RecipeUnit } from "@/lib/units";
+import { adaptRecipe } from "@/server/ai/adapt-recipe";
+import { formatCostUsd } from "@/server/ai/pricing";
+import { assertWithinRateLimit } from "@/server/ai/rate-limit-guard";
 import {
   createTRPCRouter,
   householdProcedure,
@@ -29,6 +35,9 @@ import {
   createPendingProducts,
   resolveIngredientProducts,
 } from "@/server/dishes/resolve-products";
+import { applyAdaptation, rescaleDraft } from "@/server/recipes/adapt";
+import { coerceEquipmentList } from "@/server/recipes/coerce-equipment";
+import { missingEquipment } from "@/server/recipes/equipment-check";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
 
 type Database = TRPCContext["db"];
@@ -152,12 +161,110 @@ export const saveDishOutput = z.object({
   aiFailed: z.boolean(),
 });
 
+/**
+ * The longest machine-written «переделано под твою духовку» line S7 will
+ * render. One phrase, not a paragraph — the summary is a label above the
+ * ingredient list, and anything longer is a model that started explaining
+ * itself.
+ */
+export const MAX_ADAPTED_NOTE = 200;
+
+/**
+ * The adaptation stamp a save may carry (task 4.6): `recipes.adapted_at` +
+ * `recipes.adapted_note`.
+ *
+ * The note travels through the client because the client is who *approved*
+ * it: `dish.adapt` proposes, the household reads the proposal, and «Применить»
+ * saves the recipe together with the sentence that explains it. It is bounded
+ * and trimmed here like any other client-sent string.
+ *
+ * **Never `dishes.tags`** (decision D20). `tags` feeds S6's user-facing filter
+ * chips and `collectTags()`; a machine tag «переделано под твою духовку» would
+ * be both a hardcoded Russian string in the database and system state
+ * polluting user content.
+ */
+export const dishAdaptationStamp = z.object({
+  note: z.string().trim().min(1).max(MAX_ADAPTED_NOTE),
+});
+
 export const updateDishInput = z.object({
   id: z.uuid(),
   /** The aggregate `version` the editor started from; see `dishes` in schema.ts. */
   expectedVersion: z.int(),
   draft: recipeDraftSchema,
+  /**
+   * Three states, and `.optional()` here is deliberate — the one place in
+   * this codebase where it is right, because the three answers are genuinely
+   * "stamp it", "clear it" and "this save is not about adaptation at all":
+   *
+   * - **absent** — an ordinary edit (S8.3's own form, which does not send this
+   *   field). The stamps are left exactly as they are, so fixing a typo in an
+   *   adapted recipe does not silently erase «переделано под твою духовку».
+   * - `{ note }` — «Применить» on a proposal: `adapted_at = now()`,
+   *   `adapted_note = note`.
+   * - `null` — «Вернуть как было»: both columns cleared, because the recipe
+   *   on screen is once again the one that was imported.
+   *
+   * (AGENTS.md's «`.nullable()`, never `.optional()`» is a rule about OpenAI
+   * strict mode, where an optional property is not expressible at all. A tRPC
+   * input has no such constraint, and collapsing these three states into two
+   * would mean every save from the edit form had to decide something it knows
+   * nothing about.)
+   */
+  adaptation: dishAdaptationStamp.nullable().optional(),
 });
+
+export const adaptDishInput = z.object({
+  dishId: z.uuid(),
+  /**
+   * The aggregate `version` the card was showing. Checked **before** anything
+   * is spent: a proposal built against a recipe a partner has already
+   * rewritten could not be applied anyway (`dish.update` would refuse it), so
+   * paying for one would be paying for a dead end.
+   */
+  expectedVersion: z.int(),
+  /** The portion count to rescale to, or `null` to keep the recipe's own. */
+  targetPortions: z.int().min(1).max(MAX_PORTIONS).nullable(),
+});
+
+/**
+ * What changed, in indexes. `changedIngredients`, `changedSteps` and
+ * `addedSteps` index the **proposed** draft; `removedSteps` indexes the dish
+ * as it stands, because a removed step exists nowhere else. The sheet holds
+ * both and renders «было → стало» from them (see `adapt.ts`).
+ */
+export const adaptationDiffOutput = z.object({
+  changedIngredients: z.array(z.int()),
+  changedSteps: z.array(z.int()),
+  addedSteps: z.array(z.int()),
+  removedSteps: z.array(z.int()),
+});
+
+/**
+ * A proposal, or an honest failure — **never a thrown error for an AI
+ * problem**. The recipe is still on screen exactly as it was; the only thing
+ * that failed is an offer, and S7 says so inside the sheet instead of
+ * replacing the page with an error.
+ */
+export const adaptDishOutput = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("proposed"),
+    jobId: z.uuid(),
+    /** What the recipe would become. Nothing is written until «Применить». */
+    draft: recipeDraftSchema,
+    summary: z.string(),
+    diff: adaptationDiffOutput,
+  }),
+  z.object({
+    outcome: z.literal("failed"),
+    /**
+     * `null` for `nothingToAdapt`, which is decided before the ledger opens —
+     * there is no job because there was no call and no cost.
+     */
+    jobId: z.uuid().nullable(),
+    reason: z.enum(["aiUnavailable", "nothingToAdapt"]),
+  }),
+]);
 
 export const archiveDishInput = z.object({
   id: z.uuid(),
@@ -854,6 +961,10 @@ export const dishRouter = createTRPCRouter({
             yieldUnit: draft.yieldUnit,
             totalTimeMin: draft.totalTimeMin,
             equipment: draft.equipment,
+            // Spread rather than a ternary per column, so an ordinary edit
+            // emits no `adapted_*` assignment at all — see `updateDishInput`
+            // for why the three states are three states.
+            ...adaptationColumns(input.adaptation),
           })
           .where(
             and(
@@ -926,7 +1037,371 @@ export const dishRouter = createTRPCRouter({
     .mutation(({ ctx, input }) =>
       setArchived(ctx.db, ctx.household.id, input, false),
     ),
+
+  /**
+   * The recipe exactly as the import produced it — S7's «Вернуть как было»
+   * (task 4.6), and nothing else reads it.
+   *
+   * **Its own query rather than a field on `dish.get`.** `dish.get` runs on
+   * every open of every dish and already carries `hasOriginalDraft`, which is
+   * all S7 needs to decide whether to offer the button; the draft itself is a
+   * whole second recipe of JSON that would ride along on every one of those
+   * reads for a button most people never press. This is fetched once, at the
+   * moment the confirmation is accepted.
+   *
+   * **A product id that no longer resolves is nulled, never rejected.** The
+   * import bound «Мука» to a catalog row; someone may have deleted it since,
+   * and refusing the whole revert over one dangling binding would strand the
+   * household with an adaptation it explicitly asked to undo. An unbound row
+   * is a state this app already has a name for («новый»), and `dish.update`
+   * re-resolves it through the same reference-catalog → enrichment path any
+   * other save takes.
+   */
+  originalDraft: householdProcedure
+    .input(dishIdInput)
+    .output(recipeDraftSchema.nullable())
+    .query(async ({ ctx, input }) => {
+      const householdId = ctx.household.id;
+
+      const [row] = await ctx.db
+        .select({ draft: recipes.originalDraft })
+        .from(recipes)
+        .where(
+          and(
+            eq(recipes.dishId, input.id),
+            eq(recipes.householdId, householdId),
+          ),
+        )
+        .limit(1);
+
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      if (row.draft === null) {
+        return null;
+      }
+
+      const parsed = recipeDraftSchema.safeParse(row.draft);
+      if (!parsed.success) {
+        // Written by an import that validated at the time, so this only
+        // happens if a bound has since moved under it. Refusing loudly beats
+        // handing the edit form a shape it cannot render — and beats
+        // returning `null`, which the screen would read as «this dish never
+        // had an original» and quietly stop offering the button.
+        throw new TRPCError({
+          code: "UNPROCESSABLE_CONTENT",
+          message: "The stored original draft is no longer a valid recipe",
+        });
+      }
+
+      return withOwnedProducts(ctx.db, householdId, parsed.data);
+    }),
+
+  /**
+   * Proposes an adaptation of a recipe to the household's own kitchen and
+   * portion count (VISION §3.3, DESIGN_BRIEF S7). **A proposal, never an
+   * application.**
+   *
+   * The order is the whole procedure:
+   *
+   * 1. **The version, first and alone.** A stale `expectedVersion` is a
+   *    `CONFLICT` before a single token is spent — a proposal built against a
+   *    recipe a partner has already rewritten is one `dish.update` would
+   *    refuse anyway, so paying for it would be paying for a dead end. (The
+   *    read is issued separately rather than taken off the aggregate below
+   *    for the same reason `update` does it: a guard has to be visible as a
+   *    guard, and the aggregate read is three statements.)
+   * 2. **Nothing to adapt is decided before the ledger opens.** A recipe the
+   *    profile already covers, at its own portion count, has no adaptation to
+   *    propose — and the honest answer costs nothing, writes no `ai_jobs` row
+   *    and returns no job id.
+   * 3. **The `ai_jobs` row opens before the call**, because
+   *    `src/server/ai/rate-limit.ts` counts those rows — calls still in flight
+   *    have to count against the window already.
+   * 4. **The ledger closes immediately after `adaptRecipe` returns**, on both
+   *    branches, before the proposal is applied to anything (decision C.2).
+   *    Everything after that runs inside a `try/catch` that stamps the reason
+   *    and re-throws.
+   * 5. **This procedure writes nothing but its own `ai_jobs` rows** — asserted
+   *    in `dish.test.ts` by inspecting every recorded statement. It returns a
+   *    `RecipeDraft`; «Применить» calls `dish.update` with the current
+   *    `expectedVersion`, so an adaptation cannot bypass draft validation,
+   *    household scoping, product ownership or the version guard. That is the
+   *    entire reason the feature is shaped as a proposal.
+   */
+  adapt: householdProcedure
+    .input(adaptDishInput)
+    .output(adaptDishOutput)
+    .mutation(async ({ ctx, input }) => {
+      const householdId = ctx.household.id;
+
+      const [current] = await ctx.db
+        .select({ version: dishes.version })
+        .from(dishes)
+        .where(
+          and(eq(dishes.id, input.dishId), eq(dishes.householdId, householdId)),
+        )
+        .limit(1);
+
+      if (!current) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      if (current.version !== input.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The dish changed since it was opened",
+        });
+      }
+
+      const detail = await readDishDetail(ctx.db, householdId, input.dishId);
+
+      if (!detail) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      const [profile] = await ctx.db
+        .select({
+          householdSize: kitchenProfiles.householdSize,
+          equipment: kitchenProfiles.equipment,
+        })
+        .from(kitchenProfiles)
+        .where(eq(kitchenProfiles.householdId, householdId))
+        .limit(1);
+
+      const draft = draftFromDetail(detail);
+      // Both sides go through `coerceEquipmentSlug` (task 4.5), so a profile
+      // entry typed as «мультиварка» still satisfies `multicooker`.
+      const missing = missingEquipment(
+        coerceEquipmentList(detail.recipe.equipment),
+        profile?.equipment ?? [],
+      );
+      // A target equal to the recipe's own yield is not a rescale, whatever
+      // the client sent.
+      const targetPortions =
+        input.targetPortions === null ||
+        input.targetPortions === draft.portionsBase
+          ? null
+          : input.targetPortions;
+
+      if (missing.length === 0 && targetPortions === null) {
+        return {
+          outcome: "failed" as const,
+          jobId: null,
+          reason: "nothingToAdapt" as const,
+        };
+      }
+
+      await assertWithinRateLimit(ctx.db, ctx.user.id);
+
+      const [job] = await ctx.db
+        .insert(aiJobs)
+        .values({
+          householdId,
+          userId: ctx.user.id,
+          type: "adapt_recipe",
+          status: "running",
+          // No `dish_id` column on `ai_jobs`: an adaptation puts the dish id
+          // in the existing `input_ref`.
+          inputRef: input.dishId,
+        })
+        .returning({ id: aiJobs.id });
+
+      if (!job) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Opening an adaptation job inserted no row",
+        });
+      }
+
+      const proposed = await adaptRecipe({
+        client: ctx.openai(),
+        // The model is shown the arithmetic already done: `rescaleDraft` is
+        // deterministic and `applyAdaptation` runs it again on the same
+        // inputs, so what the model reasons about is exactly what its edits
+        // will land on.
+        draft:
+          targetPortions === null ? draft : rescaleDraft(draft, targetPortions),
+        profile: {
+          equipment: profile?.equipment ?? [],
+          householdSize: profile?.householdSize ?? null,
+        },
+        missing,
+        targetPortions,
+        basePortions: draft.portionsBase,
+        options: {
+          timeout: ADAPT_TIMEOUT_MS,
+          // No retry: it doubles both the latency someone is watching and the
+          // bill, for a call whose failure costs the user nothing but a tap.
+          maxRetries: 0,
+        },
+      });
+
+      // Step 4 — the ledger, closed before anything else can fail.
+      await ctx.db
+        .update(aiJobs)
+        .set(
+          proposed.ok
+            ? {
+                status: "done",
+                costUsd: formatCostUsd(proposed.costUsd),
+                finishedAt: sql`now()`,
+              }
+            : {
+                status: "error",
+                error: proposed.error,
+                costUsd: formatCostUsd(proposed.costUsd),
+                finishedAt: sql`now()`,
+              },
+        )
+        .where(and(eq(aiJobs.id, job.id), eq(aiJobs.householdId, householdId)));
+
+      try {
+        if (!proposed.ok) {
+          return {
+            outcome: "failed" as const,
+            jobId: job.id,
+            reason: proposed.reason,
+          };
+        }
+
+        const applied = applyAdaptation(draft, proposed.value, {
+          targetPortions,
+          // The recipe was reworked to avoid these; leaving them in
+          // `recipe.equipment` would make S7's banner report them missing
+          // forever after the fix was applied.
+          dropEquipment: missing,
+        });
+
+        if (!applied.ok) {
+          // A well-formed proposal that assembles into something
+          // `recipeDraftSchema` refuses is our bug, not the model's day off —
+          // but the user's answer is the same, and the ledger should say the
+          // job did not produce anything usable.
+          await markJobError(ctx.db, householdId, job.id, applied.error);
+
+          return {
+            outcome: "failed" as const,
+            jobId: job.id,
+            reason: "aiUnavailable" as const,
+          };
+        }
+
+        return {
+          outcome: "proposed" as const,
+          jobId: job.id,
+          draft: applied.draft,
+          summary: proposed.value.summary.trim().slice(0, MAX_ADAPTED_NOTE),
+          diff: applied.diff,
+        };
+      } catch (error) {
+        // The cost is already recorded above; this only makes the reason
+        // visible in the ledger instead of leaving a job that says «done»
+        // beside a proposal the user never received.
+        await markJobError(ctx.db, householdId, job.id, error);
+        throw error;
+      }
+    }),
 });
+
+/**
+ * How long an adaptation may take before we give up. Longer than the icon
+ * lookup's 15 s (this call reasons over a whole recipe) and inside the tRPC
+ * route's own `maxDuration = 60`, with room for the reads before it and the
+ * ledger write after.
+ */
+const ADAPT_TIMEOUT_MS = 40_000;
+
+/**
+ * The `adapted_*` columns a save assigns, if any. Absent → an empty object,
+ * so drizzle emits no assignment and an ordinary edit cannot erase a stamp it
+ * knows nothing about.
+ */
+function adaptationColumns(
+  adaptation: z.infer<typeof updateDishInput>["adaptation"],
+) {
+  if (adaptation === undefined) {
+    return {};
+  }
+
+  return adaptation === null
+    ? { adaptedAt: null, adaptedNote: null }
+    : { adaptedAt: sql`now()`, adaptedNote: adaptation.note };
+}
+
+/**
+ * The same draft with every binding this household no longer owns set to
+ * `null` — one scoped select, and nothing is rejected.
+ *
+ * `dish.update` verifies every non-null `productId` against the catalog and
+ * refuses the whole save on a mismatch (`assertProductsOwned`), which is the
+ * right answer for a draft a *client* composed. A draft this server stored
+ * months ago is a different question: the household deleted a product, and
+ * the honest repair is the unbound «новый» state the save path already knows
+ * how to resolve.
+ */
+async function withOwnedProducts(
+  db: Database,
+  householdId: string,
+  draft: RecipeDraft,
+): Promise<RecipeDraft> {
+  const ids = [
+    ...new Set(
+      draft.ingredients
+        .map((row) => row.productId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+
+  if (ids.length === 0) {
+    return draft;
+  }
+
+  const owned = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(
+      and(eq(products.householdId, householdId), inArray(products.id, ids)),
+    );
+
+  const live = new Set(owned.map((row) => row.id));
+
+  if (live.size === ids.length) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    ingredients: draft.ingredients.map((row) =>
+      row.productId !== null && !live.has(row.productId)
+        ? { ...row, productId: null }
+        : row,
+    ),
+  };
+}
+
+/**
+ * Stamps a job as failed without touching its cost — the call was still
+ * billed. Local to this router rather than shared with `dish-import.ts`'s own
+ * copy: the two files are deliberately kept apart (decision D26) so the
+ * 4.2/4.6 pair and the 4.3/4.4 pair never edit one file.
+ */
+async function markJobError(
+  db: Database,
+  householdId: string,
+  jobId: string,
+  error: unknown,
+): Promise<void> {
+  await db
+    .update(aiJobs)
+    .set({
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+      finishedAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), eq(aiJobs.householdId, householdId)));
+}
 
 /**
  * One `UPDATE` for both directions, plus one read that only runs when it

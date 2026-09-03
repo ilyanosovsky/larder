@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
 
-import { coerceEquipmentList, coerceEquipmentSlug } from "./coerce-equipment";
+import {
+  coerceEquipmentList,
+  coerceEquipmentSlug,
+  EQUIPMENT_WORD,
+} from "./coerce-equipment";
 
 describe("coerceEquipmentSlug", () => {
   it("maps the Russian words the brief lists", () => {
@@ -74,5 +78,23 @@ describe("coerceEquipmentList", () => {
 
   it("dedupes a slug and its Russian word as the same appliance", () => {
     expect(coerceEquipmentList(["oven", "духовка", "Oven"])).toEqual(["oven"]);
+  });
+});
+
+describe("EQUIPMENT_WORD (task 4.6's prompt vocabulary)", () => {
+  it("names every preset", () => {
+    expect(Object.keys(EQUIPMENT_WORD).sort()).toEqual(
+      [...EQUIPMENT_PRESETS].sort(),
+    );
+  });
+
+  it("round-trips: every word this module writes, it can read back", () => {
+    // The invariant that matters. The adaptation prompt tells a model «НЕТ на
+    // кухне: тёрка»; the same module has to recognize «тёрка» when it comes
+    // back through a profile or a parsed recipe, or the two halves of one
+    // vocabulary quietly disagree.
+    for (const slug of EQUIPMENT_PRESETS) {
+      expect(coerceEquipmentSlug(EQUIPMENT_WORD[slug]), slug).toBe(slug);
+    }
   });
 });
