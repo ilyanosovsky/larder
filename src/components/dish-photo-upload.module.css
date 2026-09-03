@@ -1,0 +1,38 @@
+/* The photo picker: one ledger-green button and a hidden file input. */
+
+.button {
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  padding: var(--s-2) var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.button[aria-disabled="true"] {
+  color: var(--mute);
+  cursor: default;
+}
+
+/* Off-screen rather than `display: none`: a hidden-by-display input cannot be
+   clicked programmatically in every browser. */
+.input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.error {
+  margin: var(--s-2) 0 0;
+  color: var(--neg);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}

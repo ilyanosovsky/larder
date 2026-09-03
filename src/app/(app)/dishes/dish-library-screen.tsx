@@ -161,20 +161,6 @@ export function DishLibraryScreen() {
     return () => clearTimeout(timer);
   }, [nothingFound]);
 
-  /**
-   * The empty state's «📷 С фото» leads to `/dishes/import?src=photo`, which
-   * task 4.3 builds. Until then it says so out loud rather than linking to a
-   * 404 — `main` deploys to production on every merge.
-   */
-  function announceSoon(action: string) {
-    hintSeq.current += 1;
-    setHint({
-      text: t("soonHint", { action }),
-      seq: hintSeq.current,
-      visible: true,
-    });
-  }
-
 
   /**
    * «30 мин · 8 порций · выпечка, духовка» (DESIGN_BRIEF §3): whichever of
@@ -308,18 +294,15 @@ export function DishLibraryScreen() {
             🍽
           </div>
           <p className={styles.emptyText}>{t("empty")}</p>
-          <button
-            type="button"
+          {/* The main road out of an empty library (VISION scenario Б): a
+              screenshot, not a form. `?src=photo` lands on S8.1 with the
+              picker already focused. */}
+          <Link
             className={styles.emptyAction}
-            aria-disabled="true"
-            onClick={() => announceSoon(t("sourcePhoto"))}
+            href="/dishes/import?src=photo"
           >
             {t("emptyAction")}
-          </button>
-          {/* The one path out of the empty state that actually works today
-              (task 4.2). Photo import is 4.3, so «📷 С фото» above still says
-              «скоро» — and an empty library with no working action at all
-              would be a dead end. */}
+          </Link>
           <Link className={styles.emptySecondary} href="/dishes/new">
             {t("emptyManual")}
           </Link>

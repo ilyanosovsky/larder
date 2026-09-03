@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { DishForm } from "@/components/dish-form";
+import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import type { BoundProduct } from "@/components/ingredient-edit-row";
 import { draftFromDetail } from "@/lib/recipes/draft";
 import { trpcErrorCode } from "@/lib/trpc-errors";
@@ -30,6 +31,7 @@ import styles from "./edit-dish-screen.module.css";
  */
 export function EditDishScreen({ dishId }: { dishId: string }) {
   const t = useTranslations("dishForm");
+  const importCopy = useTranslations("dishImport");
   const trpc = useTRPC();
   const dish = useQuery(trpc.dish.get.queryOptions({ id: dishId }));
 
@@ -82,6 +84,22 @@ export function EditDishScreen({ dishId }: { dishId: string }) {
             : null
         }
         productLabels={productLabels(seed)}
+        photoUploadSlot={({ current, onPicked }) => (
+          <DishPhotoUpload
+            label={
+              current.url === null
+                ? importCopy("addPhoto")
+                : importCopy("replacePhoto")
+            }
+            busyLabel={importCopy("compressing")}
+            errorLabels={{
+              tooLarge: importCopy("photoTooBig"),
+              notAnImage: importCopy("photoNotImage"),
+              uploadFailed: importCopy("uploadFailed"),
+            }}
+            onPicked={onPicked}
+          />
+        )}
       />
     </section>
   );
