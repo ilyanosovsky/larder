@@ -38,6 +38,7 @@
     "householdShareTitle": "Приглашение в Larder",
     "householdShareText": "Присоединяйся к «{household}» в Larder — общая корзина, кладовая и меню.",
     "householdOffline": "Нет связи — ссылку создать не получится. Попробуй, когда сеть вернётся.",
+    "householdInviteReady": "Ссылка-приглашение готова.",
     "kitchenProfileTitle": "Профиль кухни",
     "kitchenProfileLoading": "Загружаем профиль…",
     "kitchenProfileLoadFailed": "Не удалось загрузить профиль кухни.",

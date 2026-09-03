@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { isSQLWrapper, type SQLWrapper } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import { createCaller } from "@/server/api/root";
@@ -10,6 +12,13 @@ import {
   type StubResult,
 } from "@/server/api/test-support";
 import { DEFAULT_CATEGORIES } from "@/server/catalog/default-categories";
+
+/** Compiles a recorded clause, keeping the bound parameters — a column name
+ * alone does not prove the right *value* is bound (task 7.1a review). */
+function compile(clause: unknown): { sql: string; params: unknown[] } {
+  expect(isSQLWrapper(clause)).toBe(true);
+  return new PgDialect().sqlToQuery((clause as SQLWrapper).getSQL());
+}
 
 const HOUSEHOLD = {
   id: "3f1a6d0e-0000-4000-8000-000000000001",
@@ -66,6 +75,40 @@ describe("household.current", () => {
     await caller.household.current();
 
     expect(stub.statements).toHaveLength(1);
+  });
+
+  /**
+   * The tenancy guard (VISION §6.7): the members query is scoped by this
+   * household's id, not by trusting the row it just looked up. `createDbStub`
+   * replays queued results by call order without ever evaluating a `where`,
+   * so `resolves.toEqual(...)` above stays green even if the predicate below
+   * is deleted entirely — this is what would actually catch that (task 7.1a
+   * review round 1, F3: pre-existing gap, newly worth closing now that this
+   * list renders as a named roster on `/settings`).
+   */
+  it("scopes the members lookup by this household's id, with the join and order it depends on", async () => {
+    const { caller, stub } = callerWith([[{ household: HOUSEHOLD }], [MEMBER]]);
+
+    await caller.household.current();
+
+    const members = stub.statements[1];
+    expect(members).toMatchObject({
+      kind: "select",
+      table: "household_members",
+    });
+
+    const where = compile(members?.wheres[0]);
+    expect(where.sql).toContain('"household_id"');
+    // The bound literal, not only the column — a `WHERE household_id = $1`
+    // guard is only as good as what actually gets bound to `$1`.
+    expect(where.params).toEqual([HOUSEHOLD.id]);
+
+    const join = compile(members?.joins[0]);
+    expect(join.sql).toContain('"users"."id"');
+    expect(join.sql).toContain('"household_members"."user_id"');
+
+    const orderBy = compile(members?.orderBys[0]);
+    expect(orderBy.sql).toContain('"joined_at"');
   });
 });
 

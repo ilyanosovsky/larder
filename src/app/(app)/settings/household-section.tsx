@@ -55,6 +55,16 @@ function MemberAvatar({ name, image }: { name: string; image: string | null }) {
  * render-time `typeof navigator.share` check would hydrate differently on
  * the server (no `navigator`) than the client — the exact bug fixed in
  * PR #28's hydration pass.
+ *
+ * **Branch order: pending only when there is no data at all, error only when
+ * there is nothing else to show.** `household.isPending` is not what this
+ * checks — TanStack keeps `data` on a background refetch failure, so a
+ * flaky reconnect must not tear down a just-minted invite link or the only
+ * `SignOutButton` in the app; it gets an additive line instead, the same
+ * shape `dish-archive-section.tsx` already uses. The identity/sign-out block
+ * is therefore rendered unconditionally at the end of the section, not
+ * inside the success branch — it does not depend on `data` and must survive
+ * every state, exactly as it did as the page's own footer before this task.
  */
 export function HouseholdSection({
   callerId,
@@ -86,8 +96,7 @@ export function HouseholdSection({
 
   useEffect(() => {
     setCanShare(
-      typeof navigator !== "undefined" &&
-        typeof navigator.share === "function",
+      typeof navigator !== "undefined" && typeof navigator.share === "function",
     );
   }, []);
 
@@ -132,15 +141,18 @@ export function HouseholdSection({
     }
   }
 
+  // Same box for a hard load failure (no cached data to fall back on) and
+  // for the legitimate-but-unreachable-from-here `data === null` (no
+  // household yet — `(app)/layout.tsx` already redirects that caller to
+  // onboarding before this section ever mounts, but the output schema
+  // allows it, so this treats it the same as a failure rather than crash).
+  const loadFailed = (household.isError && data === undefined) || data === null;
+
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionTitle}>{t("householdTitle")}</h2>
 
-      {data === undefined ? (
-        <p className={styles.pending} role="status">
-          {t("householdLoading")}
-        </p>
-      ) : household.isError || data === null ? (
+      {loadFailed ? (
         <div className={styles.error} role="alert">
           <p>{t("householdLoadFailed")}</p>
           <button
@@ -151,17 +163,32 @@ export function HouseholdSection({
             {t("householdRetry")}
           </button>
         </div>
+      ) : data === undefined ? (
+        <p className={styles.pending} role="status">
+          {t("householdLoading")}
+        </p>
       ) : (
         <>
+          {/* A background refetch failing with good data still cached —
+              `dish-archive-section.tsx`'s own shape for the same case — so a
+              flaky reconnect never tears down a just-minted invite link. */}
+          {household.isError ? (
+            <p className={styles.error} role="alert">
+              {t("householdLoadFailed")}
+            </p>
+          ) : null}
+
           <p className={styles.householdName}>{data.household.name}</p>
 
           <ul className={styles.householdMemberList}>
             {data.members.map((member) => (
               <li key={member.userId} className={styles.householdMemberRow}>
+                {/* Decorative: the visible name right beside it is this
+                    row's one accessible label, so the avatar does not get
+                    a second, redundant one. */}
                 <span
                   className={styles.householdMemberAvatar}
-                  role="img"
-                  aria-label={member.name}
+                  aria-hidden="true"
                 >
                   <MemberAvatar name={member.name} image={member.image} />
                 </span>
@@ -201,7 +228,14 @@ export function HouseholdSection({
           )}
 
           {invite === null ? null : (
-            <div className={styles.householdLinkBlock} role="status">
+            // Plain content, not `role="status"` — a live region that mounts
+            // together with its own content is not reliably announced (see
+            // `cart-screen.tsx`'s toast), and one wrapping the whole block
+            // would re-announce the URL, the hint and the share label on
+            // every later change inside it (e.g. «Скопировать» →
+            // «Скопировано»). `InviteLink`'s own copy-failed alert and
+            // `shareFailed` below already cover the failure announcements.
+            <div className={styles.householdLinkBlock}>
               <InviteLink key={invite.url} url={invite.url} />
 
               <p className={styles.pending}>
@@ -230,13 +264,28 @@ export function HouseholdSection({
               ) : null}
             </div>
           )}
-
-          <div className={styles.householdIdentity}>
-            <p className={styles.identity}>{t("signedInAs", { email })}</p>
-            <SignOutButton />
-          </div>
         </>
       )}
+
+      {/* Permanently mounted for the section's whole life, with a keyed
+          child, so assistive tech that was already watching this region
+          catches the "link is ready" announcement it would miss if the
+          region only appeared together with its text. Keyed on the URL
+          itself (never repeats, unlike the toast pattern elsewhere) rather
+          than a separate seq counter. */}
+      <p className={styles.srOnly} role="status">
+        <span key={invite?.url ?? "empty"}>
+          {invite === null ? "" : t("householdInviteReady")}
+        </span>
+      </p>
+
+      {/* Unconditional: the identity line and the app's only `SignOutButton`
+          must survive every state above, exactly as they did in the page's
+          own footer before this task. */}
+      <div className={styles.householdIdentity}>
+        <p className={styles.identity}>{t("signedInAs", { email })}</p>
+        <SignOutButton />
+      </div>
     </section>
   );
 }

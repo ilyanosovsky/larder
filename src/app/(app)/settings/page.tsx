@@ -9,7 +9,7 @@ import styles from "./settings-page.module.css";
 import { TripHistorySection } from "./trip-history-section";
 
 /**
- * S12 Settings — five real blocks: the household (name, members, invite
+ * S12 Settings — four real blocks: the household (name, members, invite
  * link, and — since task 7.1a — the identity/sign-out line the page footer
  * used to hold), the kitchen profile, the purchase history «Завершить
  * закупку» produces (task 3.2), and the dish archive «В архив» on S7 fills

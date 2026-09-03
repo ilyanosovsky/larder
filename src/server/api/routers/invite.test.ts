@@ -121,18 +121,26 @@ describe("invite.create", () => {
     expect(a.url).not.toBe(b.url);
   });
 
-  it("returns expiresAt equal to inviteExpiryFrom(now), not a second computation of it", async () => {
+  it("returns expiresAt equal to inviteExpiryFrom(now), computed once and reused for the stored row", async () => {
     // Task 7.1a: the Settings «Дом» section renders this value instead of a
-    // second hardcoded "7 days" — pinned exactly, not just checked for shape,
-    // so a drift between the stored row and the response would fail here.
+    // second hardcoded "7 days". Fake timers alone would not catch a
+    // regression to two separate `inviteExpiryFrom(new Date())` calls (both
+    // would still land on the frozen instant), so this also compares the
+    // response against what was actually written to `invites` — the one
+    // assertion that can tell "computed once" from "computed twice".
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
 
     try {
-      const { caller } = callerWith([[membershipRow], []]);
+      const { caller, stub } = callerWith([[membershipRow], []]);
 
       const { expiresAt } = await caller.invite.create();
 
+      const insert = stub.statements[1];
+      const stored = (insert?.values as { expiresAt: Date }).expiresAt;
+
+      // The very same value, not merely an equal one.
+      expect(expiresAt).toBe(stored);
       expect(expiresAt).toEqual(inviteExpiryFrom(new Date()));
     } finally {
       vi.useRealTimers();

@@ -276,6 +276,7 @@ describe("the keys the dish screens call by name", () => {
     "householdShareFailed",
     "householdShareTitle",
     "householdOffline",
+    "householdInviteReady",
     "dishArchiveTitle",
     "dishArchiveLoading",
     "dishArchiveLoadFailed",
@@ -420,6 +421,19 @@ describe("the keys the dish screens call by name", () => {
 
     expect(rendered).not.toBe(`settings.${key}`);
     expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("has every settings key the screens actually ask for", () => {
+    // The opposite question to the sweep above, catching a deletion or a
+    // typo: `SETTINGS_KEYS` is hand-kept and can only ever miss a key a
+    // `.tsx` asks for, never notice one — this reads the call sites
+    // themselves, the same guard `dishImport`/`dishAdapt`/`inviteLink`
+    // already have.
+    const dictionary = messages.settings as Record<string, unknown>;
+    const asked = keysAskedFor("settings");
+
+    expect(asked.size).toBeGreaterThan(15);
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
   });
 
   it.each(DISH_PORTIONS_KEYS)(

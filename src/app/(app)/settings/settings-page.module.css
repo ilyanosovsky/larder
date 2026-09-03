@@ -1,5 +1,6 @@
 /* S12 Settings scaffold (task 1.4) — Paper Ledger: square rules, one
-   ledger green. Page title → section blocks → identity/sign-out footer. */
+   ledger green. Page title → section blocks (the identity/sign-out line
+   moved into the end of the household block in task 7.1a). */
 
 .screen {
   padding-bottom: var(--s-8);
@@ -206,6 +207,19 @@
   margin-top: var(--s-6);
   border-top: var(--bd-hair) solid var(--rule);
   padding-top: var(--s-5);
+}
+
+/* The permanently-mounted "link is ready" live region — same reasoning as
+   `cart-screen.module.css`'s own `.srOnly`: not `display: none`, which would
+   take it out of the accessibility tree along with the announcement it
+   exists to make. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .identity {

@@ -32,6 +32,11 @@ export function InviteLink({ url }: { url: string }) {
 
   async function copy() {
     setCopyFailed(false);
+    // A later attempt on the same mounted instance can fail after an
+    // earlier one succeeded (a permission revoked mid-session, say) — reset
+    // both flags so «Скопировано» never sits on the button next to the
+    // failure alert it should have replaced.
+    setCopied(false);
 
     try {
       await navigator.clipboard.writeText(url);
@@ -56,7 +61,11 @@ export function InviteLink({ url }: { url: string }) {
         readOnly
         onFocus={(event) => event.target.select()}
       />
-      <button type="button" className={styles.copyButton} onClick={() => void copy()}>
+      <button
+        type="button"
+        className={styles.copyButton}
+        onClick={() => void copy()}
+      >
         {copied ? t("copied") : t("copy")}
       </button>
       {copyFailed ? (
