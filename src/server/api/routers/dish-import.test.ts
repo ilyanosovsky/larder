@@ -618,8 +618,15 @@ describe("dishImport.fromPhoto — the outcome", () => {
 
     // `statements[0]` is `householdProcedure`'s own membership lookup, which
     // is scoped by `user_id`; `statements[2]` is the rate-limit count, scoped
-    // by `user_id` too. Everything else touches household data.
-    for (const index of [1, 5, 6, 7]) {
+    // by `user_id` too; `statements[3]` is the `ai_jobs` INSERT, checked by
+    // its `values` below. Everything else touches household data — including
+    // `[4]`, the ledger-closing UPDATE, which this list used to skip.
+    //
+    // Indexes rather than a table filter on purpose: two different `ai_jobs`
+    // statements are deliberately *not* household-scoped (the rate-limit read
+    // is per user), so filtering by table would either fail on those or, if
+    // narrowed to updates, quietly stop covering the select.
+    for (const index of [1, 4, 5, 6, 7]) {
       expectScopedByHousehold(stub.statements[index]);
     }
     expect(

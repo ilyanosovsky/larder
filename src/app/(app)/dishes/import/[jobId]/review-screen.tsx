@@ -83,29 +83,35 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
 
   const cancellingRef = useRef(false);
   /**
-   * The photo the *form* is holding right now, which is not the seed's once
-   * «Заменить фото» has run: `DishForm` owns that state and hands it down to
-   * the slot on every render. Cancelling on the frozen seed key would leave
-   * the replacement's blob and `photo_uploads` row orphaned, and — when the
-   * seed carried no photo at all — discard nothing whatsoever.
+   * **Every** photo key this screen has seen, not just the current one.
+   *
+   * `DishForm` owns the photo state and hands it to the slot on each render,
+   * so replacing A with B shows this ref both. Cancelling has to discard both:
+   * A is only in `DishForm`'s `displacedKeysRef`, which is drained on a
+   * *successful save* and therefore never on this path — so tracking only the
+   * live key would leave A stored with no dish referencing it, and tracking
+   * only the frozen seed key would leave B.
+   *
+   * Discarding a key that turns out to be in use is safe: `discardPhoto`
+   * refuses any key a saved dish still points at.
    */
-  const livePhotoRef = useRef<{
-    url: string | null;
-    key: string | null;
-  } | null>(null);
+  const seenPhotoKeysRef = useRef(new Set<string>());
 
   function cancel(seedPhotoKey: string | null) {
-    const photoKey = livePhotoRef.current?.key ?? seedPhotoKey;
-
     if (cancellingRef.current) {
       return;
     }
     cancellingRef.current = true;
 
-    if (photoKey !== null) {
-      // Not awaited, and safe to lose: `discardPhoto` itself refuses a key any
-      // saved dish still references, so the worst case is an orphaned blob.
-      discardPhoto.mutate({ fileKey: photoKey });
+    const keys = new Set(seenPhotoKeysRef.current);
+    if (seedPhotoKey !== null) {
+      keys.add(seedPhotoKey);
+    }
+
+    for (const fileKey of keys) {
+      // Not awaited, and safe to lose: an orphaned blob is hygiene, not
+      // correctness, and the server refuses any key a dish still references.
+      discardPhoto.mutate({ fileKey });
     }
     router.push("/dishes");
   }
@@ -208,10 +214,12 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
           jobId,
         }}
         photoUploadSlot={({ current, onPicked }) => {
-          // Read during render and stashed for «Отмена»; `DishForm` re-invokes
-          // the slot whenever its photo state changes, so the ref is never
-          // more than a render behind.
-          livePhotoRef.current = current;
+          // Recorded during render and spent by «Отмена»; `DishForm` re-invokes
+          // the slot whenever its photo state changes, so every key the form
+          // has held passes through here exactly once.
+          if (current.key !== null) {
+            seenPhotoKeysRef.current.add(current.key);
+          }
           return (
             <DishPhotoUpload
               label={t("replacePhoto")}

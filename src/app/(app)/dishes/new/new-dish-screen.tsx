@@ -69,6 +69,19 @@ export function NewDishScreen() {
     setSeed(draftFrom(job.data) ?? emptyDraft());
   }
 
+  /**
+   * The job this save is allowed to mark consumed — **only a failed one**.
+   *
+   * `?from=` accepts any job id the household owns, including one that parsed
+   * successfully. That draft has its own review route, so `draftFrom` opens a
+   * blank form for it; passing the id on anyway would let saving that blank
+   * form stamp `consumedDishId` on the parsed job, and the review route would
+   * then redirect to an empty manual dish instead of ever offering the recipe
+   * it holds. A job still running must not be consumed either — it has not
+   * finished deciding what it is.
+   */
+  const consumableJobId = job.data?.outcome === "failed" ? jobId : null;
+
   return (
     <section className={styles.screen}>
       <div className={styles.header}>
@@ -83,7 +96,7 @@ export function NewDishScreen() {
       ) : (
         <DishForm
           initial={seed}
-          target={{ mode: "create", jobId }}
+          target={{ mode: "create", jobId: consumableJobId }}
           photoUploadSlot={({ current, onPicked }) => (
             <DishPhotoUpload
               label={
