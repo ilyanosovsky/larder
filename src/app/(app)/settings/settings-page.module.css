@@ -1,5 +1,6 @@
 /* S12 Settings scaffold (task 1.4) — Paper Ledger: square rules, one
-   ledger green. Page title → section blocks → identity/sign-out footer. */
+   ledger green. Page title → section blocks (the identity/sign-out line
+   moved into the end of the household block in task 7.1a). */
 
 .screen {
   padding-bottom: var(--s-8);
@@ -66,6 +67,14 @@
   cursor: pointer;
 }
 
+/* «Пригласить» / «Новая ссылка» (task 7.1a) reuses this same button rather
+   than inventing a parallel style — `aria-disabled`, never `disabled`, so a
+   double tap is blocked without dropping the keyboard focus it just got. */
+.retryButton[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.55;
+}
+
 .retryButton:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;
@@ -110,12 +119,107 @@
   white-space: nowrap;
 }
 
-/* ── Identity + sign-out footer ── */
+/* ── Дом (task 7.1a) ──
+   Household name, then a member ledger row per person (avatar + name, «ты»
+   on the caller's own), then the invite-mint button and its link block once
+   one exists, then the identity/sign-out line moved down from the old page
+   footer. */
 
-.footer {
-  margin-top: var(--s-7);
+.householdName {
+  margin: 0 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  font-weight: var(--w-semibold);
+}
+
+.householdMemberList {
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  list-style: none;
+}
+
+.householdMemberRow {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-2) 0;
+}
+
+.householdMemberAvatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.householdMemberAvatarImage,
+.householdMemberAvatarInitial {
+  width: 32px;
+  height: 32px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius-round);
+}
+
+.householdMemberAvatarImage {
+  object-fit: cover;
+}
+
+.householdMemberAvatarInitial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue-soft);
+  color: var(--blue-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  font-weight: var(--w-semibold);
+}
+
+.householdMemberName {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.householdMemberYou {
+  margin-left: var(--s-2);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+}
+
+.householdLinkBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+
+.householdIdentity {
+  margin-top: var(--s-6);
   border-top: var(--bd-hair) solid var(--rule);
-  padding-top: var(--s-6);
+  padding-top: var(--s-5);
+}
+
+/* The permanently-mounted "link is ready" live region — same reasoning as
+   `cart-screen.module.css`'s own `.srOnly`: not `display: none`, which would
+   take it out of the accessibility tree along with the announcement it
+   exists to make. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .identity {

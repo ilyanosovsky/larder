@@ -107,7 +107,6 @@
 }
 
 .input:focus-visible,
-.linkField:focus-visible,
 .primaryButton:focus-visible,
 .secondaryButton:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
@@ -149,24 +148,6 @@
   flex-direction: column;
   gap: var(--s-2);
   margin-top: var(--s-5);
-}
-
-.linkField {
-  width: 100%;
-  min-height: 44px;
-  border: var(--bd-hair) solid var(--rule-2);
-  border-radius: var(--radius);
-  background: var(--zebra);
-  padding: 0 var(--s-3);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--t-meta);
-  text-overflow: ellipsis;
-}
-
-.copied {
-  color: var(--green-txt);
-  font-size: var(--t-meta);
 }
 
 .pending {

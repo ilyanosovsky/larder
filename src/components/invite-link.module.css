@@ -1,0 +1,86 @@
+/* Shared invite-link field + copy button (task 7.1a) — Paper Ledger tokens,
+   extracted from `/onboarding`'s «Пригласи своих» step so `/settings` reuses
+   the exact same look instead of a second copy of it. */
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.label {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.field {
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--zebra);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  text-overflow: ellipsis;
+}
+
+.field:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.copyButton {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: var(--s-3) var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.copyButton:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* «Скопировать» while a copy is in flight (review round 3, H1) —
+   `aria-disabled`, never `disabled`, so a double tap is blocked without
+   dropping the keyboard focus it just got. */
+.copyButton[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.error {
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+}
+
+/* The permanently-mounted "copied" live region (review round 2, G3) — same
+   shape as `cart-screen.module.css`'s own `.srOnly`: not `display: none`,
+   which would take it out of the accessibility tree along with the
+   announcement it exists to make. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
