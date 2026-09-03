@@ -440,11 +440,9 @@
   },
   "dishImport": {
     "title": "Новое блюдо",
-    "close": "Закрыть",
     "back": "← Блюда",
     "photoZone": "Загрузить фото или скриншот",
     "photoZoneHint": "галерея или камера · главный путь для рецептов из Instagram",
-    "photoZoneAria": "Загрузить фото или скриншот рецепта",
     "or": "или",
     "byUrl": "🔗 По ссылке",
     "byUrlPlaceholder": "https://…",
