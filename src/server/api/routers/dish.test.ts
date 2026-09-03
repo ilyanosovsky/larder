@@ -8,16 +8,22 @@ import type OpenAI from "openai";
 import {
   draftFromDetail,
   emptyDraft,
+  MAX_STEP_TEXT,
   type RecipeDraft,
 } from "@/lib/recipes/draft";
 import type { AiChatClient } from "@/server/ai/openai";
 import { AI_MODEL } from "@/server/ai/pricing";
 import { createCaller } from "@/server/api/root";
 import {
+  dishAdaptationStamp,
+  MAX_ADAPTED_NOTE,
+} from "@/server/api/routers/dish";
+import {
   anonymousContext,
   createDbStub,
   signedInContext,
   unusableDb,
+  type DbStub,
   type RecordedStatement,
   type StubResult,
 } from "@/server/api/test-support";
@@ -2065,5 +2071,666 @@ describe("dish.unarchive", () => {
     await expect(
       caller.dish.unarchive({ id: DISH_ID, expectedVersion: EXPECTED_VERSION }),
     ).rejects.toSatisfy(hasCode("CONFLICT"));
+  });
+});
+
+describe("dish.adapt (task 4.6)", () => {
+  const PROFILE_ROW = { householdSize: 2, equipment: ["oven"] };
+  /** The recipe needs an oven and a mixer; the profile only has the oven. */
+  const ADAPT_DETAIL = detailResults([
+    detailDishRow({ equipment: ["oven", "mixer"] }),
+  ]);
+
+  function adaptInput(overrides: Record<string, unknown> = {}) {
+    return {
+      dishId: DISH_ID,
+      expectedVersion: EXPECTED_VERSION,
+      targetPortions: null,
+      ...overrides,
+    };
+  }
+
+  /** A well-formed proposal: one step reworded, one quantity restated. */
+  function adaptation(overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      summary: "взбиваем венчиком вручную",
+      ingredients: [
+        {
+          index: 0,
+          qty: 285,
+          unit: "г",
+          note: "просеять",
+          rawText: null,
+        },
+      ],
+      steps: [
+        {
+          index: 0,
+          text: "Взбить венчиком вручную",
+          timerSec: 360,
+          timerMaxSec: null,
+        },
+      ],
+      removedStepIndexes: [],
+      addedSteps: [],
+      droppedEquipment: ["миксер"],
+      ...overrides,
+    });
+  }
+
+  /** Every read `adapt` makes before the AI call, in order. */
+  /** The version is read again after the children — see the race test below. */
+  const ADAPT_READS: StubResult[] = [
+    [membershipRow],
+    [{ version: EXPECTED_VERSION }],
+    ...ADAPT_DETAIL,
+    [{ version: EXPECTED_VERSION }],
+    [PROFILE_ROW],
+    [{ minute: 0, day: 0 }],
+    [{ id: JOB_ID }],
+  ];
+
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("UNAUTHORIZED"),
+    );
+  });
+
+  it("refuses a stale expectedVersion before spending anything", async () => {
+    // `callerWith`'s context hands out `unusableOpenai`, which throws — so
+    // reaching the model at all would fail this test loudly. The statement
+    // count is the other half: nothing beyond the guard was even read.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION + 1 }],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("CONFLICT"),
+    );
+
+    expect(stub.statements).toHaveLength(2);
+    const guard = stub.statements[1];
+    expect([guard?.kind, guard?.table]).toEqual(["select", "dishes"]);
+    expectScopedByHousehold(guard);
+    expect(compileWithParams(guard?.wheres[0]).params).toContain(DISH_ID);
+    expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+  });
+
+  it("is NOT_FOUND for a dish this household does not have", async () => {
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("NOT_FOUND"),
+    );
+    expect(stub.statements).toHaveLength(2);
+  });
+
+  it("refuses when the dish moves between the guard and the last child read", async () => {
+    // `readDishDetail` is three separate statements outside any transaction,
+    // so a partner's commit inside that window would produce a diff indexed
+    // against rows the client never saw. The re-read sits before the rate
+    // limiter and the ledger, so losing the race costs nothing.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...ADAPT_DETAIL,
+      [{ version: EXPECTED_VERSION + 1 }],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("CONFLICT"),
+    );
+
+    // Guard, three detail reads, the re-read — and nothing after it.
+    expect(stub.statements).toHaveLength(6);
+    const recheck = stub.statements[5];
+    expect([recheck?.kind, recheck?.table]).toEqual(["select", "dishes"]);
+    expectScopedByHousehold(recheck);
+    expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+    expect(stub.statements.some((s) => s.table === "kitchen_profiles")).toBe(
+      false,
+    );
+  });
+
+  it("is NOT_FOUND when the dish disappears between the guard and the re-read", async () => {
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...ADAPT_DETAIL,
+      [],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("CONFLICT"),
+    );
+  });
+
+  it("reports nothingToAdapt without opening a job when the kitchen covers the recipe", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...detailResults(),
+      [{ version: EXPECTED_VERSION }],
+      [PROFILE_ROW],
+    ]);
+
+    // `detailResults()` is the plain NYC Cookies row: `equipment: ["oven"]`,
+    // which this profile has, and no rescale was asked for.
+    await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+      outcome: "failed",
+      jobId: null,
+      reason: "nothingToAdapt",
+    });
+
+    expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+  });
+
+  it("treats a target equal to the recipe's own yield as no rescale at all", async () => {
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...detailResults(),
+      [{ version: EXPECTED_VERSION }],
+      [PROFILE_ROW],
+    ]);
+
+    await expect(
+      caller.dish.adapt(adaptInput({ targetPortions: 8 })),
+    ).resolves.toMatchObject({ reason: "nothingToAdapt" });
+  });
+
+  it("proposes a draft and writes nothing but its ai_jobs rows", async () => {
+    const { fake, calls } = fakeOpenai(adaptation());
+    const { caller, stub } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    expect(result).toMatchObject({
+      outcome: "proposed",
+      jobId: JOB_ID,
+      summary: "взбиваем венчиком вручную",
+    });
+
+    // THE acceptance criterion: an adaptation is an offer. Everything the
+    // procedure touched is either a read or its own ledger row.
+    const written = stub.statements.filter((s) => s.kind !== "select");
+    expect(written.map((s) => [s.kind, s.table])).toEqual([
+      ["insert", "ai_jobs"],
+      ["update", "ai_jobs"],
+    ]);
+
+    expect(calls[0]?.model).toBe(AI_MODEL);
+    expect(calls[0]?.reasoning_effort).toBe("low");
+  });
+
+  it("opens the ledger before the call and closes it with the cost right after", async () => {
+    const { fake } = fakeOpenai(adaptation());
+    const { caller, stub } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    await caller.dish.adapt(adaptInput());
+
+    const opened = stub.statements.find(
+      (s) => s.kind === "insert" && s.table === "ai_jobs",
+    );
+    expect(opened?.values).toMatchObject({
+      type: "adapt_recipe",
+      status: "running",
+      // No `dish_id` column on `ai_jobs`: the dish rides in `input_ref`.
+      inputRef: DISH_ID,
+      householdId: HOUSEHOLD_ID,
+    });
+
+    const closed = stub.statements.find(
+      (s) => s.kind === "update" && s.table === "ai_jobs",
+    );
+    expect(closed?.values).toMatchObject({ status: "done" });
+    expect(Number((closed?.values as { costUsd: string }).costUsd)).toBeGreaterThan(0);
+    expectScopedByHousehold(closed);
+    // And pinned to *this* job, not just to the household: without the id
+    // predicate the statement would close every running job the household
+    // has, and `expectScopedByHousehold` alone would still pass.
+    const closedWhere = compileWithParams(closed?.wheres[0]);
+    expect(closedWhere.sql).toContain('"id"');
+    expect(closedWhere.params).toContain(JOB_ID);
+  });
+
+  it("records the cost on the failure branch too, and never throws for it", async () => {
+    const { fake } = fakeOpenai("не json");
+    const { caller, stub } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+      outcome: "failed",
+      jobId: JOB_ID,
+      reason: "aiUnavailable",
+    });
+
+    const closed = stub.statements.find(
+      (s) => s.kind === "update" && s.table === "ai_jobs",
+    );
+    expect(closed?.values).toMatchObject({ status: "error" });
+    // A response that arrived and then failed validation was still billed.
+    expect(Number((closed?.values as { costUsd: string }).costUsd)).toBeGreaterThan(0);
+  });
+
+  it("refuses over the rate limit, before the ledger opens", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...ADAPT_DETAIL,
+      [{ version: EXPECTED_VERSION }],
+      [PROFILE_ROW],
+      [{ minute: 99, day: 99 }],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("TOO_MANY_REQUESTS"),
+    );
+    expect(stub.statements.some((s) => s.table === "ai_jobs" && s.kind === "insert")).toBe(
+      false,
+    );
+  });
+
+  it("scopes the profile read to the household", async () => {
+    const { fake } = fakeOpenai(adaptation());
+    const { caller, stub } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    await caller.dish.adapt(adaptInput());
+
+    const profile = stub.statements.find((s) => s.table === "kitchen_profiles");
+    expectScopedByHousehold(profile);
+  });
+
+  it("drops the missing appliance from the proposed recipe", async () => {
+    const { fake } = fakeOpenai(adaptation());
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    // Otherwise S7's banner keeps reporting «Не хватает: Миксер» after the
+    // fix has been applied.
+    expect(result).toMatchObject({ outcome: "proposed" });
+    if (result.outcome !== "proposed") {
+      throw new Error("unreachable");
+    }
+    expect(result.draft.equipment).toEqual(["oven"]);
+    expect(result.diff.droppedEquipment).toEqual(["mixer"]);
+  });
+
+  it("keeps the appliance when the proposal never says it worked around it", async () => {
+    const { fake } = fakeOpenai(
+      adaptation({ steps: [], ingredients: [], droppedEquipment: [] }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    // The banner must keep saying «Не хватает: Миксер» for a recipe nobody
+    // actually reworked.
+    expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+    expect(result.diff.droppedEquipment).toEqual([]);
+  });
+
+  it("rescales deterministically and reports every quantity that moved", async () => {
+    const { fake, calls } = fakeOpenai(
+      JSON.stringify({
+        summary: "пересчитано на 4",
+        ingredients: [],
+        steps: [],
+        removedStepIndexes: [],
+        addedSteps: [],
+        droppedEquipment: [],
+      }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(
+      adaptInput({ targetPortions: 4 }),
+    );
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    // 285 г for 8 portions → 142.5 г for 4, by `rescaleQty` and not by the
+    // model — which is shown the already-scaled number.
+    expect(result.draft.ingredients[0]?.qty).toBe(142.5);
+    expect(result.draft.portionsBase).toBe(4);
+    expect(result.diff.changedIngredients).toEqual([0]);
+    expect(String(calls[0]?.messages[1]?.content)).toContain("142.5");
+  });
+
+  describe("a household that never saved a kitchen profile", () => {
+    /** No row at all — distinct from a profile that lists no appliances. */
+    const NO_PROFILE: StubResult = [];
+
+    it("has nothing to adapt when no rescale was asked for", async () => {
+      const { caller, stub } = callerWith([
+        [membershipRow],
+        [{ version: EXPECTED_VERSION }],
+        ...ADAPT_DETAIL,
+        [{ version: EXPECTED_VERSION }],
+        NO_PROFILE,
+      ]);
+
+      // Nobody said the mixer was absent, so nothing is missing — and the
+      // recipe is already stated for the portions asked for.
+      await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+        outcome: "failed",
+        jobId: null,
+        reason: "nothingToAdapt",
+      });
+      expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+    });
+
+    it("rescales without stripping the recipe's own equipment", async () => {
+      const { fake, calls } = fakeOpenai(
+        JSON.stringify({
+          summary: "пересчитано на 4",
+          ingredients: [],
+          steps: [],
+          removedStepIndexes: [],
+          addedSteps: [],
+          droppedEquipment: [],
+        }),
+      );
+      const { caller } = aiCallerWith(
+        [
+          [membershipRow],
+          [{ version: EXPECTED_VERSION }],
+          ...ADAPT_DETAIL,
+          [{ version: EXPECTED_VERSION }],
+          NO_PROFILE,
+          [{ minute: 0, day: 0 }],
+          [{ id: JOB_ID }],
+          [],
+        ],
+        fake,
+      );
+
+      const result = await caller.dish.adapt(adaptInput({ targetPortions: 4 }));
+
+      if (result.outcome !== "proposed") {
+        throw new Error("expected a proposal");
+      }
+      // The regression: treating «no profile» as «an empty profile» made every
+      // requirement missing, and applying the proposal would have erased both
+      // slugs from a recipe nobody complained about.
+      expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+      expect(String(calls[0]?.messages[1]?.content)).toContain(
+        "Про технику на кухне ничего не известно",
+      );
+    });
+  });
+
+  it("clamps the model's summary to what the save will accept back", async () => {
+    // `summary` is an unbounded `z.string()` from the model (strict mode
+    // forbids bounds), and «Применить» sends the same text back through
+    // `dishAdaptationStamp`'s `.max(MAX_ADAPTED_NOTE)`. The clamp is the only
+    // thing between the two.
+    const { fake } = fakeOpenai(
+      adaptation({ summary: "я".repeat(MAX_ADAPTED_NOTE + 50) }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    expect(result.summary).toHaveLength(MAX_ADAPTED_NOTE);
+    expect(dishAdaptationStamp.safeParse({ note: result.summary }).success).toBe(
+      true,
+    );
+  });
+
+  it("stamps the job as failed when the proposal assembles into a non-draft", async () => {
+    // A stored step longer than `MAX_STEP_TEXT` that the proposal does not
+    // replace: `applyAdaptation` re-validates and refuses, which is the one
+    // path that reaches `markJobError`.
+    const { fake } = fakeOpenai(adaptation({ steps: [] }));
+    const { caller, stub } = aiCallerWith(
+      [
+        [membershipRow],
+        [{ version: EXPECTED_VERSION }],
+        ...detailResults(
+          [detailDishRow({ equipment: ["oven", "mixer"] })],
+          [detailIngredientRow()],
+          [detailStepRow({ text: "я".repeat(MAX_STEP_TEXT + 1) })],
+        ),
+        [{ version: EXPECTED_VERSION }],
+        [PROFILE_ROW],
+        [{ minute: 0, day: 0 }],
+        [{ id: JOB_ID }],
+        [], // the ledger close
+        [], // markJobError's UPDATE
+      ],
+      fake,
+    );
+
+    await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+      outcome: "failed",
+      jobId: JOB_ID,
+      reason: "aiUnavailable",
+    });
+
+    const updates = stub.statements.filter(
+      (s) => s.kind === "update" && s.table === "ai_jobs",
+    );
+    expect(updates).toHaveLength(2);
+    // The cost-bearing close comes first, and the stamp does not undo it.
+    expect(
+      Number((updates[0]?.values as { costUsd: string }).costUsd),
+    ).toBeGreaterThan(0);
+    expect(updates[1]?.values).toMatchObject({ status: "error" });
+    expect(Object.hasOwn(updates[1]?.values ?? {}, "costUsd")).toBe(false);
+    expectScopedByHousehold(updates[1]);
+    const stampWhere = compileWithParams(updates[1]?.wheres[0]);
+    expect(stampWhere.sql).toContain('"id"');
+    expect(stampWhere.params).toContain(JOB_ID);
+  });
+
+  it("drops a proposal index that no longer names a row", async () => {
+    const { fake } = fakeOpenai(
+      adaptation({
+        ingredients: [
+          { index: 42, qty: 1, unit: "кг", note: null, rawText: null },
+        ],
+        steps: [],
+      }),
+    );
+    const { caller } = aiCallerWith([...ADAPT_READS, []], fake);
+
+    const result = await caller.dish.adapt(adaptInput());
+
+    if (result.outcome !== "proposed") {
+      throw new Error("expected a proposal");
+    }
+    expect(result.draft.ingredients[0]?.qty).toBe(285);
+    expect(result.diff.changedIngredients).toEqual([]);
+  });
+});
+
+describe("dish.originalDraft (task 4.6)", () => {
+  const ORIGINAL = {
+    ...emptyDraft(),
+    title: "NYC Cookies",
+    sourceType: "photo" as const,
+    portionsBase: 8,
+    ingredients: [
+      {
+        rawText: "Мука — 285 г",
+        name: "Мука",
+        qty: 285,
+        unit: "г" as const,
+        note: null,
+        isOptional: false,
+        needsReview: false,
+        productId: PRODUCT_ID,
+      },
+    ],
+    steps: [],
+  };
+
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(caller.dish.originalDraft({ id: DISH_ID })).rejects.toSatisfy(
+      hasCode("UNAUTHORIZED"),
+    );
+  });
+
+  it("is NOT_FOUND for a dish this household does not have", async () => {
+    const { caller, stub } = callerWith([[membershipRow], []]);
+
+    await expect(caller.dish.originalDraft({ id: DISH_ID })).rejects.toSatisfy(
+      hasCode("NOT_FOUND"),
+    );
+
+    const read = stub.statements[1];
+    expect([read?.kind, read?.table]).toEqual(["select", "recipes"]);
+    expectScopedByHousehold(read);
+    expect(compileWithParams(read?.wheres[0]).params).toContain(DISH_ID);
+  });
+
+  it("returns null for a dish that was never imported", async () => {
+    const { caller } = callerWith([[membershipRow], [{ draft: null }]]);
+
+    await expect(caller.dish.originalDraft({ id: DISH_ID })).resolves.toBeNull();
+  });
+
+  it("returns the stored draft when every binding still resolves", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ draft: ORIGINAL }],
+      [{ id: PRODUCT_ID }],
+    ]);
+
+    await expect(caller.dish.originalDraft({ id: DISH_ID })).resolves.toEqual(
+      ORIGINAL,
+    );
+    expectScopedByHousehold(stub.statements[2]);
+  });
+
+  it("nulls a binding the household no longer owns instead of rejecting the revert", async () => {
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ draft: ORIGINAL }],
+      // The product was deleted since the import.
+      [],
+    ]);
+
+    const restored = await caller.dish.originalDraft({ id: DISH_ID });
+
+    expect(restored?.ingredients[0]?.productId).toBeNull();
+    // Everything else survives: an unbound row is the «новый» state the save
+    // path already knows how to resolve.
+    expect(restored?.ingredients[0]?.qty).toBe(285);
+  });
+
+  it("refuses a stored draft that is no longer a valid recipe", async () => {
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ draft: { title: "", ingredients: "nonsense" } }],
+    ]);
+
+    await expect(caller.dish.originalDraft({ id: DISH_ID })).rejects.toSatisfy(
+      hasCode("UNPROCESSABLE_CONTENT"),
+    );
+  });
+});
+
+describe("dish.update — the adaptation stamp (task 4.6)", () => {
+  const LOCK_ROW: StubResult = [{ version: EXPECTED_VERSION }];
+  const PREAMBLE: StubResult[] = [
+    [membershipRow],
+    LOCK_ROW,
+    [{ id: PRODUCT_ID }],
+    LOCK_ROW,
+    [{ id: RECIPE_ID }],
+    [{ id: DISH_ID }],
+    [],
+    [],
+    [],
+    [],
+    [],
+  ];
+
+  function recipeUpdateOf(stub: DbStub) {
+    return stub.statements.find(
+      (s) => s.kind === "update" && s.table === "recipes",
+    );
+  }
+
+  function baseInput() {
+    return { id: DISH_ID, expectedVersion: EXPECTED_VERSION, draft: draft() };
+  }
+
+  it("assigns nothing when the save is an ordinary edit", async () => {
+    const { caller, stub } = callerWith([...PREAMBLE, ...detailResults()]);
+
+    await caller.dish.update(baseInput());
+
+    // S8.3's own form never sends the field, and a typo fix must not silently
+    // erase «переделано под твою духовку».
+    const values = recipeUpdateOf(stub)?.values as Record<string, unknown>;
+    expect(Object.hasOwn(values, "adaptedAt")).toBe(false);
+    expect(Object.hasOwn(values, "adaptedNote")).toBe(false);
+  });
+
+  it("stamps both columns when «Применить» carries a note", async () => {
+    const { caller, stub } = callerWith([...PREAMBLE, ...detailResults()]);
+
+    await caller.dish.update({
+      ...baseInput(),
+      adaptation: { note: "переделано под духовку вместо аэрогриля" },
+    });
+
+    const values = recipeUpdateOf(stub)?.values as Record<string, unknown>;
+    expect(values.adaptedNote).toBe("переделано под духовку вместо аэрогриля");
+    expect(compile(values.adaptedAt)).toContain("now()");
+    // Never `dishes.tags` (decision D20) — that is S6's user-facing filter.
+    const dishUpdate = stub.statements.find(
+      (s) => s.kind === "update" && s.table === "dishes",
+    );
+    expect((dishUpdate?.values as { tags: string[] }).tags).toEqual(["выпечка"]);
+  });
+
+  it("clears both columns when «Вернуть как было» sends null", async () => {
+    const { caller, stub } = callerWith([...PREAMBLE, ...detailResults()]);
+
+    await caller.dish.update({ ...baseInput(), adaptation: null });
+
+    expect(recipeUpdateOf(stub)?.values).toMatchObject({
+      adaptedAt: null,
+      adaptedNote: null,
+    });
+  });
+
+  it("rejects a note longer than the column's own limit", async () => {
+    const { caller } = callerWith([[membershipRow]]);
+
+    await expect(
+      caller.dish.update({
+        ...baseInput(),
+        adaptation: { note: "я".repeat(201) },
+      }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+  });
+
+  it("still refuses a stale version before it stamps anything", async () => {
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION + 1 }],
+    ]);
+
+    await expect(
+      caller.dish.update({ ...baseInput(), adaptation: { note: "адаптировано" } }),
+    ).rejects.toSatisfy(hasCode("CONFLICT"));
+    expect(stub.statements).toHaveLength(2);
   });
 });

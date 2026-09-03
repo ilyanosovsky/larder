@@ -42,8 +42,11 @@
   font-size: var(--t-meta);
 }
 
+/* 44px, not the 36px task 4.5 shipped: it was an `aria-disabled` placeholder
+   then and is a real, tappable control now — the mobile touch-target floor
+   applies. */
 .adaptButton {
-  min-height: 36px;
+  min-height: 44px;
   flex: none;
   border: var(--bd-hair) solid var(--amber-rule);
   border-radius: var(--radius);
@@ -54,11 +57,6 @@
   font-size: var(--t-body);
   font-weight: var(--w-medium);
   cursor: pointer;
-}
-
-.adaptButton[aria-disabled="true"] {
-  cursor: default;
-  opacity: 0.75;
 }
 
 .adaptButton:focus-visible {
@@ -86,13 +84,4 @@
 .link:focus-visible {
   outline: var(--bd-ink) solid var(--accent);
   outline-offset: 1px;
-}
-
-.srOnly {
-  position: absolute;
-  overflow: hidden;
-  width: 1px;
-  height: 1px;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
