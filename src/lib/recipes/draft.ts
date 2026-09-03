@@ -87,6 +87,11 @@ export const MAX_TIMER_SEC = 86_400;
 export const MAX_PORTIONS = 100;
 /** 100 hours. A cold ferment is long; nothing is longer than this. */
 export const MAX_TOTAL_TIME_MIN = 6000;
+/**
+ * `recipes.source_url` as stored. `classifyImportUrl` refuses a link whose
+ * *normalized* href would not fit, before a job row exists — see there.
+ */
+export const MAX_SOURCE_URL = 2000;
 
 /**
  * A URL we are willing to store and later render.
@@ -158,7 +163,7 @@ export const recipeDraftSchema = z
      */
     tags: z.array(z.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS),
     sourceType: dishSourceTypeSchema,
-    sourceUrl: httpUrl(2000).nullable(),
+    sourceUrl: httpUrl(MAX_SOURCE_URL).nullable(),
     /**
      * The portion count the quantities below are stated for — the number
      * every rescale divides by, and the **upper** end of a stated range

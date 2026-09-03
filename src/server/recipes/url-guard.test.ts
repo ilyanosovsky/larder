@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_SOURCE_URL } from "@/lib/recipes/draft";
+
 import {
   classifyImportUrl,
   isBlockedAddress,
@@ -80,6 +82,23 @@ describe("classifyImportUrl — the URL as written", () => {
     "http://93.184.216.34/r",
   ])("refuses the literal address %s", (url) => {
     expect(classifyImportUrl(url)).toEqual({ kind: "blocked" });
+  });
+
+  it("refuses a link whose normalized form would not fit the draft", () => {
+    // `fromUrlInput` bounds the string as typed; `new URL()` percent-encodes
+    // every non-ASCII byte, so a Cyrillic path well under the cap comes back
+    // six times longer than it went in — past what `recipes.source_url`
+    // stores, and the draft would have refused it after the model was paid.
+    const raw = `https://example.com/${"щ".repeat(700)}`;
+    expect(raw.length).toBeLessThan(MAX_SOURCE_URL);
+    expect(new URL(raw).href.length).toBeGreaterThan(MAX_SOURCE_URL);
+    expect(classifyImportUrl(raw)).toEqual({ kind: "blocked" });
+
+    const fits = `https://example.com/${"щ".repeat(300)}`;
+    expect(classifyImportUrl(fits)).toEqual({
+      kind: "ok",
+      url: new URL(fits).href,
+    });
   });
 
   it("refuses a string that is not a URL at all", () => {

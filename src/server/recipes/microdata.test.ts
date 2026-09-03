@@ -82,12 +82,16 @@ describe("recipeSkeletonFromMicrodata — the rules", () => {
     }
   });
 
-  it("reads a scope that declares several itemtypes", () => {
+  it.each([
+    "https://schema.org/Recipe https://schema.org/Product",
+    "https://schema.org/Product https://schema.org/Recipe",
+  ])("reads a scope that declares several itemtypes: %s", (itemtype) => {
     // `itemtype` is a space-separated *list*. Testing the whole attribute
     // matches only its last entry, so a Recipe declared first fell through to
-    // a paid scrape — for a page whose microdata was right there.
+    // a paid scrape — for a page whose microdata was right there. Both
+    // orders, so a reader of the first token only cannot pass either.
     const html = `
-      <div itemscope itemtype="https://schema.org/Recipe https://schema.org/Product">
+      <div itemscope itemtype="${itemtype}">
         <h1 itemprop="name">Суп</h1>
         <li itemprop="recipeIngredient">Вода 1 л</li>
       </div>`;
@@ -95,13 +99,16 @@ describe("recipeSkeletonFromMicrodata — the rules", () => {
     expect(recipeSkeletonFromMicrodata(html)?.title).toBe("Суп");
   });
 
-  it("reads a HowToStep that declares several itemtypes", () => {
+  it.each([
+    "https://schema.org/HowToStep https://schema.org/CreativeWork",
+    "https://schema.org/CreativeWork https://schema.org/HowToStep",
+  ])("reads a HowToStep that declares several itemtypes: %s", (itemtype) => {
     const html = `
       <div itemscope itemtype="https://schema.org/Recipe">
         <h1 itemprop="name">Тест</h1>
         <li itemprop="recipeIngredient">Соль щепотка</li>
         <div itemprop="recipeInstructions">
-          <div itemscope itemtype="https://schema.org/HowToStep https://schema.org/CreativeWork">
+          <div itemscope itemtype="${itemtype}">
             <span itemprop="text">Посолить.</span>
           </div>
         </div>

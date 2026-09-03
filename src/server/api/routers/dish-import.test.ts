@@ -6,6 +6,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type OpenAI from "openai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_TITLE, recipeDraftSchema } from "@/lib/recipes/draft";
+import { draftFromPartial } from "@/lib/recipes/import-seed";
 import type { AiRequestOptions } from "@/server/ai/openai";
 import type { ParsedRecipe } from "@/server/ai/parse-recipe";
 import { createCaller } from "@/server/api/root";
@@ -608,6 +610,38 @@ describe("dishImport.fromPhoto — the outcome", () => {
     expect(
       result.outcome === "parsed" && result.draft.ingredients[0]?.productId,
     ).toBe(PRODUCT_ID);
+  });
+
+  it("caps the salvaged title so «Вручную» can still be saved", async () => {
+    // `pickTitle` caps a *recipe's* title on the way into a draft, but a
+    // `notARecipe` answer never gets that far: its title reaches `partial`
+    // straight from the model, and the manual form's own schema refuses
+    // anything past `MAX_TITLE` with nothing more than «что-то заполнено
+    // неверно» — the rescue out of a failed import would be a dead end.
+    const openai = fakeOpenai(
+      JSON.stringify({
+        ...RECIPE,
+        title: "Ш".repeat(MAX_TITLE * 3),
+        isRecipe: false,
+        ingredients: [],
+        steps: [],
+      }),
+    );
+    const { caller } = callerWith(
+      [...fromPhotoPreamble(), [], [], [], []],
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromPhoto({ fileKey: FILE_KEY });
+
+    if (result.outcome !== "failed") {
+      throw new Error(`expected a failed outcome, got ${result.outcome}`);
+    }
+    expect(result.reason).toBe("notARecipe");
+    expect(result.partial.title?.length).toBe(MAX_TITLE);
+    expect(
+      recipeDraftSchema.safeParse(draftFromPartial(result.partial)).success,
+    ).toBe(true);
   });
 
   it("reports «not a recipe» as an outcome, never as a thrown error", async () => {

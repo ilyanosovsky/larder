@@ -254,6 +254,29 @@ describe("a page nested far deeper than any recipe", () => {
     },
   );
 
+  it("clips a title and an image past the cap, and reads them at it", () => {
+    // `not.toThrow()` above cannot fail — two thousand frames never overflow
+    // — so this is the assertion that actually pins the guard inside
+    // `firstString` and `firstImageUrl`: without it both read straight
+    // through any number of arrays.
+    const at = (depth: number) =>
+      skeletonOf(
+        page(
+          JSON.stringify({
+            "@type": "Recipe",
+            name: nested(depth, "Тест"),
+            image: nested(depth, "https://example.com/pie.jpg"),
+            recipeIngredient: ["Мука 285 г"],
+          }),
+        ),
+      );
+
+    expect(at(6).title).toBe("Тест");
+    expect(at(6).image).toBe("https://example.com/pie.jpg");
+    expect(at(7).title).toBeNull();
+    expect(at(7).image).toBeNull();
+  });
+
   it("still reads a value at the last permitted level", () => {
     // The off-by-one this pins: handing a scalar to another reader is not a
     // level of nesting, and counting it as one made `MAX_DEPTH` mean five.

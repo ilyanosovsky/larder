@@ -178,6 +178,21 @@ export function ImportScreen() {
    * unchanged screen.
    */
   const requested = searchParams.get("src");
+  /**
+   * **Exactly one control claims focus when S8.1 mounts.** The three
+   * `autoFocus` props used to OR the `?src=` deep link with the refusal state
+   * independently, so a rate-limit refusal on one pane while `?src=` named
+   * another mounted two nodes with the prop true — and React commits them in
+   * document order, so the later one won, taking focus off the field whose
+   * text had just been refused. The refusal outranks the link: the link says
+   * where the person started, the refusal says where they are.
+   */
+  const focusTarget: ImportRun["kind"] | null = refocusPicker
+    ? "photo"
+    : (refocusPane ??
+      (requested === "photo" || requested === "url" || requested === "text"
+        ? requested
+        : null));
 
   /**
    * One runner for all three sources.
@@ -240,19 +255,17 @@ export function ImportScreen() {
       if (trpcErrorCode(caught) === "BAD_REQUEST") {
         // Input the server refuses before it opens a job row, so there is
         // deliberately no `jobId` — but the fork in the road is the same one
-        // every other failure gets. The two cases are different sentences:
-        // a URL pointing inside the network is `blockedUrl` (decision C.8's
-        // validation rejection), and a paste past `MAX_IMPORT_TEXT` is
-        // `tooLarge`, whose fallback brings the field back so it can be cut
-        // down. Reporting either as `aiUnavailable` would offer «Ещё раз»,
-        // which replays the identical input and fails identically forever.
+        // every other failure gets. Each source is a different sentence (see
+        // `badRequestReason`); reporting any of them as `aiUnavailable` would
+        // offer «Ещё раз», which replays the identical input and fails
+        // identically forever.
         setPhase({
           kind: "failed",
-          reason: run.kind === "url" ? "blockedUrl" : "tooLarge",
-          partial:
-            run.kind === "url"
-              ? { ...EMPTY_PARTIAL, sourceUrl: run.url }
-              : EMPTY_PARTIAL,
+          reason: badRequestReason(run.kind),
+          // From the run, not `EMPTY_PARTIAL`: a refused photo keeps its key,
+          // so «Другое фото» can still discard the blob, and the copy table
+          // reads the source off what the partial carries.
+          partial: partialFor(run, null),
           jobId: null,
         });
         return;
@@ -386,7 +399,7 @@ export function ImportScreen() {
                 rateLimited: t("uploadRateLimited"),
               }}
               onPicked={(photo) => void runImport({ kind: "photo", photo })}
-              autoFocus={requested === "photo" || refocusPicker}
+              autoFocus={focusTarget === "photo"}
             />
             <p className={styles.photoHint}>{t("photoZoneHint")}</p>
           </div>
@@ -401,7 +414,7 @@ export function ImportScreen() {
             placeholder={t("byUrlPlaceholder")}
             submitLabel={t("byUrlSubmit")}
             hint={t("byUrlHint")}
-            autoFocus={requested === "url" || refocusPane === "url"}
+            autoFocus={focusTarget === "url"}
             value={urlValue}
             onChange={setUrlValue}
             invalidLabel={() => t("byUrlInvalid")}
@@ -415,7 +428,7 @@ export function ImportScreen() {
             placeholder={t("byTextPlaceholder")}
             submitLabel={t("byTextSubmit")}
             hint={t("byTextHint")}
-            autoFocus={requested === "text" || refocusPane === "text"}
+            autoFocus={focusTarget === "text"}
             multiline
             value={textValue}
             onChange={setTextValue}
@@ -462,6 +475,26 @@ function partialFor(
     photoKey: partial.photoKey ?? (run.kind === "photo" ? run.photo.key : null),
     sourceUrl: partial.sourceUrl ?? (run.kind === "url" ? run.url : null),
   };
+}
+
+/**
+ * What a `BAD_REQUEST` means per source. A URL pointing inside the network
+ * is `blockedUrl` (decision C.8's validation rejection); a paste past
+ * `MAX_IMPORT_TEXT` is `tooLarge`, whose fallback brings the field back so
+ * it can be cut down; and a photo whose key the server refuses is not
+ * something a person can fix by editing — its key was minted by the upload
+ * callback — so the honest reason is the one whose first fallback is another
+ * photo, not «страница слишком тяжёлая» about a page that never existed.
+ */
+function badRequestReason(kind: ImportRun["kind"]): ImportFailureReason {
+  switch (kind) {
+    case "url":
+      return "blockedUrl";
+    case "text":
+      return "tooLarge";
+    case "photo":
+      return "photoUnreadable";
+  }
 }
 
 /**

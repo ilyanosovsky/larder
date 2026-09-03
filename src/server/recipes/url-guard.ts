@@ -25,6 +25,8 @@
  * unit-tested directly.
  */
 
+import { MAX_SOURCE_URL } from "@/lib/recipes/draft";
+
 /**
  * Hosts whose recipes only exist behind a login wall.
  *
@@ -96,6 +98,16 @@ export function classifyImportUrl(raw: string): ImportUrlClassification {
   // Only the two default ports. A recipe site does not serve HTML on 6379,
   // and every interesting SSRF target is a service on a non-standard port.
   if (url.port !== "" && url.port !== "80" && url.port !== "443") {
+    return { kind: "blocked" };
+  }
+
+  // The *normalized* href is what gets stored — the ledger's `input_ref`, the
+  // draft's `sourceUrl` — and the draft schema caps it at `MAX_SOURCE_URL`.
+  // The input schema bounds the string as typed, and `new URL()` percent-
+  // encodes every non-ASCII byte (a Cyrillic path grows sixfold), so a link
+  // that fits the field can normalize into one the draft refuses — after the
+  // page was fetched and the model paid for. Refuse it here, with the rest.
+  if (url.href.length > MAX_SOURCE_URL) {
     return { kind: "blocked" };
   }
 

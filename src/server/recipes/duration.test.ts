@@ -124,4 +124,15 @@ describe("the upper bound", () => {
     expect(parseRussianDuration("1234567 минут")).toBeNull();
     expect(parseIsoDuration("PT1234567M")).toBeNull();
   });
+
+  it("does not backtrack across a digit run that no unit follows", () => {
+    // `parseDurationMin` slices to 200 characters first, so the only input
+    // on which `\d{1,6}` and `\d+` behave differently is one that skips it:
+    // a page-length run of digits followed by nothing the pattern accepts.
+    // Unbounded, every start position re-scans to the end — quadratic,
+    // seconds of CPU at this length; bounded, six tries per position.
+    const started = performance.now();
+    expect(parseRussianDuration(`${"7".repeat(20_000)} яблок`)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
