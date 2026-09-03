@@ -129,8 +129,18 @@ export type AdaptRecipeResult =
  * unambiguously and needs no company.
  */
 export interface AdaptProfile {
-  /** `kitchen_profiles.equipment` verbatim — slugs and free text side by side. */
-  readonly equipment: readonly string[];
+  /**
+   * `kitchen_profiles.equipment` verbatim — slugs and free text side by side —
+   * or `null` when the household has never saved a profile at all.
+   *
+   * `null` and `[]` are **different statements** and the prompt words them
+   * differently: an empty profile says «this kitchen has no appliances, offer
+   * me hands», while a missing one says nothing, and telling a model the
+   * kitchen is bare when nobody ever asked would produce a "fix" for a
+   * problem that may not exist. The same distinction `EquipmentBanner` draws
+   * between its own `null` and `[]` states.
+   */
+  readonly equipment: readonly string[] | null;
 }
 
 export interface AdaptRecipeArgs {
@@ -241,12 +251,18 @@ export function describeDraftForModel(args: {
     );
   }
 
-  const have = profileWords(profile.equipment);
-  lines.push(
-    have.length === 0
-      ? "Есть на кухне: ничего из техники не указано — предлагай ручные способы."
-      : `Есть на кухне: ${have.join(", ")}.`,
-  );
+  if (profile.equipment === null) {
+    lines.push(
+      "Про технику на кухне ничего не известно — технику не меняй, меняй только то, о чём просят ниже.",
+    );
+  } else {
+    const have = profileWords(profile.equipment);
+    lines.push(
+      have.length === 0
+        ? "Есть на кухне: ничего из техники не указано — предлагай ручные способы."
+        : `Есть на кухне: ${have.join(", ")}.`,
+    );
+  }
 
   if (missing.length > 0) {
     lines.push(

@@ -2328,6 +2328,66 @@ describe("dish.adapt (task 4.6)", () => {
     expect(String(calls[0]?.messages[1]?.content)).toContain("142.5");
   });
 
+  describe("a household that never saved a kitchen profile", () => {
+    /** No row at all — distinct from a profile that lists no appliances. */
+    const NO_PROFILE: StubResult = [];
+
+    it("has nothing to adapt when no rescale was asked for", async () => {
+      const { caller, stub } = callerWith([
+        [membershipRow],
+        [{ version: EXPECTED_VERSION }],
+        ...ADAPT_DETAIL,
+        NO_PROFILE,
+      ]);
+
+      // Nobody said the mixer was absent, so nothing is missing — and the
+      // recipe is already stated for the portions asked for.
+      await expect(caller.dish.adapt(adaptInput())).resolves.toEqual({
+        outcome: "failed",
+        jobId: null,
+        reason: "nothingToAdapt",
+      });
+      expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+    });
+
+    it("rescales without stripping the recipe's own equipment", async () => {
+      const { fake, calls } = fakeOpenai(
+        JSON.stringify({
+          summary: "пересчитано на 4",
+          ingredients: [],
+          steps: [],
+          removedStepIndexes: [],
+          addedSteps: [],
+        }),
+      );
+      const { caller } = aiCallerWith(
+        [
+          [membershipRow],
+          [{ version: EXPECTED_VERSION }],
+          ...ADAPT_DETAIL,
+          NO_PROFILE,
+          [{ minute: 0, day: 0 }],
+          [{ id: JOB_ID }],
+          [],
+        ],
+        fake,
+      );
+
+      const result = await caller.dish.adapt(adaptInput({ targetPortions: 4 }));
+
+      if (result.outcome !== "proposed") {
+        throw new Error("expected a proposal");
+      }
+      // The regression: treating «no profile» as «an empty profile» made every
+      // requirement missing, and applying the proposal would have erased both
+      // slugs from a recipe nobody complained about.
+      expect(result.draft.equipment).toEqual(["oven", "mixer"]);
+      expect(String(calls[0]?.messages[1]?.content)).toContain(
+        "Про технику на кухне ничего не известно",
+      );
+    });
+  });
+
   it("drops a proposal index that no longer names a row", async () => {
     const { fake } = fakeOpenai(
       adaptation({

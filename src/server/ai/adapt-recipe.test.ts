@@ -201,6 +201,22 @@ describe("describeDraftForModel", () => {
     expect(prompt).toContain("Есть на кухне: духовка, кухонные весы");
   });
 
+  it("says nothing about the kitchen when no profile was ever saved", () => {
+    // `null` is not `[]`: telling a model the kitchen is bare when nobody ever
+    // asked would produce a fix for a problem that may not exist.
+    const unknown = describeDraftForModel({
+      draft: draft(),
+      profile: { equipment: null },
+      missing: [],
+      targetPortions: 4,
+      basePortions: 8,
+    });
+
+    expect(unknown).toContain("Про технику на кухне ничего не известно");
+    expect(unknown).not.toContain("Есть на кухне");
+    expect(unknown).not.toContain("НЕТ на кухне");
+  });
+
   it("tells the model to propose manual work when the kitchen is empty", () => {
     const bare = describeDraftForModel({
       draft: draft(),

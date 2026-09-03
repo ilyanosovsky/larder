@@ -1168,12 +1168,25 @@ export const dishRouter = createTRPCRouter({
         .limit(1);
 
       const draft = draftFromDetail(detail);
-      // Both sides go through `coerceEquipmentSlug` (task 4.5), so a profile
-      // entry typed as «мультиварка» still satisfies `multicooker`.
-      const missing = missingEquipment(
-        coerceEquipmentList(detail.recipe.equipment),
-        profile?.equipment ?? [],
-      );
+      // **No profile row is not an empty profile.** `profile?.equipment ?? []`
+      // would make every requirement "missing", which sends the adaptation off
+      // to work around appliances nobody said were absent — and then strips
+      // all of them from `recipe.equipment` on apply. A household that never
+      // filled in the kitchen profile has told us nothing, so nothing is
+      // missing; the only thing left to adapt is the portion count. (S7 does
+      // not even offer the button in that state — `EquipmentBanner` links to
+      // Settings instead — but the rescale entry point beside the slider does
+      // reach here, and a direct call reaches here regardless of the screen.)
+      //
+      // Both sides otherwise go through `coerceEquipmentSlug` (task 4.5), so a
+      // profile entry typed as «мультиварка» still satisfies `multicooker`.
+      const missing =
+        profile === undefined
+          ? []
+          : missingEquipment(
+              coerceEquipmentList(detail.recipe.equipment),
+              profile.equipment,
+            );
       // A target equal to the recipe's own yield is not a rescale, whatever
       // the client sent.
       const targetPortions =
@@ -1220,7 +1233,7 @@ export const dishRouter = createTRPCRouter({
         // will land on.
         draft:
           targetPortions === null ? draft : rescaleDraft(draft, targetPortions),
-        profile: { equipment: profile?.equipment ?? [] },
+        profile: { equipment: profile?.equipment ?? null },
         missing,
         targetPortions,
         basePortions: draft.portionsBase,
