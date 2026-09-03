@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AiProgress } from "@/components/ai-progress";
 import {
@@ -49,7 +49,11 @@ type Phase =
   | {
       kind: "failed";
       reason: ImportFailureReason;
-      partial: { title: string | null; photoUrl: string | null; photoKey: string | null };
+      partial: {
+        title: string | null;
+        photoUrl: string | null;
+        photoKey: string | null;
+      };
       jobId: string | null;
     };
 
@@ -64,6 +68,7 @@ export function ImportScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
+  const failureRef = useRef<HTMLDivElement>(null);
   /** Render state lands a re-render too late for a double tap. */
   const runningRef = useRef(false);
 
@@ -73,6 +78,24 @@ export function ImportScreen() {
   const discardPhoto = useMutation(
     trpc.dishImport.discardPhoto.mutationOptions({ networkMode: "always" }),
   );
+
+  /**
+   * **Focus rescue.** The picker button is the element that had focus when it
+   * was tapped, and the phase change unmounts the whole of S8.1 — so without
+   * this, focus lands on `<body>` and the fallbacks the failure panel just
+   * put on screen are reachable only by tabbing from the top of the page.
+   * The recurring bug class this codebase already documents: any flow that
+   * unmounts the focused element rescues focus explicitly.
+   *
+   * Only the failure phase is rescued. «Разбираю рецепт…» has nothing to
+   * interact with and announces itself through `role="status"`; a `parsed`
+   * result navigates, which resets focus on its own.
+   */
+  useEffect(() => {
+    if (phase.kind === "failed") {
+      failureRef.current?.focus();
+    }
+  }, [phase.kind]);
 
   /**
    * `?src=photo` — the S6 empty state and the source sheet's «📷 С фото» row.
@@ -188,23 +211,31 @@ export function ImportScreen() {
       ) : null}
 
       {phase.kind === "failed" ? (
-        <ImportFailurePanel
-          reason={phase.reason}
-          partial={phase.partial}
-          manualHref={manualHref}
-          photoPickerHref="/dishes/import?src=photo"
-          onRetryPhoto={() => retryPhoto(phase.partial.photoKey)}
-          onRetry={() => {
-            if (phase.partial.photoKey !== null && phase.partial.photoUrl !== null) {
-              void runImport({
-                key: phase.partial.photoKey,
-                url: phase.partial.photoUrl,
-              });
-            }
-          }}
-          onPicked={(photo) => void runImport(photo)}
-          onSoon={announceSoon}
-        />
+        // `tabIndex={-1}` so the rescue above has something to land on: the
+        // container is programmatically focusable but stays out of the tab
+        // order, so nobody tabs *into* a plain wrapper afterwards.
+        <div ref={failureRef} tabIndex={-1} className={styles.failureShell}>
+          <ImportFailurePanel
+            reason={phase.reason}
+            partial={phase.partial}
+            manualHref={manualHref}
+            photoPickerHref="/dishes/import?src=photo"
+            onRetryPhoto={() => retryPhoto(phase.partial.photoKey)}
+            onRetry={() => {
+              if (
+                phase.partial.photoKey !== null &&
+                phase.partial.photoUrl !== null
+              ) {
+                void runImport({
+                  key: phase.partial.photoKey,
+                  url: phase.partial.photoUrl,
+                });
+              }
+            }}
+            onPicked={(photo) => void runImport(photo)}
+            onSoon={announceSoon}
+          />
+        </div>
       ) : null}
 
       {phase.kind === "source" ? (
@@ -239,12 +270,14 @@ export function ImportScreen() {
             label={t("byUrl")}
             placeholder={t("byUrlPlaceholder")}
             soon={t("soon")}
+            fieldLabel={t("soonHint", { action: t("byUrl") })}
             onActivate={() => announceSoon(t("byUrl"))}
           />
           <SoonPane
             label={t("byText")}
             placeholder={t("byTextPlaceholder")}
             soon={t("soon")}
+            fieldLabel={t("soonHint", { action: t("byText") })}
             tall
             onActivate={() => announceSoon(t("byText"))}
           />
@@ -267,16 +300,28 @@ export function ImportScreen() {
   );
 }
 
+/**
+ * A source pane DESIGN_BRIEF S8.1 draws but task 4.4 has not built yet.
+ *
+ * Rendered rather than hidden, so the screen does not change shape under
+ * someone who has learned it — and `aria-disabled` rather than `disabled`, so
+ * a keyboard user can still find out the option exists. The button's own text
+ * is the field's placeholder («https://…»), which would be a useless
+ * accessible name on its own, so `fieldLabel` carries «„По ссылке“ — скоро»
+ * instead.
+ */
 function SoonPane({
   label,
   placeholder,
   soon,
+  fieldLabel,
   tall = false,
   onActivate,
 }: {
   label: string;
   placeholder: string;
   soon: string;
+  fieldLabel: string;
   tall?: boolean;
   onActivate: () => void;
 }) {
@@ -290,6 +335,7 @@ function SoonPane({
         type="button"
         className={tall ? styles.paneFieldTall : styles.paneField}
         aria-disabled="true"
+        aria-label={fieldLabel}
         onClick={onActivate}
       >
         {placeholder}

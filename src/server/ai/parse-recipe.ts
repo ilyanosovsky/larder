@@ -1,3 +1,4 @@
+import type OpenAI from "openai";
 import { z } from "zod";
 
 import { RECIPE_UNITS } from "@/lib/units";
@@ -313,7 +314,9 @@ export async function parseRecipe({
  * because both look equally plausible. ~1.1–1.5k image tokens at gpt-5-mini
  * keeps the call inside VISION §6.5's $0.005–0.01.
  */
-function userContent(input: ParseRecipeInput): OpenAIUserContent {
+function userContent(
+  input: ParseRecipeInput,
+): OpenAI.Chat.Completions.ChatCompletionUserMessageParam["content"] {
   const text = userMessage(input);
 
   if (input.kind !== "photo") {
@@ -325,16 +328,6 @@ function userContent(input: ParseRecipeInput): OpenAIUserContent {
     { type: "image_url", image_url: { url: input.imageUrl, detail: "high" } },
   ];
 }
-
-type OpenAIUserContent =
-  | string
-  | (
-      | { type: "text"; text: string }
-      | {
-          type: "image_url";
-          image_url: { url: string; detail: "high" };
-        }
-    )[];
 
 function failure(
   error: string,

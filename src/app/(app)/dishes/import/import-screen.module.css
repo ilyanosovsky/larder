@@ -163,6 +163,18 @@
 
 /* ── S8.2 failure ─────────────────────────────────────────────────────── */
 
+/* Programmatically focusable (the focus rescue lands here), never in the tab
+   order, and with no ring of its own — the panel inside carries the visuals. */
+.failureShell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.failureShell:focus {
+  outline: none;
+}
+
 .failure {
   display: flex;
   flex: 1;
