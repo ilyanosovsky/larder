@@ -19,9 +19,13 @@ import { z } from "zod";
  * `env()`, mirroring `src/server/uploadthing-url.ts` and for its reason:
  * `env()` validates the *whole* schema on its first call, so an unrelated
  * missing variable would make a recipe import fail over `RESEND_API_KEY`. The
- * variable stays declared in `src/lib/env.ts` — that is where a deployment is
- * checked — and an absent key here degrades to `pageBlocked`, which is the
- * same fork every other FireCrawl failure offers.
+ * variable stays declared in `src/lib/env.ts` as **required**, which is where
+ * a deployment is actually checked: every request builds its context through
+ * `db()` → `env()`, so a missing key fails at the door rather than one import
+ * at a time. The «no key → `pageBlocked`» branch below is not a promise about
+ * production, then — it is what keeps this function honest in a test and in a
+ * zero-environment build, and what would hold if the variable were ever made
+ * optional.
  *
  * Credits: this is the rare branch — rambler and povar never reach it — so a
  * ~1000/month plan is not a constraint.
@@ -68,9 +72,10 @@ export async function firecrawlScrape(
   url: string,
   deps: FirecrawlDeps,
 ): Promise<FirecrawlResult> {
-  // Read here, not at import: CI builds with an empty environment. An absent
-  // key is a deployment problem, and the honest answer for *this* import is
-  // the same fork every other scrape failure gets — not a 500.
+  // Read here, not at import: CI builds with an empty environment. In
+  // production `env()` has already refused to start without this variable
+  // (see the file comment); this branch is what makes the function usable
+  // without one.
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (apiKey === undefined || apiKey.length === 0) {
     return { ok: false, reason: "blocked" };

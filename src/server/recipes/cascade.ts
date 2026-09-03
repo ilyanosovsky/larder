@@ -124,7 +124,11 @@ export function pageTitle(html: string): string | null {
     )
     ?.getAttribute("content");
 
-  const title = og ?? root.querySelector("title")?.text ?? "";
+  // `||`, not `??`: a `<meta property="og:title" content="">` is an *absent*
+  // title, not an empty one, and letting it win drops the `<title>` the page
+  // does have — costing the manual fallback the one thing it was prefilled
+  // with.
+  const title = og?.trim() || root.querySelector("title")?.text || "";
   const collapsed = title.replace(/\s+/g, " ").trim();
 
   return collapsed.length === 0 ? null : collapsed.slice(0, MAX_TITLE);

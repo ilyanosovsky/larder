@@ -44,3 +44,25 @@ export function draftFromPartial(partial: ImportSeedPartial): RecipeDraft {
           : "manual",
   };
 }
+
+/**
+ * Where «Ещё раз» goes from a screen that owns no import mutation.
+ *
+ * The review route can only *route*, so a retry has to land on S8.1 with the
+ * same source selected — and, for a link, with the link already in the field.
+ * Sending every retry to `?src=photo` (which is what it used to do) answers a
+ * failed page import by asking for a screenshot: not wrong exactly, but not
+ * the thing the button says, and it silently drops the URL the server had
+ * salvaged.
+ */
+export function retryImportHref(partial: ImportSeedPartial): string {
+  if (partial.photoKey !== null) {
+    return "/dishes/import?src=photo";
+  }
+  if (partial.sourceUrl !== null) {
+    // Prefilled, never auto-submitted: the person taps «Разобрать» again, and
+    // the server's own guards run exactly as they did the first time.
+    return `/dishes/import?src=url&url=${encodeURIComponent(partial.sourceUrl)}`;
+  }
+  return "/dishes/import?src=text";
+}

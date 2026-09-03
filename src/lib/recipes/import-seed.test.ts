@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { recipeDraftSchema } from "@/lib/recipes/draft";
 
-import { draftFromPartial } from "./import-seed";
+import { draftFromPartial, retryImportHref } from "./import-seed";
 
 const NOTHING = {
   title: null,
@@ -86,5 +86,40 @@ describe("draftFromPartial", () => {
           .success,
       ).toBe(true);
     }
+  });
+});
+
+describe("retryImportHref", () => {
+  it("sends a retry back to the source it came from", () => {
+    // «Ещё раз» used to open the photo picker whatever had failed, which
+    // answers a failed page import by asking for a screenshot — and drops the
+    // URL the server had salvaged.
+    expect(retryImportHref({ ...NOTHING, photoKey: "abc" })).toBe(
+      "/dishes/import?src=photo",
+    );
+    expect(retryImportHref(NOTHING)).toBe("/dishes/import?src=text");
+  });
+
+  it("carries the link back into the field, ready to send again", () => {
+    expect(
+      retryImportHref({
+        ...NOTHING,
+        sourceUrl: "https://povar.ru/recipes/bliny_na_moloke-473.html",
+      }),
+    ).toBe(
+      "/dishes/import?src=url&url=https%3A%2F%2Fpovar.ru%2Frecipes%2Fbliny_na_moloke-473.html",
+    );
+  });
+
+  it("escapes a URL that would otherwise break the query string", () => {
+    const href = retryImportHref({
+      ...NOTHING,
+      sourceUrl: "https://example.invalid/r?a=1&b=2#top",
+    });
+
+    expect(href).not.toContain("&b=2");
+    expect(new URL(href, "https://larder.test").searchParams.get("url")).toBe(
+      "https://example.invalid/r?a=1&b=2#top",
+    );
   });
 });

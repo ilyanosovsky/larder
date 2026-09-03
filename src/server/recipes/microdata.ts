@@ -71,12 +71,28 @@ export function recipeSkeletonFromMicrodata(
 
 function findRecipeScope(root: HTMLElement): HTMLElement | null {
   for (const element of root.querySelectorAll("[itemtype]")) {
-    const itemtype = element.getAttribute("itemtype")?.trim() ?? "";
-    if (RECIPE_ITEMTYPE.test(itemtype.replace(/\/+$/, ""))) {
+    if (hasItemtype(element, RECIPE_ITEMTYPE)) {
       return element;
     }
   }
   return null;
+}
+
+/**
+ * `itemtype` is a **space-separated list of types**, not one URL.
+ *
+ * Rare but legal, and the failure it causes is silent: a scope written
+ * `itemtype="https://schema.org/Recipe https://schema.org/Product"` ends with
+ * the *second* type, so testing the whole attribute misses the recipe and the
+ * page falls through to a paid FireCrawl scrape — for a page that had
+ * perfectly good microdata on it.
+ */
+function hasItemtype(element: HTMLElement, pattern: RegExp): boolean {
+  const raw = element.getAttribute("itemtype")?.trim() ?? "";
+
+  return raw
+    .split(/\s+/)
+    .some((type) => pattern.test(type.replace(/\/+$/, "")));
 }
 
 /**
@@ -173,11 +189,7 @@ function instructionSteps(recipe: HTMLElement): string[] {
   for (const container of containers) {
     const howToSteps = container
       .querySelectorAll("[itemtype]")
-      .filter((element) =>
-        HOW_TO_STEP.test(
-          (element.getAttribute("itemtype") ?? "").trim().replace(/\/+$/, ""),
-        ),
-      );
+      .filter((element) => hasItemtype(element, HOW_TO_STEP));
 
     if (howToSteps.length > 0) {
       for (const step of howToSteps) {

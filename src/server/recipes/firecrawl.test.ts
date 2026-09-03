@@ -212,8 +212,11 @@ describe("firecrawlScrape", () => {
   });
 });
 
-describe("a deployment with no FIRECRAWL_API_KEY", () => {
-  it("degrades to the same fork, without touching the network", async () => {
+describe("no FIRECRAWL_API_KEY", () => {
+  it("answers without touching the network", async () => {
+    // Not reachable in production — `env()` declares the variable required
+    // and every request builds its context through it — but this is what lets
+    // the function run in a test and in a zero-environment build at all.
     vi.stubEnv("FIRECRAWL_API_KEY", "");
     const fetch = vi.fn();
 

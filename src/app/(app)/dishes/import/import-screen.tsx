@@ -111,7 +111,13 @@ export function ImportScreen() {
    * person had just typed or up to twenty thousand characters they had
    * pasted, with nothing on screen to recover it from.
    */
-  const [urlValue, setUrlValue] = useState("");
+  const [urlValue, setUrlValue] = useState(
+    // `?url=` is how «Ещё раз» on the review route hands the link back — it
+    // owns no import mutation, so all it can do is route here with the field
+    // already filled. Read once, at mount: this is a field somebody types in,
+    // and a later param change must never overwrite what they wrote.
+    () => searchParams.get("url") ?? "",
+  );
   const [textValue, setTextValue] = useState("");
   /** Render state lands a re-render too late for a double tap. */
   const runningRef = useRef(false);

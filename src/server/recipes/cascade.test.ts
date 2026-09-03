@@ -121,6 +121,20 @@ describe("pageTitle — what a failed import can still prefill", () => {
     ).toBe("Блины на молоке");
   });
 
+  it("treats an empty og:title as absent rather than as a title", () => {
+    // `content=""` is what a CMS emits for a post with no social title set.
+    expect(
+      pageTitle(
+        '<html><head><title>Блины на молоке</title><meta property="og:title" content="" /></head></html>',
+      ),
+    ).toBe("Блины на молоке");
+    expect(
+      pageTitle(
+        '<html><head><title>Блины на молоке</title><meta property="og:title" content="   " /></head></html>',
+      ),
+    ).toBe("Блины на молоке");
+  });
+
   it("falls back to <title>", () => {
     expect(pageTitle(fixture("russianfood-plain.html"))).toBe(
       "Рецепт: Говяжий гуляш на тёмном пиве на RussianFood.com",

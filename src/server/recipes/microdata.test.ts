@@ -82,6 +82,34 @@ describe("recipeSkeletonFromMicrodata — the rules", () => {
     }
   });
 
+  it("reads a scope that declares several itemtypes", () => {
+    // `itemtype` is a space-separated *list*. Testing the whole attribute
+    // matches only its last entry, so a Recipe declared first fell through to
+    // a paid scrape — for a page whose microdata was right there.
+    const html = `
+      <div itemscope itemtype="https://schema.org/Recipe https://schema.org/Product">
+        <h1 itemprop="name">Суп</h1>
+        <li itemprop="recipeIngredient">Вода 1 л</li>
+      </div>`;
+
+    expect(recipeSkeletonFromMicrodata(html)?.title).toBe("Суп");
+  });
+
+  it("reads a HowToStep that declares several itemtypes", () => {
+    const html = `
+      <div itemscope itemtype="https://schema.org/Recipe">
+        <h1 itemprop="name">Тест</h1>
+        <li itemprop="recipeIngredient">Соль щепотка</li>
+        <div itemprop="recipeInstructions">
+          <div itemscope itemtype="https://schema.org/HowToStep https://schema.org/CreativeWork">
+            <span itemprop="text">Посолить.</span>
+          </div>
+        </div>
+      </div>`;
+
+    expect(recipeSkeletonFromMicrodata(html)?.steps).toEqual(["Посолить."]);
+  });
+
   it("ignores an itemprop belonging to a nested scope of another kind", () => {
     const html = `
       <div itemscope itemtype="https://schema.org/Recipe">

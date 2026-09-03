@@ -11,6 +11,7 @@ import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import type { RecipeDraft } from "@/lib/recipes/draft";
 import { consumedDishIdOf } from "@/lib/recipes/import-consumption";
+import { retryImportHref } from "@/lib/recipes/import-seed";
 import { trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
@@ -168,7 +169,10 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
             }
             router.replace("/dishes/import?src=photo");
           }}
-          onRetry={() => router.replace("/dishes/import?src=photo")}
+          // Back to the source it came from, not always the picker: «Ещё раз»
+          // after a failed page import used to answer by asking for a
+          // screenshot, and drop the URL the server had salvaged on the way.
+          onRetry={() => router.replace(retryImportHref(seed.partial))}
         />
       </section>
     );
