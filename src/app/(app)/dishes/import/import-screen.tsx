@@ -192,6 +192,7 @@ export function ImportScreen() {
           reason={phase.reason}
           partial={phase.partial}
           manualHref={manualHref}
+          photoPickerHref="/dishes/import?src=photo"
           onRetryPhoto={() => retryPhoto(phase.partial.photoKey)}
           onRetry={() => {
             if (phase.partial.photoKey !== null && phase.partial.photoUrl !== null) {

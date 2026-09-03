@@ -493,6 +493,7 @@ describe("dishImport.fromPhoto — the outcome", () => {
       outcome: "failed",
       jobId: JOB_ID,
       reason: "notARecipe",
+      consumedDishId: null,
       partial: {
         title: "NYC Cookies",
         photoUrl: PHOTO_URL,
@@ -587,6 +588,7 @@ describe("dishImport.getJob", () => {
       [
         {
           id: JOB_ID,
+          type: "parse_photo",
           status: "done",
           inputRef: FILE_KEY,
           outputJson: stored,
@@ -601,14 +603,16 @@ describe("dishImport.getJob", () => {
     expectScopedByHousehold(stub.statements[1]);
   });
 
-  it("surfaces the dish a saved draft became", async () => {
-    // `dish.create` writes `consumedDishId` into the same document, so the
-    // review route can redirect instead of offering a second copy.
+  it("surfaces the dish even a failed import became", async () => {
+    // «Создать вручную» saves with the same job id, so `dish.create` stamps
+    // `consumedDishId` onto a *failed* document too — and reopening the
+    // import URL then has to redirect rather than re-offer a dead end.
     const { caller } = callerWith([
       [membershipRow],
       [
         {
           id: JOB_ID,
+          type: "parse_photo",
           status: "done",
           inputRef: FILE_KEY,
           outputJson: {
@@ -629,7 +633,38 @@ describe("dishImport.getJob", () => {
     ]);
 
     const result = await caller.dishImport.getJob({ jobId: JOB_ID });
-    expect(result.outcome).toBe("failed");
+    expect(result).toMatchObject({
+      outcome: "failed",
+      consumedDishId: DISH_ID,
+    });
+  });
+
+  it("does not read a URL job's input_ref as a photo key", async () => {
+    // Task 4.4's `parse_url` rows carry a URL in `input_ref`. Reading it as a
+    // `photoKey` would hand the client a delete handle for nothing — and put
+    // an arbitrary string where a file key belongs.
+    const { caller } = callerWith([
+      [membershipRow],
+      [
+        {
+          id: JOB_ID,
+          type: "parse_url",
+          status: "error",
+          inputRef: "https://eda.ru/recepty/1",
+          outputJson: null,
+          createdAt: new Date("2026-09-03T10:00:00.000Z"),
+        },
+      ],
+    ]);
+
+    await expect(caller.dishImport.getJob({ jobId: JOB_ID })).resolves
+      .toMatchObject({
+        outcome: "failed",
+        partial: {
+          photoKey: null,
+          sourceUrl: "https://eda.ru/recepty/1",
+        },
+      });
   });
 
   it("reports a job that has not answered yet as running", async () => {
@@ -638,6 +673,7 @@ describe("dishImport.getJob", () => {
       [
         {
           id: JOB_ID,
+          type: "parse_photo",
           status: "running",
           inputRef: FILE_KEY,
           outputJson: null,
@@ -659,6 +695,7 @@ describe("dishImport.getJob", () => {
       [
         {
           id: JOB_ID,
+          type: "parse_photo",
           status: "running",
           inputRef: FILE_KEY,
           outputJson: null,
@@ -678,6 +715,7 @@ describe("dishImport.getJob", () => {
       [
         {
           id: JOB_ID,
+          type: "parse_photo",
           status: "error",
           inputRef: FILE_KEY,
           outputJson: { something: "else" },

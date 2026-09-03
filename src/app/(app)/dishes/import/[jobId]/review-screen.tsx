@@ -64,8 +64,12 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
     }
   }
 
+  // A failed import can have been consumed too: «создать вручную» saves with
+  // the same job id, so reopening this URL afterwards must land on the dish
+  // rather than re-offer a dead end whose «Другое фото» would try to discard
+  // a photo the new dish is now showing.
   const consumedDishId =
-    job.data?.outcome === "parsed" ? job.data.consumedDishId : null;
+    job.data?.outcome === "running" ? null : (job.data?.consumedDishId ?? null);
 
   // A draft already saved must not offer to create a second dish from the
   // same recipe. Redirecting in an effect rather than during render because
@@ -130,9 +134,12 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
           reason={seed.reason}
           partial={seed.partial}
           manualHref={`/dishes/new?from=${jobId}`}
-          // There is no picker on this route: «Другое фото» goes back to
-          // S8.1, which owns the whole upload flow, rather than growing a
-          // second copy of it here.
+          // This route owns no picker: every photo action goes back to S8.1,
+          // which owns the whole upload flow, rather than growing a second
+          // copy of it here. Omitting `onPicked` is what turns «Загрузить
+          // скриншот» into a link instead of an uploader whose result this
+          // screen would immediately throw away.
+          photoPickerHref="/dishes/import?src=photo"
           onRetryPhoto={() => {
             if (seed.partial.photoKey !== null) {
               discardPhoto.mutate({ fileKey: seed.partial.photoKey });
@@ -140,7 +147,6 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
             router.replace("/dishes/import?src=photo");
           }}
           onRetry={() => router.replace("/dishes/import?src=photo")}
-          onPicked={() => router.replace("/dishes/import?src=photo")}
           onSoon={() => undefined}
         />
       </section>

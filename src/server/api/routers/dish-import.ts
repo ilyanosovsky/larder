@@ -94,6 +94,12 @@ export const importResultOutput = z.discriminatedUnion("outcome", [
     jobId: z.uuid(),
     reason: importFailureReasonSchema,
     partial: importPartialOutput,
+    /**
+     * Set when this failed import still became a dish — «создать вручную»
+     * saves with the same `jobId`, so `dish.create` stamps it here too and
+     * reopening the import URL redirects instead of re-offering a dead end.
+     */
+    consumedDishId: z.uuid().nullable(),
   }),
   z.object({
     /** The job row exists and the call has not come back yet (decision C.5). */
@@ -231,6 +237,7 @@ export const dishImportRouter = createTRPCRouter({
             jobId: job.id,
             reason: parsed.reason,
             partial,
+            consumedDishId: null,
           });
         }
 
@@ -249,6 +256,7 @@ export const dishImportRouter = createTRPCRouter({
             // The title the model *did* read is worth carrying into the manual
             // form even when the rest was unusable.
             partial: { ...partial, title: drafted.title },
+            consumedDishId: null,
           });
         }
 
@@ -285,6 +293,7 @@ export const dishImportRouter = createTRPCRouter({
       const [job] = await ctx.db
         .select({
           id: aiJobs.id,
+          type: aiJobs.type,
           status: aiJobs.status,
           inputRef: aiJobs.inputRef,
           outputJson: aiJobs.outputJson,
@@ -308,11 +317,14 @@ export const dishImportRouter = createTRPCRouter({
         return stored.data;
       }
 
+      // `input_ref` is the file key only for a photo job; for task 4.4's URL
+      // and text jobs it is a URL and a text prefix, and reading either as a
+      // `photoKey` would hand the client a delete handle for nothing.
       const partial = {
         title: null,
         photoUrl: null,
-        photoKey: job.inputRef,
-        sourceUrl: null,
+        photoKey: job.type === "parse_photo" ? job.inputRef : null,
+        sourceUrl: job.type === "parse_url" ? job.inputRef : null,
       };
 
       // A row with no readable result is either still running or was lost
@@ -329,6 +341,7 @@ export const dishImportRouter = createTRPCRouter({
             jobId: job.id,
             reason: "aiUnavailable",
             partial,
+            consumedDishId: null,
           };
     }),
 

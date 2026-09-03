@@ -35,6 +35,7 @@ export function ImportFailurePanel({
   onPicked,
   onSoon,
   manualHref,
+  photoPickerHref,
 }: {
   reason: ImportFailureReason;
   partial: {
@@ -46,10 +47,18 @@ export function ImportFailurePanel({
   onRetryPhoto: () => void;
   /** Runs the same import again — `aiUnavailable` only. */
   onRetry: () => void;
-  onPicked: (photo: UploadedPhoto) => void;
+  /**
+   * Where an uploaded photo goes. **Omit it on a screen that owns no picker**
+   * (the review route): the action then renders as a link to S8.1 instead of
+   * an uploader, so a person cannot upload a blob the screen would discard a
+   * moment later.
+   */
+  onPicked?: (photo: UploadedPhoto) => void;
   /** Announces «скоро» for an action task 4.4 has not landed yet. */
   onSoon: (label: string) => void;
   manualHref: string;
+  /** Used for «Загрузить скриншот» when `onPicked` is absent. */
+  photoPickerHref: string;
 }) {
   const t = useTranslations("dishImport");
   const actions = fallbackActions(reason, { hasPhoto: partial.photoKey !== null });
@@ -82,6 +91,7 @@ export function ImportFailurePanel({
             onPicked={onPicked}
             onSoon={onSoon}
             manualHref={manualHref}
+            photoPickerHref={photoPickerHref}
           />
         ))}
       </div>
@@ -97,14 +107,16 @@ function Action({
   onPicked,
   onSoon,
   manualHref,
+  photoPickerHref,
 }: {
   action: FallbackAction;
   primary: boolean;
   onRetryPhoto: () => void;
   onRetry: () => void;
-  onPicked: (photo: UploadedPhoto) => void;
+  onPicked?: (photo: UploadedPhoto) => void;
   onSoon: (label: string) => void;
   manualHref: string;
+  photoPickerHref: string;
 }) {
   const t = useTranslations("dishImport");
   const className = primary ? styles.primaryAction : styles.secondaryAction;
@@ -117,6 +129,13 @@ function Action({
         </button>
       );
     case "usePhoto":
+      if (onPicked === undefined) {
+        return (
+          <Link className={className} href={photoPickerHref}>
+            {t("actionUsePhoto")}
+          </Link>
+        );
+      }
       return (
         <DishPhotoUpload
           className={styles.actionUpload}
