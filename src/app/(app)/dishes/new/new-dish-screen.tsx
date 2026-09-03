@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { z } from "zod";
 
 import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
@@ -36,7 +37,14 @@ export function NewDishScreen() {
   const importCopy = useTranslations("dishImport");
   const trpc = useTRPC();
 
-  const jobId = useSearchParams().get("from");
+  // Validated here as well as in `page.tsx`, and for a sharper reason than
+  // saving a round trip: `jobId` is handed to `dish.create`, whose input
+  // schema is `z.uuid().nullable()`. A mistyped or truncated link would
+  // otherwise let the form render normally and then fail *every* save with a
+  // BAD_REQUEST about a query parameter nobody can see.
+  const fromParam = useSearchParams().get("from");
+  const jobId = z.uuid().safeParse(fromParam).success ? fromParam : null;
+
   const job = useQuery({
     ...trpc.dishImport.getJob.queryOptions({ jobId: jobId ?? "" }),
     enabled: jobId !== null,

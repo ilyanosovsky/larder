@@ -181,15 +181,20 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
         <h1 className={styles.title}>{t("reviewTitle")}</h1>
       </div>
 
-      {seed.warnings.map((warning) => (
-        <p key={warning} className={styles.error}>
-          {warning === "noSteps"
-            ? t("warningNoSteps")
-            : warning === "noIngredients"
-              ? t("warningNoIngredients")
-              : null}
-        </p>
-      ))}
+      {/* Only the warnings that have copy — task 4.4's `normalizationFailed`
+          is about a page import and has nothing to say on this route; an
+          empty amber box would be worse than no box. */}
+      {seed.warnings
+        .filter(
+          (warning) => warning === "noSteps" || warning === "noIngredients",
+        )
+        .map((warning) => (
+          <p key={warning} className={styles.error}>
+            {warning === "noSteps"
+              ? t("warningNoSteps")
+              : t("warningNoIngredients")}
+          </p>
+        ))}
 
       <DishForm
         initial={draft}
