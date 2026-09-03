@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_PORTIONS } from "@/lib/recipes/draft";
 import { MIN_QTY } from "@/server/cart/merge";
 
 import { formatRecipeQty, portionsRange, rescaleQty } from "./rescale";
@@ -22,8 +23,20 @@ describe("portionsRange", () => {
     expect(portionsRange(6)).toEqual({ min: 1, max: 12 });
   });
 
+  it("never offers more portions than a recipe can store", () => {
+    // The slider is not the only consumer: `dish.adapt`'s own input rejects
+    // anything past `MAX_PORTIONS`, so an unclamped max would let
+    // «Пересчитать на 120» fail with a generic error and an «Ещё раз» that
+    // re-sends the same impossible number.
+    expect(portionsRange(60)).toEqual({ min: 1, max: MAX_PORTIONS });
+    expect(portionsRange(MAX_PORTIONS).max).toBe(MAX_PORTIONS);
+    expect(portionsRange(51).max).toBe(MAX_PORTIONS);
+    // Just below the clamp, doubling still applies.
+    expect(portionsRange(50)).toEqual({ min: 1, max: 100 });
+  });
+
   it("always contains the base itself", () => {
-    for (const base of [1, 2, 8, 12, 30]) {
+    for (const base of [1, 2, 8, 12, 30, 51, MAX_PORTIONS]) {
       const { min, max } = portionsRange(base);
       expect(base).toBeGreaterThanOrEqual(min);
       expect(base).toBeLessThanOrEqual(max);

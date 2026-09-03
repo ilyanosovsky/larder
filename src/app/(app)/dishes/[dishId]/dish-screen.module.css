@@ -48,6 +48,8 @@
 .undoButton:focus-visible,
 .menuRow:focus-visible,
 .cancelButton:focus-visible,
+.rescaleButton:focus-visible,
+.revertButton:focus-visible,
 .confirmButton:focus-visible,
 .secondaryAction:focus-visible,
 .primaryAction:focus-visible,
@@ -172,7 +174,28 @@
    The slider itself (`PortionsSlider`) and the equipment banner
    (`EquipmentBanner`) ship their own CSS modules — task 4.5. */
 
+/* «Пересчитать на 4 — ИИ проверит шаги» (task 4.6): a quiet second entry
+   point beside the slider, in the banner's own amber family rather than the
+   page's primary green — it is an offer, not the action the screen is for. */
+.rescaleButton {
+  min-height: 44px;
+  margin-top: var(--s-3);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-align: left;
+  cursor: pointer;
+}
+
 .adapted {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
   margin-top: var(--s-3);
   border-left: var(--bd-ink) solid var(--green-rule);
   padding-left: var(--s-3);
@@ -181,12 +204,34 @@
   line-height: var(--lead-body);
 }
 
+.adaptedText {
+  flex: 1 1 12rem;
+}
+
 .adaptedLabel {
   margin-right: var(--s-2);
   font-family: var(--font-mono);
   font-size: var(--t-label);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
+}
+
+/* «Вернуть как было» — an undo that stays reachable for as long as the
+   adaptation does, the same reasoning the archived banner's own «Вернуть»
+   follows: an undo you can still find a minute later beats a timed toast. */
+.revertButton {
+  min-height: 44px;
+  flex: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--green-txt);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-badge);
+  text-decoration: underline;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
 /* ── Section headers, same as S3/S5's department rules ── */

@@ -34,6 +34,7 @@ export function BottomSheet({
   onClose,
   title,
   closeLabel,
+  closeDisabled = false,
   restoreFocusTo,
   children,
 }: {
@@ -41,6 +42,20 @@ export function BottomSheet({
   onClose: () => void;
   title: string;
   closeLabel: string;
+  /**
+   * The caller is holding the sheet open — a write is in flight and its own
+   * `onClose` is a no-op for the moment.
+   *
+   * Esc, the scrim and this ✕ are one handler, so a caller that neutralizes
+   * `onClose` neutralizes all three; without this the ✕ would still render as
+   * an ordinary enabled button that silently does nothing, while the caller's
+   * own body buttons sit visibly `aria-disabled` beside it.
+   *
+   * `aria-disabled`, never the `disabled` attribute: a disabled control cannot
+   * hold focus, and dropping focus out of a focus trap is the bug class this
+   * codebase has already paid for once.
+   */
+  closeDisabled?: boolean;
   /**
    * The control that opened the sheet, from `useSheetOpener()`. Focus returns
    * to it on close. Optional: without it the sheet still traps focus, it just
@@ -152,7 +167,7 @@ export function BottomSheet({
           its own and must not appear in the tab order. */}
       <div
         className={styles.scrim}
-        onClick={onClose}
+        onClick={closeDisabled ? undefined : onClose}
         aria-hidden="true"
         data-testid="sheet-scrim"
       />
@@ -170,7 +185,8 @@ export function BottomSheet({
           <button
             type="button"
             className={styles.close}
-            onClick={onClose}
+            aria-disabled={closeDisabled || undefined}
+            onClick={closeDisabled ? undefined : onClose}
             aria-label={closeLabel}
           >
             ✕

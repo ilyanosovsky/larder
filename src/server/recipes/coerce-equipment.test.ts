@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { EQUIPMENT_PRESETS } from "@/server/kitchen/equipment";
 
-import { coerceEquipmentList, coerceEquipmentSlug } from "./coerce-equipment";
+import {
+  coerceEquipmentList,
+  coerceEquipmentSlug,
+  EQUIPMENT_WORD,
+} from "./coerce-equipment";
 
 describe("coerceEquipmentSlug", () => {
   it("maps the Russian words the brief lists", () => {
@@ -74,5 +78,39 @@ describe("coerceEquipmentList", () => {
 
   it("dedupes a slug and its Russian word as the same appliance", () => {
     expect(coerceEquipmentList(["oven", "духовка", "Oven"])).toEqual(["oven"]);
+  });
+});
+
+describe("EQUIPMENT_WORD (task 4.6's prompt vocabulary)", () => {
+  it("names every preset", () => {
+    expect(Object.keys(EQUIPMENT_WORD).sort()).toEqual(
+      [...EQUIPMENT_PRESETS].sort(),
+    );
+  });
+
+  it("round-trips: every word this module writes, it can read back", () => {
+    // The invariant that matters. The adaptation prompt tells a model «НЕТ на
+    // кухне: тёрка»; the same module has to recognize «тёрка» when it comes
+    // back through a profile or a parsed recipe, or the two halves of one
+    // vocabulary quietly disagree.
+    for (const slug of EQUIPMENT_PRESETS) {
+      expect(coerceEquipmentSlug(EQUIPMENT_WORD[slug]), slug).toBe(slug);
+    }
+  });
+});
+
+describe("prototype-named entries (round 2, R2)", () => {
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])(
+    "returns null for %s rather than an inherited member",
+    (entry) => {
+      // `WORD_TO_SLUG` is an object literal, so a bare lookup handed back
+      // `Object`'s own functions typed as `EquipmentSlug`. A kitchen profile
+      // can hold any 1–40-character string a household types.
+      expect(coerceEquipmentSlug(entry)).toBeNull();
+    },
+  );
+
+  it("drops them from a list instead of poisoning it", () => {
+    expect(coerceEquipmentList(["constructor", "духовка"])).toEqual(["oven"]);
   });
 });

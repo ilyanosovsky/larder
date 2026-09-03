@@ -9,8 +9,8 @@ import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 
 import messages from "./ru.json";
 
-/** Every file that binds a `dishImport` translator, found by walking `src/`. */
-function importCopyCallSites(): string[] {
+/** Every file that binds a translator for `namespace`, found by walking `src/`. */
+function copyCallSites(namespace: string): string[] {
   const found: string[] = [];
 
   const walk = (dir: string) => {
@@ -19,7 +19,7 @@ function importCopyCallSites(): string[] {
       if (statSync(path).isDirectory()) {
         walk(path);
       } else if (path.endsWith(".tsx")) {
-        if (readFileSync(path, "utf8").includes('Translations("dishImport")')) {
+        if (readFileSync(path, "utf8").includes(`Translations("${namespace}")`)) {
           found.push(path);
         }
       }
@@ -28,6 +28,39 @@ function importCopyCallSites(): string[] {
 
   walk("src");
   return found;
+}
+
+/**
+ * Every literal key those files actually pass to that translator.
+ *
+ * Read off the source rather than hand-kept, for the same reason the sweeps
+ * use `Object.keys`: a list maintained by hand is a list that stops covering
+ * the newest screen. Keys built at runtime (S8.2's failure copy, via
+ * `importFailureCopyKey`) are pinned by their own module's tests instead.
+ */
+function keysAskedFor(namespace: string): Map<string, string> {
+  const asked = new Map<string, string>();
+
+  for (const file of copyCallSites(namespace)) {
+    const source = readFileSync(file, "utf8");
+
+    for (const [, binding] of source.matchAll(
+      new RegExp(
+        `const (\\w+) = (?:await )?(?:use|get)Translations\\("${namespace}"\\)`,
+        "g",
+      ),
+    )) {
+      for (const [, key] of source.matchAll(
+        new RegExp(`\\b${binding}\\(\\s*"([A-Za-z][A-Za-z0-9]*)"`, "g"),
+      )) {
+        if (key !== undefined) {
+          asked.set(key, file);
+        }
+      }
+    }
+  }
+
+  return asked;
 }
 
 /**
@@ -57,6 +90,7 @@ function translator(
     | "dishForm"
     | "dishImport"
     | "dishPortions"
+    | "dishAdapt"
     | "cooking",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
@@ -306,23 +340,7 @@ describe("the keys the dish screens call by name", () => {
     // covering the newest screen. Keys built at runtime (S8.2's failure copy,
     // via `importFailureCopyKey`) are pinned by `import-failure.test.ts`.
     const dictionary = messages.dishImport as Record<string, unknown>;
-    const asked = new Map<string, string>();
-
-    for (const file of importCopyCallSites()) {
-      const source = readFileSync(file, "utf8");
-
-      for (const [, binding] of source.matchAll(
-        /const (\w+) = (?:await )?(?:use|get)Translations\("dishImport"\)/g,
-      )) {
-        for (const [, key] of source.matchAll(
-          new RegExp(`\\b${binding}\\(\\s*"([A-Za-z][A-Za-z0-9]*)"`, "g"),
-        )) {
-          if (key !== undefined) {
-            asked.set(key, file);
-          }
-        }
-      }
-    }
+    const asked = keysAskedFor("dishImport");
 
     // A guard on the guard: if the scan ever stops finding call sites it must
     // fail loudly rather than pass vacuously.
@@ -399,6 +417,109 @@ describe("the keys the dish screens call by name", () => {
       expect(rendered.trim().length).toBeGreaterThan(0);
     },
   );
+});
+
+describe("dishAdapt (task 4.6)", () => {
+  const DISH_ADAPT_KEYS = Object.keys(
+    messages.dishAdapt,
+  ) as (keyof typeof messages.dishAdapt)[];
+
+  it.each(DISH_ADAPT_KEYS)("dishAdapt.%s resolves to real copy", (key) => {
+    // Swept off the dictionary itself, like `dishForm`/`dishImport`. The
+    // three parameterized messages get their values here so the sweep covers
+    // them too; their actual wording is pinned below.
+    const rendered = translator("dishAdapt")(key, {
+      from: 8,
+      to: 4,
+      count: 4,
+      list: "Миксер",
+      unit: "печений",
+    });
+
+    expect(rendered).not.toBe(`dishAdapt.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("has every dishAdapt key the sheet actually asks for", () => {
+    // The opposite question to the sweep above, and the one that catches a
+    // *deletion*: every literal key `adaptation-sheet.tsx` and
+    // `dish-screen.tsx` pass to their `dishAdapt` translator must resolve, or
+    // the sheet renders «dishAdapt.apply» on the button someone is about to
+    // press.
+    const dictionary = messages.dishAdapt as Record<string, unknown>;
+    const asked = keysAskedFor("dishAdapt");
+
+    expect(asked.size).toBeGreaterThan(10);
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
+  });
+
+  it("declines the portion count in the rescale offer", () => {
+    // The sweep renders every key with `count: 4`, so it can only ever
+    // exercise the `few` arm — and ICU falls back to `other` silently.
+    const t = translator("dishAdapt");
+
+    expect(t("adaptPortions", { count: 1 })).toBe(
+      "Пересчитать на 1 порцию — ИИ проверит шаги",
+    );
+    expect(t("adaptPortions", { count: 4 })).toBe(
+      "Пересчитать на 4 порции — ИИ проверит шаги",
+    );
+    expect(t("adaptPortions", { count: 8 })).toBe(
+      "Пересчитать на 8 порций — ИИ проверит шаги",
+    );
+  });
+
+  it("renders the diff headings the proposal composes", () => {
+    const t = translator("dishAdapt");
+
+    expect(t("portionsChange", { from: 8, to: 4 })).toBe("Порции: 8 → 4");
+    expect(t("equipmentDropped", { list: "Миксер" })).toBe(
+      "Больше не нужно: Миксер",
+    );
+    // Both of these vanish with a rescale and have no revert path for a dish
+    // that was never imported, so the sheet says so rather than dropping them
+    // quietly.
+    expect(t("portionsRangeDropped", { from: 7, to: 8 })).toContain("7–8");
+    expect(t("yieldUnitDropped", { unit: "печений" })).toContain("печений");
+  });
+
+  it("tells a failed save apart from a failed adaptation", () => {
+    // Two different events, and the save one must not blame the model: a
+    // BAD_REQUEST or a dropped connection on «Применить» keeps the proposal
+    // and retries the save, so «не получается адаптировать» would be a lie.
+    const t = translator("dishAdapt");
+
+    expect(t("applyFailed")).not.toBe(t("failed"));
+    expect(t("applyFailed")).toContain("сохранить");
+  });
+
+  it("gives every diff marker a word, not just a glyph", () => {
+    // `−`/`→`/`+` and the amount arrow are all aria-hidden; these are what a
+    // screen reader actually gets. Approving a proposal is unrecoverable for
+    // a dish that was never imported, so the verb has to be spoken.
+    const t = translator("dishAdapt");
+    const spoken = [
+      t("removedLabel"),
+      t("changedLabel"),
+      t("addedLabel"),
+      t("wasLabel"),
+      t("nowLabel"),
+      t("noteLabel"),
+      t("noteRemoved"),
+      t("sourceLabel"),
+    ];
+
+    expect(new Set(spoken).size).toBe(spoken.length);
+    for (const line of spoken) {
+      expect(line.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("reuses dish.conflict for a stale version rather than a second wording", () => {
+    // `adaptation-sheet.tsx`'s `report()` falls back to the screen's own
+    // copy, so the sheet and the card word the same event the same way.
+    expect(translator("dish")("conflict").length).toBeGreaterThan(0);
+  });
 });
 
 describe("cooking (task 4.7)", () => {
