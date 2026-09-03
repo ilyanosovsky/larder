@@ -69,6 +69,14 @@ export function ImportScreen() {
   const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
   const failureRef = useRef<HTMLDivElement>(null);
+  /**
+   * Set when the picker is re-shown after a failure, so focus follows the
+   * user back instead of dropping to `<body>` — the same rescue as below, in
+   * the other direction. `DishPhotoUpload` unmounts with the failure panel
+   * and mounts again with S8.1, so React's own `autoFocus` is exactly the
+   * right mechanism: it fires on that mount and never on a re-render.
+   */
+  const [refocusPicker, setRefocusPicker] = useState(false);
   /** Render state lands a re-render too late for a double tap. */
   const runningRef = useRef(false);
 
@@ -114,6 +122,7 @@ export function ImportScreen() {
     }
     runningRef.current = true;
     setError(null);
+    setRefocusPicker(false);
     setPhase({ kind: "parsing", photoUrl: photo.url });
 
     try {
@@ -145,6 +154,7 @@ export function ImportScreen() {
         discardPhoto.mutate({ fileKey: photo.key });
         setError(t("rateLimited"));
         setPhase({ kind: "source" });
+        setRefocusPicker(true);
         return;
       }
 
@@ -178,6 +188,7 @@ export function ImportScreen() {
       discardPhoto.mutate({ fileKey });
     }
     setPhase({ kind: "source" });
+    setRefocusPicker(true);
     setError(null);
   }
 
@@ -256,7 +267,7 @@ export function ImportScreen() {
                 uploadFailed: t("uploadFailed"),
               }}
               onPicked={(photo) => void runImport(photo)}
-              autoFocus={focusPicker}
+              autoFocus={focusPicker || refocusPicker}
             />
             <p className={styles.photoHint}>{t("photoZoneHint")}</p>
           </div>
