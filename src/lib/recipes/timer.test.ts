@@ -201,4 +201,16 @@ describe("formatTimerClock", () => {
     // instant the timer starts.
     expect(formatTimerClock(9 * 60_000 - 1)).toBe("09:00");
   });
+
+  it("reads «00:01» for any sub-second remainder above zero, pinning Math.ceil against Math.round", () => {
+    // Every input elsewhere in this block is either an exact multiple of
+    // 1000ms or clamps to 0, so none of them can tell `Math.ceil` apart
+    // from `Math.round` — both give the same answer there. 400ms and 1ms
+    // round to 0 under `Math.round`/`Math.floor` but must still read
+    // «00:01»: `timerState` reports "running" for any remaining > 0, and a
+    // clock reading «00:00» one tick before the timer actually finishes
+    // would visually contradict that.
+    expect(formatTimerClock(400)).toBe("00:01");
+    expect(formatTimerClock(1)).toBe("00:01");
+  });
 });

@@ -321,7 +321,7 @@
     "next": "Далее →",
     "noSteps": "У этого блюда нет шагов — режим готовки не нужен.",
     "timerStart": "{label} · запустить",
-    "timerRunningAria": "Осталось",
+    "timerRunningAria": "Осталось {clock}",
     "timerFinished": "Готово!",
     "timerFinishedSr": "Таймер сработал — готово",
     "timerReset": "Сбросить",

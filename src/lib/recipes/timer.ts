@@ -176,11 +176,13 @@ function pad2(value: number): string {
  * not an ICU message (there is no plural or word to localize in a stopwatch
  * readout).
  *
- * `Math.ceil`, not `Math.floor`: a countdown started for exactly 9 minutes
- * should read «09:00» for the whole first second it is running, not jump to
- * «08:59» after the first 250ms tick. Ceiling still lands on «00:00» exactly
- * at (and past) `endsAt`, since `timerRemainingMs` already floors at zero —
- * `Math.ceil(0 / 1000)` is `0`, never `-0` or negative.
+ * `Math.ceil`, not `Math.floor` or `Math.round`: a countdown started for
+ * exactly 9 minutes should read «09:00» for the whole first second it is
+ * running, not jump to «08:59» (floor) or drop straight to «00:00» for the
+ * last sub-second remainder (round) while `timerState` still reports
+ * "running". Ceiling still lands on «00:00» exactly at (and past) `endsAt`,
+ * since `timerRemainingMs` already floors at zero — `Math.ceil(0 / 1000)`
+ * is `0`, never `-0` or negative.
  */
 export function formatTimerClock(ms: number): string {
   const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);

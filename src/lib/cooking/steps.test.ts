@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { timerState } from "@/lib/recipes/timer";
 
 import {
+  blockingTimerStepIndex,
   needsExitConfirmation,
   restoreCookingState,
   stepNavigation,
@@ -59,6 +60,39 @@ describe("needsExitConfirmation", () => {
   it("does not gate the first step once the timer has already finished", () => {
     // Nothing left to lose — the countdown already rang.
     expect(needsExitConfirmation(0, "finished")).toBe(false);
+  });
+});
+
+describe("blockingTimerStepIndex", () => {
+  it("blocks nothing when no timer was ever started", () => {
+    expect(blockingTimerStepIndex(null, 2, null)).toBeNull();
+  });
+
+  it("blocks nothing on the step the running timer itself belongs to", () => {
+    expect(
+      blockingTimerStepIndex({ endsAt: 1_000, stepIndex: 2 }, 2, "running"),
+    ).toBeNull();
+  });
+
+  it("blocks a different step while the timer is running", () => {
+    expect(
+      blockingTimerStepIndex({ endsAt: 1_000, stepIndex: 2 }, 4, "running"),
+    ).toBe(2);
+  });
+
+  it("does not block a different step once the timer has finished", () => {
+    // The bug this function fixes: a rung timer must not keep every other
+    // step's start button inert with a "still cooking" hint that is no
+    // longer true.
+    expect(
+      blockingTimerStepIndex({ endsAt: 1_000, stepIndex: 2 }, 4, "finished"),
+    ).toBeNull();
+  });
+
+  it("does not block the timer's own step even once finished", () => {
+    expect(
+      blockingTimerStepIndex({ endsAt: 1_000, stepIndex: 2 }, 2, "finished"),
+    ).toBeNull();
   });
 });
 

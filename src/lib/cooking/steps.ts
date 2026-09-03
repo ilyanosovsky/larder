@@ -62,6 +62,32 @@ export interface CookTimerState {
   readonly stepIndex: number;
 }
 
+/**
+ * Which step's start button, if any, is blocked by a timer *actually
+ * counting down* on a different step — `null` when nothing is running, or
+ * when the running timer belongs to `currentStepIndex` itself (that step's
+ * own control shows the running clock, not a blocked start button).
+ *
+ * **A finished timer never blocks.** `timer` stays non-null past `endsAt`
+ * until the cook taps «Сбросить» (`resetTimer`'s the only writer of
+ * `timer: null`) or starts a new one, but a step that already rang has
+ * nothing left to protect — a different step's «запустить» refusing to
+ * start over that stale timer, with a hint claiming something is "still
+ * cooking", would be actively misleading. `needsExitConfirmation` above
+ * already draws this same running-vs-finished line for the exit gate; this
+ * is the same distinction, applied to the start guard and the UI flag.
+ */
+export function blockingTimerStepIndex(
+  timer: CookTimerState | null,
+  currentStepIndex: number,
+  runState: TimerRunState | null,
+): number | null {
+  if (timer === null || runState !== "running") {
+    return null;
+  }
+  return timer.stepIndex === currentStepIndex ? null : timer.stepIndex;
+}
+
 /** What `larder.cook.<dishId>` holds between opens of the cooking overlay. */
 export interface CookingState {
   readonly stepIndex: number;

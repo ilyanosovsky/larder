@@ -54,10 +54,26 @@ export function CookTimer({
   const label = td(message.key, message.values);
 
   if (runState === "running") {
+    const clock = formatTimerClock(remainingMs ?? 0);
     return (
       <div className={styles.running}>
-        <span className={styles.clock} aria-label={t("timerRunningAria")}>
-          {formatTimerClock(remainingMs ?? 0)}
+        {/* `role="timer"` rather than a plain `<span>` (orchestrator review
+            round 1, K8): a generic element's accessible name is spec-
+            prohibited, so an `aria-label` on one either does nothing or, on
+            engines that ignore the prohibition, replaces the only carrier
+            of the remaining time with a static «Осталось». `role="timer"`
+            permits an author-provided name, matching `app-header.tsx`'s own
+            `role="status"`/`role="img"` + `aria-label` pattern — composed
+            with the live clock value rather than the tick itself being
+            live-announced (the overlay's own `role="status"` region already
+            owns the finish announcement; a per-second live region would be
+            unusable noise). */}
+        <span
+          className={styles.clock}
+          role="timer"
+          aria-label={t("timerRunningAria", { clock })}
+        >
+          {clock}
         </span>
       </div>
     );

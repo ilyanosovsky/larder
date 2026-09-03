@@ -79,17 +79,36 @@
 
 /* ── Step body ── */
 
+/* No `justify-content: center` (orchestrator review round 1, K3) — a
+   centered overflowing flex column can clip its own top in some engines,
+   and this was also the reason a long step's text pushed the footer nav and
+   ingredients drawer off-screen with nothing scrollable. `min-height: 0`
+   lets `overflow-y: auto` actually take effect inside the `.panel` column
+   (the flex default of `min-height: auto` would otherwise floor `.body` at
+   its content height); the `:first-child`/`:last-child` auto-margins below
+   restore the centered look for an ordinary short step while a long one
+   scrolls instead of overflowing. */
 .body {
   display: flex;
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--s-6);
   padding: var(--s-6) var(--s-5);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.body > :first-child {
+  margin-top: auto;
+}
+
+.body > :last-child {
+  margin-bottom: auto;
 }
 
 .stepNumber {
@@ -266,16 +285,29 @@
    task's addendum: no nested `BottomSheet`), replacing the body/footer
    rather than sitting above them. ── */
 
+/* Same overflow treatment as `.body` above, applied for the same reason
+   (K3): a long `exitHint` or a very large text-zoom setting must scroll
+   inside the panel rather than push the confirm/cancel buttons off-screen. */
 .confirmBody {
   display: flex;
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--s-4);
   padding: var(--s-6) var(--s-5);
   padding-bottom: calc(var(--s-6) + env(safe-area-inset-bottom));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   text-align: center;
+}
+
+.confirmBody > :first-child {
+  margin-top: auto;
+}
+
+.confirmBody > :last-child {
+  margin-bottom: auto;
 }
 
 .confirmTitle {

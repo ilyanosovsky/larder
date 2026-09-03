@@ -103,4 +103,33 @@ describe("decideStepSwipe", () => {
       decideStepSwipe({ dx: -30, dy: 0, recentDx: -40, recentElapsedMs: 50 }),
     ).toBe("next");
   });
+
+  // ── Exact fling-threshold boundaries, mirroring
+  // `swipe-commit.test.ts`'s own boundary block — without these, either
+  // FLING_MIN_DISTANCE_PX or FLING_VELOCITY_PX_PER_MS could drift and every
+  // other assertion in this file would still pass. `dx` is set (non-zero,
+  // sign-matching `recentDx`) on every case so the direction-agreement gate
+  // added above never masks what these are actually pinning. ──
+
+  it("does not commit one px short of the fling distance floor, even at very high velocity", () => {
+    // 23px in 1ms = 23 px/ms — velocity is nowhere near the limiting
+    // factor; the distance floor alone rejects this.
+    expect(
+      decideStepSwipe({ dx: -23, dy: 0, recentDx: -23, recentElapsedMs: 1 }),
+    ).toBeNull();
+  });
+
+  it("commits exactly at the fling distance floor with velocity exactly at the floor", () => {
+    // 24px in 48ms = 0.5 px/ms — both floors met exactly, neither exceeded.
+    expect(
+      decideStepSwipe({ dx: -24, dy: 0, recentDx: -24, recentElapsedMs: 48 }),
+    ).toBe("next");
+  });
+
+  it("does not commit just below the fling velocity floor, at exactly the distance floor", () => {
+    // 24px in 49ms ≈ 0.49 px/ms — a hair under the velocity floor.
+    expect(
+      decideStepSwipe({ dx: -24, dy: 0, recentDx: -24, recentElapsedMs: 49 }),
+    ).toBeNull();
+  });
 });

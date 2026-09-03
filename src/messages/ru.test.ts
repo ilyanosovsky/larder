@@ -320,12 +320,11 @@ describe("the keys the dish screens call by name", () => {
 describe("cooking (task 4.7)", () => {
   const t = translator("cooking");
 
-  /** Every entry here is a literal in `cooking-overlay.tsx` / `cook-timer.tsx` — see `dish.%s` above for why this sweep exists at all. */
+  /** Every entry here is a literal in `cooking-overlay.tsx` / `cook-timer.tsx` — see `dish.%s` above for why this sweep exists at all. `timerRunningAria` takes a `{clock}` param, so it gets its own parameterized test below instead. */
   const COOKING_KEYS = [
     "prev",
     "next",
     "noSteps",
-    "timerRunningAria",
     "timerFinished",
     "timerFinishedSr",
     "timerReset",
@@ -362,6 +361,14 @@ describe("cooking (task 4.7)", () => {
     // see that file's own doc comment — and hands the already-translated
     // string in here as a plain parameter.
     expect(t("timerStart", { label: "9–11 мин" })).toBe("9–11 мин · запустить");
+  });
+
+  it("composes the running clock's accessible name with the live digits, not a static «Осталось»", () => {
+    // `role="timer"` permits an author-provided name (a generic `<span>`
+    // does not — orchestrator review round 1, K8), and that name must
+    // actually carry the remaining time, since the digits are the sole
+    // content the clock renders.
+    expect(t("timerRunningAria", { clock: "09:00" })).toBe("Осталось 09:00");
   });
 });
 
