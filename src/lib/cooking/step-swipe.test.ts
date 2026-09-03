@@ -104,6 +104,28 @@ describe("decideStepSwipe", () => {
     ).toBe("next");
   });
 
+  it("still commits on distance alone even when the recent flick disagrees", () => {
+    // The sign-agreement gate added above lives inside `committedByFling`
+    // only — a slow, deliberate drag that clears the 96px distance floor on
+    // its own must still commit in `dx`'s own direction regardless of what
+    // the final, possibly-noisy recent window looked like (a paused finger
+    // right before lift-off, say). Mirrors
+    // `swipe-commit.test.ts`'s own "still commits on distance alone even
+    // when the recent flick disagrees" case.
+    expect(
+      decideStepSwipe({ dx: -120, dy: 0, recentDx: 30, recentElapsedMs: 50 }),
+    ).toBe("next");
+    expect(
+      decideStepSwipe({ dx: 120, dy: 0, recentDx: -30, recentElapsedMs: 50 }),
+    ).toBe("prev");
+  });
+
+  it("still commits on distance alone when the finger paused before release (recentDx: 0)", () => {
+    expect(
+      decideStepSwipe({ dx: -120, dy: 0, recentDx: 0, recentElapsedMs: 50 }),
+    ).toBe("next");
+  });
+
   // ── Exact fling-threshold boundaries, mirroring
   // `swipe-commit.test.ts`'s own boundary block — without these, either
   // FLING_MIN_DISTANCE_PX or FLING_VELOCITY_PX_PER_MS could drift and every

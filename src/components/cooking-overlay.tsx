@@ -310,11 +310,22 @@ function CookingSession({
   // Announces every step change, including the very first render — a
   // screen-reader user must hear "шаг 1 из 6" the instant the overlay opens,
   // not only after their first navigation (the same gap `revision-mode.tsx`
-  // closes with its own once-on-mount effect).
+  // closes with its own once-on-mount effect). Also resets `.body`'s own
+  // scroll position (orchestrator review round 2, R3): `.body` is one
+  // un-keyed DOM node reused across every step (never remounted — a remount
+  // would drop the pointer capture `handlePointerDown` takes on it, breaking
+  // the very swipe that often triggers this step change), so without an
+  // explicit reset a step scrolled while reading it left the *next* step
+  // opening mid-scroll, past its own opening line, with no cue anything was
+  // above. `scrollTo` rather than `scrollTop =` for the explicit (and
+  // future-proof) `behavior: "auto"` — this app sets no global
+  // `scroll-behavior`, but an instant jump here must never start animating
+  // just because one is added elsewhere later.
   useEffect(() => {
     announceLive(
       t("progress", { current: cooking.stepIndex + 1, total: totalSteps }),
     );
+    bodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cooking.stepIndex]);
 
@@ -377,6 +388,16 @@ function CookingSession({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Synchronous re-entrancy guard around `onClose()` (orchestrator review
+  // round 2, R1 — the same `closingRef` shape `cart-screen.tsx` uses for its
+  // own close button): `onClose` resolves to `router.back()` on the common
+  // (in-app-push) path, and Next's `back()` is a bare, non-idempotent
+  // `history.back()` — a second call in the same tick or the same auto-
+  // repeat burst pops a second history entry instead of no-op'ing. Render
+  // state (`confirmOpen`) is not a substitute here: it lands a render too
+  // late to stop a held key's next repeat from re-entering before React
+  // re-renders.
+  const closingRef = useRef(false);
 
   function requestClose() {
     // First thing, unconditionally (orchestrator review round 1, K9): a
@@ -398,6 +419,10 @@ function CookingSession({
       setConfirmOpen(true);
       return;
     }
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
     onClose();
   }
 
@@ -406,6 +431,10 @@ function CookingSession({
   }
 
   function confirmExit() {
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
     setConfirmOpen(false);
     onClose();
   }
@@ -483,7 +512,15 @@ function CookingSession({
     function onKeyDown(event: KeyboardEvent) {
       const routing = routingRef.current;
 
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.repeat) {
+        // `!event.repeat` (orchestrator review round 2, R1), matching the
+        // ArrowRight/ArrowLeft branches below: without it, a held Esc's OS
+        // auto-repeat re-enters `requestClose()` on every repeat event —
+        // and on the unconfirmed close path (step 0, no running timer)
+        // that resolves to `router.back()`, a bare, non-idempotent
+        // `history.back()` that pops one more entry per call. The
+        // `closingRef` guard inside `requestClose`/`confirmExit` is the
+        // belt to this suspenders' braces.
         if (routing.confirmOpen) {
           routing.cancelExit();
         } else if (routing.drawerOpen) {
@@ -744,6 +781,13 @@ function CookingSession({
     recipe.recipe.portionsBase,
   );
   const ingredientsFor = td(ingredientsForMsg.key, ingredientsForMsg.values);
+  // Computed once and reused for both the header's own visible progress and
+  // `.body`'s accessible name below (orchestrator review round 2, R2) — the
+  // two can never word the same step differently.
+  const progressText = t("progress", {
+    current: cooking.stepIndex + 1,
+    total: totalSteps,
+  });
 
   return (
     <div className={styles.overlay}>
@@ -756,12 +800,7 @@ function CookingSession({
         tabIndex={-1}
       >
         <div className={styles.header}>
-          <span className={styles.progress}>
-            {t("progress", {
-              current: cooking.stepIndex + 1,
-              total: totalSteps,
-            })}
-          </span>
+          <span className={styles.progress}>{progressText}</span>
           {!confirmOpen && timerElsewhereStepIndex !== null ? (
             <button
               type="button"
@@ -812,9 +851,23 @@ function CookingSession({
           </div>
         ) : (
           <>
+            {/* `tabIndex={0}` + `role="group"` + `aria-label` (orchestrator
+                review round 2, R2): every browser engine scrolls the
+                focused element's nearest scrollable *ancestor*, never a
+                scrollable descendant, so once K3 made this a scroll
+                container it became unreachable by keyboard on any step
+                whose `<CookTimer>` isn't itself present to carry focus.
+                `aria-label` reuses `progressText` rather than inventing a
+                second string for the same fact. Both this and `.drawerBody`
+                below already satisfy `FOCUSABLE_SELECTOR`
+                (`[tabindex]:not([tabindex="-1"])`), so they join the
+                existing Tab trap with no change to its logic. */}
             <div
               ref={bodyRef}
               className={styles.body}
+              tabIndex={0}
+              role="group"
+              aria-label={progressText}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={(event) => releaseDrag(event, true)}
@@ -855,7 +908,12 @@ function CookingSession({
                 {t("ingredientsToggle")}
               </button>
               {drawerOpen ? (
-                <div className={styles.drawerBody}>
+                <div
+                  className={styles.drawerBody}
+                  tabIndex={0}
+                  role="group"
+                  aria-label={ingredientsFor}
+                >
                   <p className={styles.drawerHeading}>{ingredientsFor}</p>
                   <ul className={styles.drawerList}>
                     {recipe.ingredients.map((row) => (
