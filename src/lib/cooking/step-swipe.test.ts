@@ -81,4 +81,26 @@ describe("decideStepSwipe", () => {
       decideStepSwipe({ dx: 0, dy: 0, recentDx: 0, recentElapsedMs: 300 }),
     ).toBeNull();
   });
+
+  // ── Fling direction must agree with the drag's own total displacement
+  // (CodeRabbit finding on this PR): a drag left followed by a flick right
+  // that never quite crosses back past the origin clears the fling floors
+  // on the flick's own magnitude, but must not then commit backwards in
+  // `dx`'s direction. ──
+
+  it("does not commit a fling whose recent direction disagrees with the drag's total direction", () => {
+    // Dragged left 30px, then flicked right 40px in the last 50ms — the
+    // *net* displacement is still left (`dx: -30`), but the actual last
+    // motion was rightward. Committing "prev" (from `dx`'s sign) would be
+    // backwards from what just happened; springing back is correct.
+    expect(
+      decideStepSwipe({ dx: -30, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBeNull();
+  });
+
+  it("still commits a fling whose recent direction agrees with the drag's own", () => {
+    expect(
+      decideStepSwipe({ dx: -30, dy: 0, recentDx: -40, recentElapsedMs: 50 }),
+    ).toBe("next");
+  });
 });

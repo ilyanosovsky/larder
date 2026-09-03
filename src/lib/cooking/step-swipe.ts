@@ -46,6 +46,15 @@ export function decideStepSwipe(gesture: StepSwipeGesture): StepSwipeCommit {
   const committedByDistance = distance >= DISTANCE_THRESHOLD_PX;
   const committedByFling =
     distance > 0 &&
+    // The recent flick must agree in direction with the drag's own total
+    // displacement (CodeRabbit finding on this PR, not present in the
+    // original `decideSwipeCommit` this module mirrors — see
+    // `step-swipe.test.ts`). Without this, a drag left followed by a flick
+    // right that never quite reaches back past the origin (`dx: -30,
+    // recentDx: 40`, say) would clear the fling floors on the flick's own
+    // magnitude alone and then commit in `dx`'s direction — backwards from
+    // what the flick itself just did.
+    Math.sign(recentDx) === Math.sign(dx) &&
     recentDistance >= FLING_MIN_DISTANCE_PX &&
     velocity >= FLING_VELOCITY_PX_PER_MS;
 

@@ -66,14 +66,14 @@ export function CookTimer({
   if (runState === "finished") {
     return (
       <div className={styles.finished}>
-        {/* The authoritative announcement lives in `cooking-overlay.tsx`'s
-            own permanent live region (fires exactly once, regardless of
-            which step happens to be on screen when the timer actually
-            rings); this `role="alert"` is the visible confirmation for
-            whoever *is* looking at this step at the time. */}
-        <p className={styles.finishedText} role="alert">
-          {t("timerFinished")}
-        </p>
+        {/* No `role="alert"` here on purpose (CodeRabbit finding on this
+            PR): `cooking-overlay.tsx`'s own permanent live region already
+            announces the finish exactly once, regardless of which step
+            happens to be on screen when the timer rings — adding a second
+            assertive region here would announce the same event twice to a
+            screen-reader user whenever the finished step is the one
+            visible. This text is the sighted confirmation only. */}
+        <p className={styles.finishedText}>{t("timerFinished")}</p>
         <button type="button" className={styles.resetButton} onClick={onReset}>
           {t("timerReset")}
         </button>

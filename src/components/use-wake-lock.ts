@@ -42,13 +42,22 @@ function wakeLockSupported(): boolean {
  * a gap this hook tries to paper over.
  */
 export function useWakeLock(): WakeLockStatus {
-  const [status, setStatus] = useState<WakeLockStatus>(() =>
-    wakeLockSupported() ? "inactive" : "unsupported",
-  );
+  // Starts `"inactive"` unconditionally — never `wakeLockSupported() ?
+  // "inactive" : "unsupported"` computed during render (a CodeRabbit finding
+  // on this PR). `navigator` differs between a server render and the
+  // client's first render, so branching on it inside the initializer risked
+  // exactly the hydration-mismatch bug class `useIsOnline` (`src/lib/sync/
+  // use-is-online.ts`) already documents a fix for — this hook currently
+  // only ever mounts client-side, post-hydration (`cooking-overlay.tsx`'s
+  // own doc comment), but making the hook correct on its own rather than
+  // relying on that caller detail is the same discipline. Detection instead
+  // happens inside the effect below, which only ever runs on the client.
+  const [status, setStatus] = useState<WakeLockStatus>("inactive");
   const sentinelRef = useRef<WakeLockSentinel | null>(null);
 
   useEffect(() => {
     if (!wakeLockSupported()) {
+      setStatus("unsupported");
       return;
     }
 
@@ -58,8 +67,19 @@ export function useWakeLock(): WakeLockStatus {
     // stashed into `sentinelRef` and left un-released after the component
     // that owns it is already gone.
     let cancelled = false;
+    // A second guard, orthogonal to `cancelled` (CodeRabbit finding on this
+    // PR): `visibilitychange` can fire while the very first `request()` is
+    // still pending — `sentinelRef.current` reads `null` right up until it
+    // resolves, so without this a rapid hide→show would start a *second*
+    // concurrent request. If both later resolved, only the last one written
+    // to `sentinelRef` would ever get released on cleanup, leaking the other.
+    let pending = false;
 
     async function acquire() {
+      if (pending) {
+        return;
+      }
+      pending = true;
       try {
         const sentinel = await navigator.wakeLock.request("screen");
 
@@ -86,6 +106,8 @@ export function useWakeLock(): WakeLockStatus {
         if (!cancelled) {
           setStatus("inactive");
         }
+      } finally {
+        pending = false;
       }
     }
 
@@ -94,7 +116,8 @@ export function useWakeLock(): WakeLockStatus {
     function onVisibilityChange() {
       if (
         document.visibilityState === "visible" &&
-        sentinelRef.current === null
+        sentinelRef.current === null &&
+        !pending
       ) {
         void acquire();
       }

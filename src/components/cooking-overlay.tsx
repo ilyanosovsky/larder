@@ -275,15 +275,23 @@ function CookingSession({
       audioRef.current = new Audio(COOK_TIMER_FINISH_SOUND_DATA_URI);
     }
     const audio = audioRef.current;
+    // Muted for this priming pass only (CodeRabbit finding on this PR):
+    // `play()` resolves *after* playback has already started, so without
+    // this the cook would hear a short burst of the finish chime on every
+    // single «запустить» tap, not just on the one that actually finishes.
+    // Restored to audible before the real, unprompted finish playback.
+    audio.volume = 0;
     audio
       .play()
       .then(() => {
         audio.pause();
         audio.currentTime = 0;
+        audio.volume = 1;
       })
       .catch(() => {
         // Priming failed — the later automatic play on finish likely will
         // too, silently. Nothing else to do here; see the finish effect above.
+        audio.volume = 1;
       });
 
     const { endsAt } = startTimer(Date.now(), timerSec);
