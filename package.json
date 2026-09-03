@@ -35,6 +35,7 @@
     "idb-keyval": "^6.3.0",
     "next": "^15",
     "next-intl": "^4.13.7",
+    "node-html-parser": "^9.0.3",
     "openai": "^7.5.0",
     "postgres": "^3.4.9",
     "react": "^19",

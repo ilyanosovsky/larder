@@ -23,13 +23,29 @@ import {
   householdProcedure,
   type TRPCContext,
 } from "@/server/api/trpc";
-import { Deadline, PHOTO_STAGE_MS } from "@/server/recipes/deadline";
+import { decideUrlStrategy, pageTitle } from "@/server/recipes/cascade";
+import {
+  canRunFirecrawl,
+  Deadline,
+  FETCH_STAGE_MS,
+  FIRECRAWL_STAGE_MS,
+  NORMALIZE_STAGE_MS,
+  PHOTO_STAGE_MS,
+} from "@/server/recipes/deadline";
 import {
   draftFromParsed,
   type DraftSource,
   type ImportWarning,
 } from "@/server/recipes/draft-from-parsed";
+import { fetchPage, type FetchPageResult } from "@/server/recipes/fetch-page";
+import { firecrawlScrape } from "@/server/recipes/firecrawl";
 import { matchIngredients } from "@/server/recipes/match-ingredients";
+import {
+  normalizeRecipe,
+  type NormalizeInput,
+  type NormalizeRecipeResult,
+} from "@/server/recipes/normalize-recipe";
+import { classifyImportUrl } from "@/server/recipes/url-guard";
 import { UPLOADTHING_KEY_RE, uploadThingUrl } from "@/server/uploadthing-url";
 
 type Database = TRPCContext["db"];
@@ -56,6 +72,8 @@ export const importViaSchema = z.enum([
   "firecrawl",
   "text",
 ]);
+
+export type ImportVia = z.infer<typeof importViaSchema>;
 
 export const importWarningSchema = z.enum([
   "normalizationFailed",
@@ -132,8 +150,26 @@ export const fromPhotoInput = z.object({ fileKey: fileKeyField });
 export const discardPhotoInput = z.object({ fileKey: fileKeyField });
 export const getJobInput = z.object({ jobId: z.uuid() });
 
-/** Task 4.4 fills these bodies; the shapes ship now so it only fills bodies. */
-export const fromUrlInput = z.object({ url: z.url().max(2000) });
+/**
+ * The URL import's input — and its SSRF guard.
+ *
+ * The refusal lives on the **schema**, not in the resolver, because decision
+ * C.8 says a blocked URL is a validation rejection with no `ai_jobs` row: the
+ * ledger counts calls the household could be billed for, and refusing
+ * `http://169.254.169.254/` before anything happens is not one. tRPC turns a
+ * failed refinement into `BAD_REQUEST`, which S8.2 renders with the
+ * `blockedUrl` copy — the one failure that carries no `jobId` because there
+ * is deliberately nothing to record.
+ */
+export const fromUrlInput = z.object({
+  url: z
+    .url()
+    .max(2000)
+    .refine((value) => classifyImportUrl(value).kind !== "blocked", {
+      error: "URL is not fetchable",
+    }),
+});
+
 export const fromTextInput = z.object({
   text: z.string().trim().min(20).max(20_000),
 });
@@ -197,23 +233,12 @@ export const dishImportRouter = createTRPCRouter({
         sourceUrl: null,
       };
 
-      const [job] = await ctx.db
-        .insert(aiJobs)
-        .values({
-          householdId,
-          userId: ctx.user.id,
-          type: "parse_photo",
-          status: "running",
-          inputRef: input.fileKey,
-        })
-        .returning({ id: aiJobs.id });
-
-      if (!job) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Opening an import job inserted no row",
-        });
-      }
+      const job = await openJob(ctx.db, {
+        householdId,
+        userId: ctx.user.id,
+        type: "parse_photo",
+        inputRef: input.fileKey,
+      });
 
       const deadline = new Deadline();
       const parsed = await parseRecipe({
@@ -231,23 +256,10 @@ export const dishImportRouter = createTRPCRouter({
       });
 
       // Step 3 — the ledger, closed before anything else can fail.
-      await ctx.db
-        .update(aiJobs)
-        .set(
-          parsed.ok
-            ? {
-                status: "done",
-                costUsd: formatCostUsd(parsed.costUsd),
-                finishedAt: sql`now()`,
-              }
-            : {
-                status: "error",
-                error: parsed.error,
-                costUsd: formatCostUsd(parsed.costUsd),
-                finishedAt: sql`now()`,
-              },
-        )
-        .where(and(eq(aiJobs.id, job.id), eq(aiJobs.householdId, householdId)));
+      await closeJob(ctx.db, householdId, job.id, {
+        error: parsed.ok ? null : parsed.error,
+        costUsd: parsed.costUsd,
+      });
 
       try {
         if (!parsed.ok) {
@@ -416,25 +428,205 @@ export const dishImportRouter = createTRPCRouter({
       return { ok: true };
     }),
 
-  /** Task 4.4. Declared now so the client's shape and the plan row are stable. */
+  /**
+   * Import by link — the cascade (VISION §6.4, blueprint §3.2).
+   *
+   * ```
+   * classifyImportUrl  ← already ran, on the input schema: blocked never gets here
+   * INSERT ai_jobs (parse_url, running)          ← BEFORE the fetch (D16)
+   * fetchPage            8 s   → JSON-LD? microdata?   (free)
+   * firecrawlScrape     20 s   → only if nothing structured AND ≥10 s left
+   * normalizeRecipe     25 s   → ALWAYS, free path included (D15)
+   * UPDATE ai_jobs (cost, on both branches)      ← immediately after (C.2)
+   * ```
+   *
+   * Three orderings are load-bearing and each has its own reason:
+   *
+   * 1. **The job row opens before the fetch, not before the AI call.**
+   *    `src/server/ai/rate-limit.ts` counts `ai_jobs` rows, so an endpoint
+   *    hammered with unreachable hosts must still count against the window. A
+   *    run that dies at the fetch closes as `error` with `costUsd = 0`.
+   * 2. **The ledger closes the instant the AI answers**, before catalog
+   *    matching and draft validation, exactly as `fromPhoto` does.
+   * 3. **One `Deadline` for all three stages.** Independent timeouts would
+   *    sum past `maxDuration = 60` and return a 504 — the single outcome S8.2
+   *    has no copy for, because it carries no `jobId`.
+   */
   fromUrl: householdProcedure
     .input(fromUrlInput)
     .output(importResultOutput)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "URL import lands in task 4.4",
+    .mutation(async ({ ctx, input }) => {
+      const householdId = ctx.household.id;
+      const classified = classifyImportUrl(input.url);
+
+      if (classified.kind === "blocked") {
+        // Unreachable in practice — the input schema refuses these — but the
+        // guard is not going to live in one place only.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "URL is not fetchable",
+        });
+      }
+
+      const url = classified.url;
+      await assertWithinRateLimit(ctx.db, ctx.user.id);
+
+      const job = await openJob(ctx.db, {
+        householdId,
+        userId: ctx.user.id,
+        type: "parse_url",
+        inputRef: url,
+      });
+
+      const deadline = new Deadline();
+      const transport = ctx.pageFetch();
+
+      // A login wall answers a server with a login page, so the direct fetch
+      // is skipped rather than spent (VISION §6.4).
+      const fetched =
+        classified.kind === "social"
+          ? null
+          : await fetchPage(url, {
+              ...transport,
+              signal: deadline.signal(FETCH_STAGE_MS),
+            });
+
+      const html = fetched?.kind === "html" ? fetched.html : null;
+      const partial = {
+        title: html === null ? null : pageTitle(html),
+        photoUrl: null,
+        photoKey: null,
+        sourceUrl: url,
+      };
+
+      // Two fetch outcomes end the import here rather than falling through:
+      // a hop that pointed somewhere private (scraping it through FireCrawl
+      // would be the same request with an extra step), and a body past the
+      // cap (a page that size has no recipe card in it).
+      if (fetched?.kind === "blocked" || fetched?.kind === "tooLarge") {
+        return await failImport(ctx.db, householdId, job.id, {
+          reason: fetched.kind === "blocked" ? "blockedUrl" : "tooLarge",
+          partial,
+          error: `fetch ${fetched.kind}`,
+        });
+      }
+
+      const strategy = decideUrlStrategy({ url, html });
+      let via: ImportVia;
+      let normalizeInput: NormalizeInput;
+      let image: string | null = null;
+
+      if (strategy.kind === "jsonld" || strategy.kind === "microdata") {
+        via = strategy.kind;
+        image = usablePhotoUrl(strategy.skeleton.image);
+        normalizeInput = { kind: "skeleton", skeleton: strategy.skeleton };
+      } else {
+        if (!canRunFirecrawl(deadline.remainingMs())) {
+          return await failImport(ctx.db, householdId, job.id, {
+            reason: "pageBlocked",
+            partial,
+            error: "No budget left for a scrape",
+          });
+        }
+
+        const scraped = await firecrawlScrape(url, {
+          fetch: transport.fetch,
+          signal: deadline.signal(FIRECRAWL_STAGE_MS),
+        });
+
+        if (!scraped.ok) {
+          return await failImport(ctx.db, householdId, job.id, {
+            reason: scrapeFailureReason(classified.kind, fetched, scraped.reason),
+            partial,
+            error: `firecrawl ${scraped.reason}`,
+          });
+        }
+
+        via = "firecrawl";
+        normalizeInput = { kind: "markdown", markdown: scraped.markdown };
+      }
+
+      const normalized = await normalizeRecipe({
+        client: ctx.openai(),
+        input: normalizeInput,
+        options: {
+          timeout: NORMALIZE_STAGE_MS,
+          maxRetries: 0,
+          signal: deadline.signal(NORMALIZE_STAGE_MS),
+        },
+      });
+
+      await closeJob(ctx.db, householdId, job.id, normalized);
+
+      return await finishImport(ctx.db, householdId, job.id, {
+        normalized,
+        via,
+        partial,
+        source: {
+          sourceType: "url",
+          sourceUrl: url,
+          // A page's own image is stored as the **remote URL** with no
+          // `photoKey`: it was never uploaded, so there is no blob of ours to
+          // discard, and re-hosting somebody's photo to save a hotlink is a
+          // decision (and a bill) this feature does not need to make.
+          photoUrl: image,
+          photoKey: null,
+        },
       });
     }),
 
-  /** Task 4.4, as above. */
+  /**
+   * Import by pasted text (blueprint §3.3).
+   *
+   * The **same** normalizer, the same prompt family and the same ledger order
+   * as the two branches above. There is deliberately no second parser: a fix
+   * to ingredient parsing has to fix photo, page and pasted text at once, or
+   * the three drift and only one of them stays good.
+   */
   fromText: householdProcedure
     .input(fromTextInput)
     .output(importResultOutput)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "Text import lands in task 4.4",
+    .mutation(async ({ ctx, input }) => {
+      const householdId = ctx.household.id;
+      await assertWithinRateLimit(ctx.db, ctx.user.id);
+
+      const job = await openJob(ctx.db, {
+        householdId,
+        userId: ctx.user.id,
+        type: "parse_text",
+        // The ledger is not a document store: enough to recognise the row in
+        // a spend report, and nothing like a copy of what was pasted.
+        inputRef: `text:${input.text.slice(0, 80)}`,
+      });
+
+      const deadline = new Deadline();
+      const normalized = await normalizeRecipe({
+        client: ctx.openai(),
+        input: { kind: "text", text: input.text },
+        options: {
+          timeout: NORMALIZE_STAGE_MS,
+          maxRetries: 0,
+          signal: deadline.signal(NORMALIZE_STAGE_MS),
+        },
+      });
+
+      await closeJob(ctx.db, householdId, job.id, normalized);
+
+      return await finishImport(ctx.db, householdId, job.id, {
+        normalized,
+        via: "text",
+        partial: {
+          title: null,
+          photoUrl: null,
+          photoKey: null,
+          sourceUrl: null,
+        },
+        source: {
+          sourceType: "text",
+          sourceUrl: null,
+          photoUrl: null,
+          photoKey: null,
+        },
       });
     }),
 });
@@ -471,6 +663,202 @@ async function requireOwnedPhoto(
   }
 
   return row;
+}
+
+/**
+ * Opens the ledger row every import path shares.
+ *
+ * One helper rather than three copies, because the *timing* is the contract:
+ * `src/server/ai/rate-limit.ts` counts these rows, so the insert has to
+ * happen before the work — before the vision call on the photo path, and
+ * before the network on the URL path (decision D16).
+ */
+async function openJob(
+  db: Database,
+  values: {
+    householdId: string;
+    userId: string;
+    type: "parse_photo" | "parse_url" | "parse_text";
+    inputRef: string;
+  },
+): Promise<{ id: string }> {
+  const [job] = await db
+    .insert(aiJobs)
+    .values({ ...values, status: "running" })
+    .returning({ id: aiJobs.id });
+
+  if (!job) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Opening an import job inserted no row",
+    });
+  }
+
+  return job;
+}
+
+/**
+ * Closes the ledger row — **the statement that runs immediately after the
+ * model answers**, on both branches, before coercion, catalog matching and
+ * draft validation (decision C.2).
+ *
+ * The cost is written whether or not the answer was usable: a response that
+ * arrived and then failed validation was billed, and a ledger that counts
+ * only the successes under-reports exactly when things go wrong.
+ *
+ * Also called by the URL path's pre-AI failures with `costUsd: 0` — a run
+ * that died at the fetch still has to close the row it opened, or the
+ * limiter's count and the spend report would disagree about what happened.
+ */
+async function closeJob(
+  db: Database,
+  householdId: string,
+  jobId: string,
+  outcome: { error: string | null; costUsd: number },
+): Promise<void> {
+  await db
+    .update(aiJobs)
+    .set({
+      status: outcome.error === null ? "done" : "error",
+      error: outcome.error,
+      costUsd: formatCostUsd(outcome.costUsd),
+      finishedAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), eq(aiJobs.householdId, householdId)));
+}
+
+/**
+ * A URL import that ended before the AI: closes the row with no cost and
+ * stores the S8.2 outcome.
+ */
+async function failImport(
+  db: Database,
+  householdId: string,
+  jobId: string,
+  failure: {
+    reason: ImportFailureReason;
+    partial: z.infer<typeof importPartialOutput>;
+    error: string;
+  },
+): Promise<ImportResultOutput> {
+  await closeJob(db, householdId, jobId, {
+    error: failure.error,
+    costUsd: 0,
+  });
+
+  return await recordResult(db, householdId, jobId, {
+    outcome: "failed",
+    jobId,
+    reason: failure.reason,
+    partial: failure.partial,
+    consumedDishId: null,
+  });
+}
+
+/**
+ * Everything after the ledger closed: catalog matching, the draft, and the
+ * stored result.
+ *
+ * Wrapped in the same `try/catch` `fromPhoto` uses, and for the same reason —
+ * the cost is already recorded, so this only makes a later failure *visible*
+ * in the ledger instead of leaving a row that says «done» beside an import
+ * nobody received.
+ */
+async function finishImport(
+  db: Database,
+  householdId: string,
+  jobId: string,
+  args: {
+    normalized: NormalizeRecipeResult;
+    via: ImportVia;
+    partial: z.infer<typeof importPartialOutput>;
+    source: DraftSource;
+  },
+): Promise<ImportResultOutput> {
+  const { normalized, via, partial, source } = args;
+
+  try {
+    if (normalized.parsed === null) {
+      return await recordResult(db, householdId, jobId, {
+        outcome: "failed",
+        jobId,
+        reason: normalized.reason ?? "aiUnavailable",
+        partial,
+        consumedDishId: null,
+      });
+    }
+
+    const drafted = await buildDraft(
+      db,
+      householdId,
+      normalized.parsed,
+      source,
+    );
+
+    if (!drafted.ok) {
+      return await recordResult(db, householdId, jobId, {
+        outcome: "failed",
+        jobId,
+        reason: drafted.reason,
+        partial: { ...partial, title: drafted.title ?? partial.title },
+        consumedDishId: null,
+      });
+    }
+
+    return await recordResult(db, householdId, jobId, {
+      outcome: "parsed",
+      jobId,
+      draft: drafted.draft,
+      via,
+      warnings: [...normalized.warnings, ...drafted.warnings],
+      consumedDishId: null,
+    });
+  } catch (error) {
+    await markJobError(db, householdId, jobId, error);
+    throw error;
+  }
+}
+
+/**
+ * Which S8.2 copy a failed scrape earns (blueprint §3.6).
+ *
+ * The order matters. A login wall is `loginWalled` whatever else happened —
+ * that is the branch whose copy names the screenshot as the better road. A
+ * scrape that came back but was too thin is `noRecipeOnPage`: the page was
+ * reachable, it simply had no recipe on it. Otherwise the *direct* fetch's
+ * own verdict decides, because it is the more specific one: a dead host is
+ * «не удалось прочитать страницу», a 403 is «страница не отдала рецепт».
+ */
+function scrapeFailureReason(
+  classified: "ok" | "social",
+  fetched: FetchPageResult | null,
+  scrape: "blocked" | "empty",
+): ImportFailureReason {
+  if (classified === "social") {
+    return "loginWalled";
+  }
+  if (scrape === "empty") {
+    return "noRecipeOnPage";
+  }
+  if (fetched?.kind === "unreachable" || fetched?.kind === "notHtml") {
+    return "pageUnreachable";
+  }
+  return "pageBlocked";
+}
+
+/**
+ * A page's own image, if it fits where it is going.
+ *
+ * `recipeDraftSchema.photoUrl` caps at 500 characters, and a longer CDN URL
+ * would fail the *whole* draft's validation — reporting a perfectly good
+ * import as a failure over a picture. Dropping the image instead costs a
+ * thumbnail.
+ */
+function usablePhotoUrl(url: string | null): string | null {
+  if (url === null || url.length > 500 || !/^https?:\/\//i.test(url)) {
+    return null;
+  }
+  return url;
 }
 
 type BuildDraftResult =
@@ -535,7 +923,15 @@ async function buildDraft(
   // in hand.
   const valid = recipeDraftSchema.safeParse(drafted.draft);
   if (!valid.success) {
-    return { ok: false, reason: "photoUnreadable", title: fallbackTitle };
+    return {
+      ok: false,
+      // «Попробуй другой скриншот» is only sensible when there *is* a
+      // screenshot. On the URL and text paths the same failure means the
+      // model produced something this app cannot store, and the way out is
+      // «ещё раз» or «вручную».
+      reason: source.sourceType === "photo" ? "photoUnreadable" : "aiUnavailable",
+      title: fallbackTitle,
+    };
   }
 
   return { ok: true, draft: valid.data, warnings: drafted.warnings };

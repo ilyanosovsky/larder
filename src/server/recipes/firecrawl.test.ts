@@ -1,0 +1,178 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  FIRECRAWL_ENDPOINT,
+  firecrawlScrape,
+  MAX_MARKDOWN_CHARS,
+  parseFirecrawlResponse,
+} from "./firecrawl";
+
+/** Long enough to clear the "this was a cookie banner" floor. */
+const MARKDOWN = `# Гуляш\n\n${"Говядина — 1 кг. ".repeat(30)}`;
+
+function ok(json: unknown, status = 200): Response {
+  return new Response(JSON.stringify(json), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** A fetch that records the request it was handed and answers with `body`. */
+function recordingFetch(body: () => Response | Promise<Response>) {
+  const calls: { url: string; init: RequestInit | undefined }[] = [];
+
+  const fetcher = ((url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    return Promise.resolve(body());
+  }) as unknown as typeof globalThis.fetch;
+
+  return { fetch: fetcher, calls };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("parseFirecrawlResponse — the shape guard (R7)", () => {
+  it("returns the markdown from a well-formed answer", () => {
+    const result = parseFirecrawlResponse({
+      success: true,
+      data: { markdown: MARKDOWN },
+    });
+
+    expect(result).toEqual({ ok: true, markdown: MARKDOWN.trim() });
+  });
+
+  it("ignores fields FireCrawl adds later", () => {
+    // Additive API changes must not break an import; only a *missing*
+    // `data.markdown` is the failure this schema exists to catch.
+    expect(
+      parseFirecrawlResponse({
+        success: true,
+        warning: null,
+        data: { markdown: MARKDOWN, html: "<h1/>", metadata: { title: "x" } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["success: false", { success: false, data: { markdown: MARKDOWN } }],
+    ["no data.markdown", { success: true, data: { html: "<h1/>" } }],
+    ["markdown of the wrong type", { success: true, data: { markdown: 42 } }],
+    ["no data at all", { success: true }],
+    ["an error envelope", { error: "Payment required" }],
+    ["garbage", "not json at all"],
+    ["null", null],
+  ])("maps %s to a blocked page, never a stack trace", (_label, json) => {
+    expect(parseFirecrawlResponse(json)).toEqual({
+      ok: false,
+      reason: "blocked",
+    });
+  });
+
+  it("separates «nothing on the page» from «refused»", () => {
+    // A scrape that succeeded and returned a cookie banner is
+    // `noRecipeOnPage`, not `pageBlocked`: the page was reachable.
+    expect(
+      parseFirecrawlResponse({ success: true, data: { markdown: "Cookies" } }),
+    ).toEqual({ ok: false, reason: "empty" });
+  });
+
+  it("truncates a very long page before the model is billed for it", () => {
+    const result = parseFirecrawlResponse({
+      success: true,
+      data: { markdown: "я".repeat(50_000) },
+    });
+
+    expect(result.ok && result.markdown.length).toBe(MAX_MARKDOWN_CHARS);
+  });
+});
+
+describe("firecrawlScrape", () => {
+  it("posts the documented body with the bearer read at call time", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const { fetch, calls } = recordingFetch(() =>
+      ok({ success: true, data: { markdown: MARKDOWN } }),
+    );
+
+    const result = await firecrawlScrape("https://www.russianfood.com/r", {
+      fetch,
+    });
+
+    expect(result.ok).toBe(true);
+    const { url, init } = calls[0] ?? {};
+    expect(url).toBe(FIRECRAWL_ENDPOINT);
+    expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>).authorization).toBe(
+      "Bearer fc-test-key",
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      url: "https://www.russianfood.com/r",
+      formats: ["markdown"],
+      onlyMainContent: true,
+    });
+  });
+
+  it("threads the deadline's signal through", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const signal = AbortSignal.timeout(5_000);
+    const { fetch, calls } = recordingFetch(() =>
+      ok({ success: true, data: { markdown: MARKDOWN } }),
+    );
+
+    await firecrawlScrape("https://x.example/r", { fetch, signal });
+
+    expect(calls[0]?.init?.signal).toBe(signal);
+  });
+
+  it("maps a thrown request to a blocked page", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      firecrawlScrape("https://x.example/r", {
+        fetch: (() =>
+          Promise.reject(new Error("aborted"))) as unknown as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "blocked" });
+  });
+
+  it("maps a non-JSON body to a blocked page", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      firecrawlScrape("https://x.example/r", {
+        fetch: (() =>
+          Promise.resolve(new Response("<html>502</html>", { status: 502 }))) as unknown as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "blocked" });
+  });
+
+  it("reads a 402's JSON body rather than assuming a status is enough", async () => {
+    // FireCrawl answers "out of credits" with a JSON envelope, and the
+    // outcome is the same either way: no markdown, so S8.2's fork.
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      firecrawlScrape("https://x.example/r", {
+        fetch: (() =>
+          Promise.resolve(
+            ok({ success: false, error: "Insufficient credits" }, 402),
+          )) as unknown as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "blocked" });
+  });
+});
+
+describe("a deployment with no FIRECRAWL_API_KEY", () => {
+  it("degrades to the same fork, without touching the network", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "");
+    const fetch = vi.fn();
+
+    await expect(
+      firecrawlScrape("https://x.example/r", {
+        fetch: fetch as unknown as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "blocked" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

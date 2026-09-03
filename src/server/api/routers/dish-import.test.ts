@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
+
 import { TRPCError } from "@trpc/server";
 import { isSQLWrapper, type SQLWrapper } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type OpenAI from "openai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AiRequestOptions } from "@/server/ai/openai";
 import type { ParsedRecipe } from "@/server/ai/parse-recipe";
@@ -47,6 +49,10 @@ const STORED_URL = `https://utfs.io/f/${FILE_KEY}`;
  * suite needs one — synthetic, never a real project's.
  */
 beforeEach(() => {
+  // Empty rather than unstubbed: on a machine that exports a real key, a test
+  // that forgot to set one would otherwise run against it. The FireCrawl
+  // tests below stub a synthetic value over this.
+  vi.stubEnv("FIRECRAWL_API_KEY", "");
   vi.stubEnv(
     "UPLOADTHING_TOKEN",
     Buffer.from(
@@ -54,6 +60,10 @@ beforeEach(() => {
       "utf8",
     ).toString("base64"),
   );
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const membershipRow = {
@@ -956,29 +966,706 @@ describe("dishImport.discardPhoto", () => {
   });
 });
 
-describe("the task-4.4 stubs", () => {
-  it.each([
-    ["fromUrl", () => ({ url: "https://eda.rambler.ru/recipes/1" })],
-    ["fromText", () => ({ text: "Мука 285 г, сахар 200 г, соль щепотка" })],
-  ] as const)(
-    "%s exists with its input schema and refuses to run",
-    async (name, input) => {
-      const { caller } = callerWith([[membershipRow]]);
-      const procedure = caller.dishImport[name] as (
-        value: ReturnType<typeof input>,
-      ) => Promise<unknown>;
 
-      await expect(procedure(input())).rejects.toSatisfy(
-        hasCode("NOT_IMPLEMENTED"),
+// ─────────────────────────────────────────────────────────────────────────
+// Task 4.4 — import by URL and by pasted text
+// ─────────────────────────────────────────────────────────────────────────
+
+const RAMBLER_URL =
+  "https://eda.rambler.ru/recepty/osnovnye-blyuda/kotlety-s-ovsyanymi-hlopyami-192922";
+const RUSSIANFOOD_URL =
+  "https://www.russianfood.com/recipes/recipe.php?rid=179072";
+const INSTAGRAM_URL = "https://www.instagram.com/p/abc123/";
+
+const RECIPE_TEXT =
+  "Мука 285 г, сахар 200 г, масло сливочное 227 г, шоколад 150 г";
+
+function fixture(name: string): string {
+  return readFileSync(`src/server/recipes/__fixtures__/${name}`, "utf8");
+}
+
+/**
+ * A stand-in transport that records every request and answers from a queue.
+ *
+ * Two things it makes assertable that nothing else can: **which URLs were
+ * requested at all** (the Instagram branch must issue no direct fetch, and a
+ * refused SSRF hop must issue none either), and the *order* of the page fetch
+ * against the FireCrawl call.
+ */
+function fakePageFetch(
+  responses: (Response | Error)[],
+  lookupAddress = "93.184.216.34",
+) {
+  const requests: string[] = [];
+
+  const fetcher = ((input: RequestInfo | URL) => {
+    requests.push(String(input));
+    const next = responses.shift();
+    if (next === undefined) {
+      return Promise.reject(new Error(`unexpected fetch of ${String(input)}`));
+    }
+    if (next instanceof Error) {
+      return Promise.reject(next);
+    }
+    return Promise.resolve(next);
+  }) as unknown as typeof globalThis.fetch;
+
+  return {
+    requests,
+    factory: () => ({
+      fetch: fetcher,
+      lookup: () => Promise.resolve([{ address: lookupAddress }]),
+    }),
+  };
+}
+
+function htmlPage(html: string): Response {
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
+function firecrawlOk(markdown: string): Response {
+  return new Response(JSON.stringify({ success: true, data: { markdown } }), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** `callerWith`, plus the transport `fromUrl` needs. */
+function urlCallerWith(
+  results: StubResult[],
+  pageFetch: () => {
+    fetch: typeof globalThis.fetch;
+    lookup: () => Promise<{ address: string }[]>;
+  },
+  openai?: () => ReturnType<ReturnType<typeof fakeOpenai>["factory"]>,
+) {
+  const stub = createDbStub(results);
+  return {
+    caller: createCaller(
+      signedInContext(stub.db, openai, undefined, pageFetch),
+    ),
+    stub,
+  };
+}
+
+/** household check → the rate-limit count → the `ai_jobs` INSERT. */
+function urlPreamble(): StubResult[] {
+  return [[membershipRow], rateLimitOk, jobRow];
+}
+
+/** The catalog reads and the two `ai_jobs` writes a successful import makes. */
+function draftTail(): StubResult[] {
+  return [
+    [], // the ledger UPDATE
+    [], // products
+    [{ id: CATEGORY_ID, name: "Бакалея", sortOrder: 0 }],
+    [], // output_json
+  ];
+}
+
+const NORMALIZED_URL_RECIPE: ParsedRecipe = {
+  ...RECIPE,
+  title: "Котлеты с овсяными хлопьями",
+  ingredients: [
+    {
+      rawText: "Смешанный фарш, 400 г",
+      name: "Фарш",
+      qty: 400,
+      unit: "г",
+      note: "смешанный",
+      isOptional: false,
+    },
+  ],
+};
+
+describe("dishImport.fromUrl — the gate", () => {
+  it("requires a session", async () => {
+    const caller = createCaller(anonymousContext(unusableDb));
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).rejects.toSatisfy(hasCode("UNAUTHORIZED"));
+  });
+
+  it.each([
+    ["the loopback address", "http://127.0.0.1/recipe"],
+    ["the cloud metadata service", "http://169.254.169.254/latest/meta-data/"],
+    ["an internal name", "http://db.internal/recipe"],
+    ["a private literal", "http://10.0.0.5/recipe"],
+    ["a non-standard port", "http://example.com:6379/recipe"],
+    ["credentials in the URL", "https://user:pass@example.com/recipe"],
+    ["the file scheme", "file:///etc/passwd"],
+  ])(
+    "refuses %s at validation — no job row, no fetch, no AI",
+    async (_label, url) => {
+      // Decision C.8: a blocked URL is a *validation* rejection. The ledger
+      // counts calls the household could be billed for, and this is not one.
+      // `unusablePageFetch` and `unusableOpenai` are the context defaults, so
+      // reaching either would throw something else entirely.
+      const { caller, stub } = callerWith([[membershipRow]]);
+
+      await expect(caller.dishImport.fromUrl({ url })).rejects.toSatisfy(
+        hasCode("BAD_REQUEST"),
       );
+      // Only `householdProcedure`'s own membership lookup ran.
+      expect(stub.statements).toHaveLength(1);
+      expect(stub.statements[0]?.table).toBe("household_members");
     },
   );
 
-  it("validates a URL before deciding it is not implemented", async () => {
+  it("refuses a string that is not a URL", async () => {
     const { caller } = callerWith([[membershipRow]]);
 
     await expect(
       caller.dishImport.fromUrl({ url: "not a url" }),
     ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+  });
+
+  it("refuses when the user is over the AI rate limit, before any network", async () => {
+    const { caller, stub } = urlCallerWith(
+      [[membershipRow], [{ minute: 10, day: 12 }]],
+      fakePageFetch([]).factory,
+    );
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).rejects.toSatisfy(hasCode("TOO_MANY_REQUESTS"));
+
+    expect(
+      stub.statements.some((statement) => statement.kind === "insert"),
+    ).toBe(false);
+  });
+});
+
+describe("dishImport.fromUrl — the free JSON-LD path", () => {
+  it("reads eda.rambler.ru for free and still normalizes it through the model", async () => {
+    // Decision D15: the AI runs on the free path too. «285 г муки» yields the
+    // name «муки», which matches «Мука» under no string ranker — so skipping
+    // it would fill the household's catalog with genitives.
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result).toMatchObject({ outcome: "parsed", via: "jsonld" });
+    expect(result.outcome === "parsed" && result.draft).toMatchObject({
+      sourceType: "url",
+      sourceUrl: RAMBLER_URL,
+      photoKey: null,
+    });
+
+    // Exactly one page request, and FireCrawl was never called.
+    expect(page.requests).toEqual([RAMBLER_URL]);
+    expect(openai.calls).toHaveLength(1);
+    // The extraction reached the model as a hint, not as HTML.
+    const message = String(openai.calls[0]?.params.messages[1]?.content);
+    expect(message).toContain("Режим: черновик");
+    expect(message).toContain("Смешанный фарш, 400 г");
+    expect(message).not.toContain("<script");
+  });
+
+  it("stores the page's own image as a remote URL with no photo key", async () => {
+    // Nothing was uploaded, so there is no blob of ours to discard — and
+    // re-hosting somebody's photo is a bill this feature need not sign.
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result.outcome === "parsed" && result.draft.photoUrl).toMatch(
+      /^https:\/\/s1\.eda\.ru\//,
+    );
+    expect(result.outcome === "parsed" && result.draft.photoKey).toBeNull();
+  });
+
+  it("takes povar.ru through microdata, without a FireCrawl call", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("povar-microdata.html"))]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({
+      url: "https://povar.ru/recipes/bliny_na_moloke-473.html",
+    });
+
+    expect(result).toMatchObject({ outcome: "parsed", via: "microdata" });
+    expect(page.requests).toHaveLength(1);
+  });
+
+  it("passes the normalizer the deadline's stage options and no retry", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(openai.calls[0]?.options).toMatchObject({
+      timeout: 25_000,
+      maxRetries: 0,
+    });
+    expect(openai.calls[0]?.options?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("still produces a draft when the normalizer fails on a page it already read", async () => {
+    // Honest degradation (blueprint §3.2): every extracted line becomes an
+    // amber «уточнить» row rather than an error screen.
+    const openai = fakeOpenai(new Error("connect ETIMEDOUT"));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result).toMatchObject({
+      outcome: "parsed",
+      via: "jsonld",
+      warnings: ["normalizationFailed"],
+    });
+    expect(
+      result.outcome === "parsed" && result.draft.ingredients[0],
+    ).toMatchObject({ qty: null, needsReview: true });
+
+    // The job still closes as an error, with its (zero) cost recorded.
+    const ledger = stub.statements.find(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect((ledger?.values as Record<string, unknown>).status).toBe("error");
+  });
+});
+
+describe("dishImport.fromUrl — the ledger", () => {
+  it("opens exactly one job row, before the fetch", async () => {
+    // Decision D16: `rate-limit.ts` counts `ai_jobs` rows, so an endpoint
+    // hammered with unreachable hosts must still count against the window.
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    const inserts = stub.statements.filter(
+      (statement) => statement.kind === "insert",
+    );
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]?.table).toBe("ai_jobs");
+    expect(inserts[0]?.values).toMatchObject({
+      householdId: HOUSEHOLD_ID,
+      userId: "user_1",
+      type: "parse_url",
+      status: "running",
+      inputRef: RAMBLER_URL,
+    });
+    // Two statements before it: the membership lookup and the rate-limit
+    // count. Nothing between it and the model.
+    expect(stub.statements.indexOf(inserts[0]!)).toBe(2);
+  });
+
+  it("closes the row with a zero cost when the fetch itself died", async () => {
+    const page = fakePageFetch([new Error("connect ETIMEDOUT")]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    // No AI ran (`unusableOpenai` is the default), and the row is closed
+    // anyway: a run that dies at the fetch still spent a limiter slot.
+    expect(result).toMatchObject({
+      outcome: "failed",
+      // The *fetch's* own verdict survives the scrape's: a dead host is «не
+      // удалось прочитать страницу», not «страница не отдала рецепт».
+      reason: "pageUnreachable",
+    });
+
+    const ledger = stub.statements.find(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect((ledger?.values as Record<string, unknown>).status).toBe("error");
+    expect((ledger?.values as Record<string, unknown>).costUsd).toBe(
+      "0.000000",
+    );
+    expectScopedByHousehold(ledger);
+    expectScopedByJob(ledger);
+  });
+
+  it("stamps the cost before catalog matching, so a later throw cannot lose it", async () => {
+    // Decision C.2, the same pin `fromPhoto` carries: make the read *after*
+    // the model reject, and the recorded cost must still be non-null.
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller, stub } = urlCallerWith(
+      [
+        ...urlPreamble(),
+        [], // the ledger UPDATE
+        new Error("catalog read failed"),
+        [], // markJobError's UPDATE
+      ],
+      page.factory,
+      openai.factory,
+    );
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).rejects.toThrow(/catalog read failed/);
+
+    const ledgerUpdates = stub.statements.filter(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect(
+      Number((ledgerUpdates[0]?.values as Record<string, unknown>).costUsd),
+    ).toBeGreaterThan(0);
+    expect((ledgerUpdates[1]?.values as Record<string, unknown>).status).toBe(
+      "error",
+    );
+    expectScopedByJob(ledgerUpdates[0]);
+    expectScopedByJob(ledgerUpdates[1]);
+  });
+
+  it("scopes every statement it issues by household", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([htmlPage(fixture("rambler-jsonld.html"))]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    // `[0]` is the membership lookup (scoped by user), `[1]` the rate-limit
+    // count (also per user), `[2]` the INSERT, checked by its values below.
+    for (const index of [3, 4, 5, 6]) {
+      expectScopedByHousehold(stub.statements[index]);
+    }
+    expect(
+      (stub.statements[2]?.values as Record<string, unknown>).householdId,
+    ).toBe(HOUSEHOLD_ID);
+  });
+});
+
+describe("dishImport.fromUrl — the SSRF guard past validation", () => {
+  it("refuses a redirect hop that points at the metadata service", async () => {
+    // The classic bypass: a public host that 302s to 169.254.169.254. The
+    // URL passed validation; only the *hop* check catches this.
+    const page = fakePageFetch([
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://169.254.169.254/latest/meta-data/" },
+      }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "blockedUrl" });
+    // The redirect was read; the target was never requested, and FireCrawl
+    // was never asked to fetch it either.
+    expect(page.requests).toEqual([RAMBLER_URL]);
+  });
+
+  it("refuses a public name that resolves to a private address", async () => {
+    const page = fakePageFetch([], "10.0.0.7");
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "blockedUrl" });
+    expect(page.requests).toEqual([]);
+  });
+
+  it("reports a body past the cap as tooLarge, without scraping it instead", async () => {
+    const chunk = new Uint8Array(250_000);
+    let emitted = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (emitted >= 20) {
+          controller.close();
+          return;
+        }
+        emitted += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const page = fakePageFetch([
+      new Response(stream, { headers: { "content-type": "text/html" } }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "tooLarge" });
+    expect(page.requests).toHaveLength(1);
+  });
+});
+
+describe("dishImport.fromUrl — the FireCrawl branch", () => {
+  it("scrapes a page with nothing structured on it", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([
+      htmlPage(fixture("russianfood-plain.html")),
+      firecrawlOk(`# Гуляш\n\n${"Говядина — 1 кг. ".repeat(30)}`),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
+
+    expect(result).toMatchObject({ outcome: "parsed", via: "firecrawl" });
+    expect(page.requests[0]).toBe(RUSSIANFOOD_URL);
+    expect(page.requests[1]).toBe("https://api.firecrawl.dev/v2/scrape");
+    expect(String(openai.calls[0]?.params.messages[1]?.content)).toContain(
+      "Режим: текст",
+    );
+  });
+
+  it("issues no direct fetch for a login wall and reports loginWalled", async () => {
+    // VISION §6.4: FireCrawl almost never gets past Instagram's login page,
+    // and the honest answer names the screenshot as the better road.
+    const page = fakePageFetch([
+      new Response(JSON.stringify({ success: false }), {
+        headers: { "content-type": "application/json" },
+      }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const result = await caller.dishImport.fromUrl({ url: INSTAGRAM_URL });
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "loginWalled" });
+    // FireCrawl only — instagram.com itself was never requested.
+    expect(page.requests).toEqual(["https://api.firecrawl.dev/v2/scrape"]);
+  });
+
+  it("maps a FireCrawl response of the wrong shape to pageBlocked", async () => {
+    // R7: a shape change degrades into S8.2's fork, never a stack trace.
+    const page = fakePageFetch([
+      htmlPage(fixture("russianfood-plain.html")),
+      new Response(JSON.stringify({ result: { text: "…" } }), {
+        headers: { "content-type": "application/json" },
+      }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "pageBlocked" });
+  });
+
+  it("reports a thin scrape as «нет рецепта», not as a refusal", async () => {
+    const page = fakePageFetch([
+      htmlPage(fixture("russianfood-plain.html")),
+      firecrawlOk("Cookies"),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL }),
+    ).resolves.toMatchObject({
+      outcome: "failed",
+      reason: "noRecipeOnPage",
+    });
+  });
+
+  it("keeps a dead host's own verdict when the scrape also fails", async () => {
+    const page = fakePageFetch([
+      new Error("connect ETIMEDOUT"),
+      new Response(JSON.stringify({ success: false }), {
+        headers: { "content-type": "application/json" },
+      }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).resolves.toMatchObject({
+      outcome: "failed",
+      reason: "pageUnreachable",
+    });
+  });
+
+  it("prefills «создать вручную» with the page's own title", async () => {
+    // VISION's «без тупика» is only true if the dead end hands you something.
+    const page = fakePageFetch([
+      htmlPage(fixture("russianfood-plain.html")),
+      new Response("{}", { headers: { "content-type": "application/json" } }),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
+
+    expect(result.outcome === "failed" && result.partial).toEqual({
+      title: "Рецепт: Говяжий гуляш на тёмном пиве на RussianFood.com",
+      photoUrl: null,
+      photoKey: null,
+      sourceUrl: RUSSIANFOOD_URL,
+    });
+  });
+});
+
+describe("dishImport.fromText", () => {
+  it("runs pasted text through the same normalizer and stores the draft", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const { caller } = callerWith(
+      [...urlPreamble(), ...draftTail()],
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromText({ text: RECIPE_TEXT });
+
+    expect(result).toMatchObject({ outcome: "parsed", via: "text" });
+    expect(result.outcome === "parsed" && result.draft).toMatchObject({
+      sourceType: "text",
+      sourceUrl: null,
+      photoUrl: null,
+      photoKey: null,
+    });
+    expect(String(openai.calls[0]?.params.messages[1]?.content)).toContain(
+      RECIPE_TEXT,
+    );
+  });
+
+  it("keeps only a prefix of the text in the ledger — it is not a document store", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const long = "Мука 285 г. ".repeat(50);
+    const { caller, stub } = callerWith(
+      [...urlPreamble(), ...draftTail()],
+      openai.factory,
+    );
+
+    await caller.dishImport.fromText({ text: long });
+
+    const insert = stub.statements.find(
+      (statement) => statement.kind === "insert",
+    );
+    const inputRef = (insert?.values as Record<string, unknown>).inputRef;
+    expect(insert?.values).toMatchObject({ type: "parse_text" });
+    expect(String(inputRef)).toHaveLength("text:".length + 80);
+  });
+
+  it("refuses a text too short to be a recipe", async () => {
+    const { caller } = callerWith([[membershipRow]]);
+
+    await expect(
+      caller.dishImport.fromText({ text: "мука" }),
+    ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
+  });
+
+  it("reports an unusable answer as aiUnavailable, never as «другое фото»", async () => {
+    // There is no photo on this path, so `photoUnreadable` would offer an
+    // action that does not exist.
+    const openai = fakeOpenai(new Error("503 Service Unavailable"));
+    const { caller } = callerWith([...urlPreamble(), [], []], openai.factory);
+
+    const result = await caller.dishImport.fromText({ text: RECIPE_TEXT });
+
+    expect(result).toMatchObject({
+      outcome: "failed",
+      reason: "aiUnavailable",
+      partial: {
+        title: null,
+        photoUrl: null,
+        photoKey: null,
+        sourceUrl: null,
+      },
+    });
+  });
+
+  it("reports «это не рецепт» as an outcome", async () => {
+    const openai = fakeOpenai(
+      JSON.stringify({
+        ...RECIPE,
+        isRecipe: false,
+        ingredients: [],
+        steps: [],
+      }),
+    );
+    const { caller } = callerWith(
+      [...urlPreamble(), ...draftTail()],
+      openai.factory,
+    );
+
+    await expect(
+      caller.dishImport.fromText({ text: RECIPE_TEXT }),
+    ).resolves.toMatchObject({ outcome: "failed", reason: "notARecipe" });
+  });
+
+  it("scopes every statement it issues by household", async () => {
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const { caller, stub } = callerWith(
+      [...urlPreamble(), ...draftTail()],
+      openai.factory,
+    );
+
+    await caller.dishImport.fromText({ text: RECIPE_TEXT });
+
+    for (const index of [3, 4, 5, 6]) {
+      expectScopedByHousehold(stub.statements[index]);
+    }
+    expect(
+      (stub.statements[2]?.values as Record<string, unknown>).householdId,
+    ).toBe(HOUSEHOLD_ID);
   });
 });

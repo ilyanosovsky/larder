@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Печенье NYC — синтетическая фикстура</title>
+
+    <!-- Malformed on purpose, and FIRST: one bad block must not abort the
+         scan of the good ones that follow it. -->
+    <script type="application/ld+json">
+      { "@type": "Recipe", "name": "не закрыто"
+    </script>
+
+    <script type="application/ld+json">
+      { "@context": "https://schema.org", "@type": "WebSite", "name": "Синтетический сайт" }
+    </script>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          { "@type": "WebPage", "name": "Страница рецепта" },
+          {
+            "@type": ["NewsArticle", "Recipe"],
+            "name": "Печенье NYC",
+            "image": {
+              "@type": "ImageObject",
+              "url": "https://example.invalid/cookies.jpg",
+              "width": 1200,
+              "height": 900
+            },
+            "recipeYield": ["7-8 печений", "8"],
+            "totalTime": "PT1H15M",
+            "keywords": "десерт, выпечка",
+            "recipeIngredient": [
+              "Мука — 285 г",
+              "Масло сливочное холодное — 227 г",
+              "Шоколад крупными кусками — 150 г"
+            ],
+            "recipeInstructions": [
+              {
+                "@type": "HowToSection",
+                "name": "Тесто",
+                "itemListElement": [
+                  { "@type": "HowToStep", "text": "Взбей масло с сахаром." },
+                  { "@type": "HowToStep", "text": "Вмешай муку." }
+                ]
+              },
+              {
+                "@type": "HowToSection",
+                "name": "Выпечка",
+                "itemListElement": [
+                  { "@type": "HowToStep", "text": "Выпекать 9–11 минут при 200 °C." }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Печенье NYC</h1>
+  </body>
+</html>

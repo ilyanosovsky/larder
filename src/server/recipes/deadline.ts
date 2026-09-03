@@ -24,6 +24,31 @@ export const IMPORT_DEADLINE_MS = 50_000;
 export const PHOTO_STAGE_MS = 40_000;
 
 /**
+ * The URL path's three stages (task 4.4): 8 + 20 + 25 = 53 s of *worst case*
+ * inside a 50 s budget, which is the point — the stages share one shrinking
+ * clock, so the sum being larger than the whole is exactly what `Deadline`
+ * exists to absorb.
+ */
+export const FETCH_STAGE_MS = 8_000;
+export const FIRECRAWL_STAGE_MS = 20_000;
+export const NORMALIZE_STAGE_MS = 25_000;
+
+/**
+ * Below this, FireCrawl is not started at all.
+ *
+ * A scrape that begins with six seconds left cannot finish, and the AI call
+ * behind it certainly cannot — so the honest move is to spend nothing and
+ * return `pageBlocked`, whose S8.2 copy already offers text and a screenshot.
+ * Starting it anyway would burn a credit to produce a 504.
+ */
+export const FIRECRAWL_MIN_REMAINING_MS = 10_000;
+
+/** Is there room left for a scrape *and* the call that reads it? */
+export function canRunFirecrawl(remainingMs: number): boolean {
+  return remainingMs >= FIRECRAWL_MIN_REMAINING_MS;
+}
+
+/**
  * How long a stage may actually take: its own share, capped by what is left,
  * never negative.
  *

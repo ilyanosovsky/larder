@@ -171,6 +171,26 @@ describe("the request", () => {
     expect(content).toContain("Мука 285 г");
   });
 
+  it("sends skeleton mode as a hint the model is told to correct", async () => {
+    // Task 4.4's free path: the extraction is a *hint*, not a shape to echo,
+    // and the model never sees raw HTML. One prompt family for photo, page
+    // and pasted text — a fix to ingredient parsing has to fix all three.
+    const fake = replyWith(JSON.stringify(RECIPE));
+    await parseRecipe({
+      client: fake.client,
+      input: { kind: "skeleton", hint: "Название: Печенье NYC\n- Мука — 285 г" },
+    });
+
+    const content = fake.calls[0]?.params.messages[1]?.content;
+    expect(typeof content).toBe("string");
+    expect(content).toContain("Режим: черновик");
+    expect(content).toContain("- Мука — 285 г");
+    // The same system prompt as every other mode: one place to fix a rule.
+    expect(String(fake.calls[0]?.params.messages[0]?.content)).toContain(
+      "НЕ ВЫДУМЫВАЙ",
+    );
+  });
+
   it("names the recipe units in the prompt without making them an enum", async () => {
     // The schema keeps `unit` a free string on purpose; the prompt is where
     // the canon is mentioned, as guidance rather than as a constraint.
@@ -214,6 +234,35 @@ describe("the answer", () => {
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.isRecipe).toBe(false);
   });
+});
+
+describe("failures outside the photo path", () => {
+  it.each([
+    ["text", { kind: "text" as const, text: "Мука 285 г" }],
+    ["skeleton", { kind: "skeleton" as const, hint: "- Мука — 285 г" }],
+  ])(
+    "never blames the image in %s mode — there is no image",
+    async (_label, input) => {
+      // `reasonFor` classifies image-specific 400s, and «попробуй другой
+      // скриншот» after a pasted-text failure would be nonsense with no way
+      // out: S8.2's `photoUnreadable` branch offers «Другое фото».
+      const fake = fakeClient(() =>
+        Promise.reject(
+          new OpenAI.APIError(
+            400,
+            { code: "invalid_image_format", message: "invalid image format" },
+            undefined,
+            new Headers(),
+          ),
+        ),
+      );
+
+      const result = await parseRecipe({ client: fake.client, input });
+
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.reason).toBe("aiUnavailable");
+    },
+  );
 });
 
 describe("failures", () => {
