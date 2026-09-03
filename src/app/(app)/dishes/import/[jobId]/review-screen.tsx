@@ -11,6 +11,7 @@ import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import type { RecipeDraft } from "@/lib/recipes/draft";
 import { consumedDishIdOf } from "@/lib/recipes/import-consumption";
+import { retryImportHref } from "@/lib/recipes/import-seed";
 import { trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
@@ -155,20 +156,23 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
           reason={seed.reason}
           partial={seed.partial}
           manualHref={`/dishes/new?from=${jobId}`}
-          // This route owns no picker: every photo action goes back to S8.1,
-          // which owns the whole upload flow, rather than growing a second
-          // copy of it here. Omitting `onPicked` is what turns «Загрузить
-          // скриншот» into a link instead of an uploader whose result this
-          // screen would immediately throw away.
+          // This route owns no picker and no import mutation: every photo and
+          // text action goes back to S8.1, which owns both flows, rather than
+          // growing a second copy of either here. Omitting `onPicked` and
+          // `onUseText` is what turns those two actions into links instead of
+          // controls whose result this screen would immediately throw away.
           photoPickerHref="/dishes/import?src=photo"
+          textPaneHref="/dishes/import?src=text"
           onRetryPhoto={() => {
             if (seed.partial.photoKey !== null) {
               discardPhoto.mutate({ fileKey: seed.partial.photoKey });
             }
             router.replace("/dishes/import?src=photo");
           }}
-          onRetry={() => router.replace("/dishes/import?src=photo")}
-          onSoon={() => undefined}
+          // Back to the source it came from, not always the picker: «Ещё раз»
+          // after a failed page import used to answer by asking for a
+          // screenshot, and drop the URL the server had salvaged on the way.
+          onRetry={() => router.replace(retryImportHref(seed.partial))}
         />
       </section>
     );
@@ -189,20 +193,16 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
         <h1 className={styles.title}>{t("reviewTitle")}</h1>
       </div>
 
-      {/* Only the warnings that have copy — task 4.4's `normalizationFailed`
-          is about a page import and has nothing to say on this route; an
-          empty amber box would be worse than no box. */}
-      {seed.warnings
-        .filter(
-          (warning) => warning === "noSteps" || warning === "noIngredients",
-        )
-        .map((warning) => (
-          <p key={warning} className={styles.error}>
-            {warning === "noSteps"
-              ? t("warningNoSteps")
-              : t("warningNoIngredients")}
-          </p>
-        ))}
+      {/* Every warning the import can carry, and each one is a sentence about
+          what to look at: `normalizationFailed` means the page was read but
+          the quantities were not, so every row arrived unquantified and the
+          person has to fill them in — silently showing an empty form would
+          read as a bad parse rather than as a known one. */}
+      {seed.warnings.map((warning) => (
+        <p key={warning} className={styles.error}>
+          {t(WARNING_COPY[warning])}
+        </p>
+      ))}
 
       <DishForm
         initial={draft}
@@ -240,6 +240,22 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
     </section>
   );
 }
+
+/**
+ * One key per warning, written as a literal map so `ru.test.ts`'s call-site
+ * sweep can still find them — and so adding a warning to the router's enum
+ * fails typecheck here until it has copy.
+ */
+const WARNING_COPY: Record<ImportWarningName, string> = {
+  noSteps: "warningNoSteps",
+  noIngredients: "warningNoIngredients",
+  normalizationFailed: "warningNormalizationFailed",
+};
+
+type ImportWarningName = Extract<
+  ImportResultOutput,
+  { outcome: "parsed" }
+>["warnings"][number];
 
 function Header({ title }: { title: string }) {
   const t = useTranslations("dishImport");

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { lookup } from "node:dns/promises";
+
 import { db } from "@/db";
 import { getSession } from "@/lib/session";
 import { openaiClient } from "@/server/ai/openai";
@@ -33,5 +35,13 @@ export async function createTRPCContext(): Promise<TRPCContext> {
     openai: openaiClient,
     // Same reasoning for UPLOADTHING_TOKEN, which the store reads per call.
     uploadThing: () => uploadedFileStore,
+    // `verbatim: true` so the resolver's own address order survives: the
+    // guard checks *every* returned address anyway, and reordering them would
+    // only hide which one the socket will actually use.
+    pageFetch: () => ({
+      fetch: globalThis.fetch,
+      lookup: (hostname: string) =>
+        lookup(hostname, { all: true, verbatim: true }),
+    }),
   };
 }

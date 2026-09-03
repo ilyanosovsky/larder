@@ -24,6 +24,56 @@ export const IMPORT_DEADLINE_MS = 50_000;
 export const PHOTO_STAGE_MS = 40_000;
 
 /**
+ * The URL path's two *bounded* stages (task 4.4). Bounded because each has a
+ * cheap alternative: a page that has not answered in eight seconds is one
+ * FireCrawl can scrape instead, and a scrape that has not answered in twenty
+ * is one the user should be offered a screenshot for.
+ */
+export const FETCH_STAGE_MS = 8_000;
+export const FIRECRAWL_STAGE_MS = 20_000;
+
+/**
+ * What the response itself needs after the model answers: the catalog reads,
+ * the draft, two small writes and the superjson encode.
+ */
+export const RESPONSE_RESERVE_MS = 3_000;
+
+/**
+ * The **last** stage's share: everything that is left, less the reserve.
+ *
+ * Not a fixed number, and the difference is not academic — it was found on a
+ * real import. russianfood.com fetches in half a second and scrapes in under
+ * two, which leaves ~46 s of a 50 s budget; a fixed 25 s cap then aborted a
+ * model that was still writing a twenty-step recipe, and the household got
+ * «попробуй ещё раз» for a page nothing was wrong with. There is no one to
+ * hand the surplus to — the normalizer is the last thing that runs — so
+ * giving it away early is not prudence, it is a self-inflicted failure.
+ *
+ * The ceiling is still the deadline: 50 s inside `maxDuration = 60`.
+ */
+export function finalStageMs(remainingMs: number): number {
+  if (!Number.isFinite(remainingMs)) {
+    return 0;
+  }
+  return Math.max(0, remainingMs - RESPONSE_RESERVE_MS);
+}
+
+/**
+ * Below this, FireCrawl is not started at all.
+ *
+ * A scrape that begins with six seconds left cannot finish, and the AI call
+ * behind it certainly cannot — so the honest move is to spend nothing and
+ * return `pageBlocked`, whose S8.2 copy already offers text and a screenshot.
+ * Starting it anyway would burn a credit to produce a 504.
+ */
+export const FIRECRAWL_MIN_REMAINING_MS = 10_000;
+
+/** Is there room left for a scrape *and* the call that reads it? */
+export function canRunFirecrawl(remainingMs: number): boolean {
+  return remainingMs >= FIRECRAWL_MIN_REMAINING_MS;
+}
+
+/**
  * How long a stage may actually take: its own share, capped by what is left,
  * never negative.
  *

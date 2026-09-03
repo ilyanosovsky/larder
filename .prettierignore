@@ -13,3 +13,8 @@ IMPLEMENTATION_PLAN.md
 
 # drizzle-kit generated artifacts — never reformatted
 src/db/migrations/
+
+# Saved third-party HTML, checked in verbatim as parser test inputs. Prettier
+# both fails to parse some of it and would rewrite the exact markup the tests
+# exist to pin — see src/server/recipes/__fixtures__/README.md.
+src/server/recipes/__fixtures__/*.html

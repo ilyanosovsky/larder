@@ -1,6 +1,7 @@
 import { getTableName, type Table } from "drizzle-orm";
 
 import type { AiChatClient } from "@/server/ai/openai";
+import type { PageFetcher } from "@/server/recipes/fetch-page";
 import type { UploadedFileStore } from "@/server/uploadthing-files";
 
 import type { TRPCContext } from "./trpc";
@@ -67,20 +68,39 @@ export const unusableUploadThing = (): UploadedFileStore => {
   throw new Error("ctx.uploadThing() must not be called in unit tests");
 };
 
+/**
+ * The network must never be reached either — same idea again, and with the
+ * sharpest edge of the three: `dishImport.fromUrl` retrieves a URL the caller
+ * chose, so a test that forgets to inject a fake transport would make CI issue
+ * real requests to whatever host the fixture happened to name.
+ */
+export const unusablePageFetch = (): PageFetcher => {
+  throw new Error("ctx.pageFetch() must not be called in unit tests");
+};
+
 export function anonymousContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
   uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
+  pageFetch: TRPCContext["pageFetch"] = unusablePageFetch,
 ): TRPCContext {
-  return { session: null, user: null, db, openai, uploadThing };
+  return { session: null, user: null, db, openai, uploadThing, pageFetch };
 }
 
 export function signedInContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
   uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
+  pageFetch: TRPCContext["pageFetch"] = unusablePageFetch,
 ): TRPCContext {
-  return { session: testSession, user: testUser, db, openai, uploadThing };
+  return {
+    session: testSession,
+    user: testUser,
+    db,
+    openai,
+    uploadThing,
+    pageFetch,
+  };
 }
 
 /** One statement the router ran, in the order it ran it. */

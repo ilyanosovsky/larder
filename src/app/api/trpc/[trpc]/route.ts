@@ -4,6 +4,16 @@ import { createTRPCContext } from "@/server/api/context";
 import { appRouter } from "@/server/api/root";
 
 /**
+ * Explicit, not inherited: task 4.4's SSRF guard resolves a hostname through
+ * `node:dns` before it opens a socket, and the Edge runtime has no `dns` at
+ * all. Next's App Router already defaults to `nodejs`, so this changes
+ * nothing today — it is here so a future `export const runtime = "edge"`
+ * has to argue with a comment rather than silently break the one procedure
+ * that fetches a URL a user chose.
+ */
+export const runtime = "nodejs";
+
+/**
  * A **ceiling**, not a floor — and the only reason it is not the platform
  * default: a recipe import (task 4.3) spends up to 40 s inside one vision
  * call, and Vercel's default 10 s would turn every one of them into a 504.

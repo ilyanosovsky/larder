@@ -7,6 +7,7 @@ import type { db } from "@/db";
 import { householdMembers, households } from "@/db/schema";
 import type { Session } from "@/lib/session";
 import type { AiChatClient } from "@/server/ai/openai";
+import type { PageFetcher } from "@/server/recipes/fetch-page";
 import type { UploadedFileStore } from "@/server/uploadthing-files";
 
 type Database = ReturnType<typeof db>;
@@ -47,6 +48,17 @@ export interface TRPCContext {
    * supply a fake fails loudly.
    */
   uploadThing: () => UploadedFileStore;
+  /**
+   * `fetch` plus a DNS resolver, for the one procedure that retrieves a URL a
+   * *user* chose (`dishImport.fromUrl`).
+   *
+   * A factory for the same reason as the two above, and injected for a
+   * stronger one: every rule in `src/server/recipes/fetch-page.ts` — the SSRF
+   * address check, the redirect limit, the 2 MB cap — is only testable if the
+   * transport can be faked, and a test that forgets to supply one has to fail
+   * loudly rather than reach the network from CI.
+   */
+  pageFetch: () => PageFetcher;
 }
 
 const t = initTRPC.context<TRPCContext>().create({
