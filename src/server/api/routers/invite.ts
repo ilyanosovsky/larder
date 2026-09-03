@@ -21,6 +21,12 @@ import {
 export const createInviteOutput = z.object({
   /** Absolute link to share — the screen behind it is `/invite/[token]`. */
   url: z.string(),
+  /**
+   * When the link stops being redeemable. Added for the Settings «Дом»
+   * section (task 7.1a), additively: `/onboarding`'s own mint call simply
+   * ignores it, so the field carries no breaking change for that caller.
+   */
+  expiresAt: z.date(),
 });
 
 /**
@@ -75,15 +81,19 @@ export const inviteRouter = createTRPCRouter({
     .output(createInviteOutput)
     .mutation(async ({ ctx }) => {
       const token = createInviteToken();
+      // Computed once and reused for both the write and the response, so the
+      // `expiresAt` the caller renders can never drift from the value the
+      // database actually stored.
+      const expiresAt = inviteExpiryFrom(new Date());
 
       await ctx.db.insert(invites).values({
         householdId: ctx.household.id,
         token,
         createdBy: ctx.user.id,
-        expiresAt: inviteExpiryFrom(new Date()),
+        expiresAt,
       });
 
-      return { url: inviteUrl(env().NEXT_PUBLIC_APP_URL, token) };
+      return { url: inviteUrl(env().NEXT_PUBLIC_APP_URL, token), expiresAt };
     }),
 
   /** Read-only look at a link, for rendering the join screen. */

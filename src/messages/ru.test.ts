@@ -91,7 +91,8 @@ function translator(
     | "dishImport"
     | "dishPortions"
     | "dishAdapt"
-    | "cooking",
+    | "cooking"
+    | "inviteLink",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -262,6 +263,19 @@ describe("the keys the dish screens call by name", () => {
   ] as const;
 
   const SETTINGS_KEYS = [
+    "householdTitle",
+    "householdLoading",
+    "householdLoadFailed",
+    "householdRetry",
+    "householdYou",
+    "householdInvite",
+    "householdInvitePending",
+    "householdNewLink",
+    "householdInviteFailed",
+    "householdShare",
+    "householdShareFailed",
+    "householdShareTitle",
+    "householdOffline",
     "dishArchiveTitle",
     "dishArchiveLoading",
     "dishArchiveLoadFailed",
@@ -417,6 +431,50 @@ describe("the keys the dish screens call by name", () => {
       expect(rendered.trim().length).toBeGreaterThan(0);
     },
   );
+});
+
+describe("household «Дом» (task 7.1a)", () => {
+  const t = createTranslator({ locale: "ru", messages, namespace: "settings" });
+
+  it("dates the invite's own expiry instead of a second hardcoded 7", () => {
+    expect(t("householdInviteHint", { date: "10 сентября" })).toBe(
+      "Ссылка одноразовая: для второго человека понадобится новая. Действует до 10 сентября.",
+    );
+  });
+
+  it("names the household in the share text", () => {
+    expect(t("householdShareText", { household: "Наш дом" })).toBe(
+      "Присоединяйся к «Наш дом» в Larder — общая корзина, кладовая и меню.",
+    );
+  });
+});
+
+describe("inviteLink (task 7.1a)", () => {
+  /**
+   * Extracted from `/onboarding`'s own link block into `src/components/
+   * invite-link.tsx` (task 7.1a) so `/settings`'s household section reuses
+   * it — swept off the dictionary itself, like `dishForm`/`dishImport`.
+   */
+  const INVITE_LINK_KEYS = Object.keys(
+    messages.inviteLink,
+  ) as (keyof typeof messages.inviteLink)[];
+
+  it.each(INVITE_LINK_KEYS)("inviteLink.%s resolves to real copy", (key) => {
+    const rendered = translator("inviteLink")(key);
+
+    expect(rendered).not.toBe(`inviteLink.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("has every inviteLink key the shared component actually asks for", () => {
+    // The opposite question to the sweep above, catching a deletion: every
+    // literal key `invite-link.tsx` passes to its translator must resolve.
+    const dictionary = messages.inviteLink as Record<string, unknown>;
+    const asked = keysAskedFor("inviteLink");
+
+    expect(asked.size).toBeGreaterThan(0);
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
+  });
 });
 
 describe("dishAdapt (task 4.6)", () => {

@@ -23,6 +23,21 @@
   "settings": {
     "title": "Настройки",
     "signedInAs": "Вход выполнен: {email}",
+    "householdTitle": "Дом",
+    "householdLoading": "Загружаем дом…",
+    "householdLoadFailed": "Не удалось загрузить дом.",
+    "householdRetry": "Повторить",
+    "householdYou": "ты",
+    "householdInvite": "Пригласить",
+    "householdInvitePending": "Готовим ссылку…",
+    "householdNewLink": "Новая ссылка",
+    "householdInviteFailed": "Не удалось создать ссылку — попробуй ещё раз.",
+    "householdInviteHint": "Ссылка одноразовая: для второго человека понадобится новая. Действует до {date}.",
+    "householdShare": "Поделиться",
+    "householdShareFailed": "Не получилось поделиться — скопируй ссылку вручную.",
+    "householdShareTitle": "Приглашение в Larder",
+    "householdShareText": "Присоединяйся к «{household}» в Larder — общая корзина, кладовая и меню.",
+    "householdOffline": "Нет связи — ссылку создать не получится. Попробуй, когда сеть вернётся.",
     "kitchenProfileTitle": "Профиль кухни",
     "kitchenProfileLoading": "Загружаем профиль…",
     "kitchenProfileLoadFailed": "Не удалось загрузить профиль кухни.",
@@ -379,14 +394,16 @@
     "haveInviteHint": "Ничего вводить не нужно: открой ссылку-приглашение, которую прислал партнёр, — она сама приведёт на экран вступления.",
     "readyTitle": "Пригласи своих",
     "readyHint": "Отправь эту ссылку партнёру. Она одноразовая и работает 7 дней.",
-    "linkLabel": "Ссылка-приглашение",
     "linkPending": "Готовим ссылку…",
     "linkFailed": "Ссылку создать не удалось. Дом уже готов — попробуй ещё раз или сделай это позже.",
     "retryLink": "Создать ссылку",
+    "continue": "Продолжить"
+  },
+  "inviteLink": {
+    "label": "Ссылка-приглашение",
     "copy": "Скопировать",
     "copied": "Скопировано",
-    "copyFailed": "Не получилось скопировать — выдели ссылку и скопируй вручную.",
-    "continue": "Продолжить"
+    "copyFailed": "Не получилось скопировать — выдели ссылку и скопируй вручную."
   },
   "kitchenProfile": {
     "equipmentLegend": "Техника на кухне",

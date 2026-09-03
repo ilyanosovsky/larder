@@ -86,6 +86,8 @@ One-time, with a TTL (VISION §6.7). The rules live in `src/server/invites.ts`, 
 
 Unknown, expired and already-used tokens all surface as one indistinguishable `invalid` (preview) / `NOT_FOUND` (accept): someone guessing tokens must not learn which of the three they hit. The exception is a caller who is already a member of the invite's household — they get a friendly "you're already in" instead, which leaks nothing they don't know.
 
+**`/onboarding` is not the only place that mints a link.** Task 1.1 only ever wired the mint button into the onboarding flow, so once a household existed there was nowhere left to get a link for a second partner. Task 7.1a adds that place: `HouseholdSection` on `/settings` («Дом», rendered first, above the kitchen profile) — «Пригласить» mints a link the same way, «Новая ссылка» mints another once one exists (each link is one-time), and «Поделиться» calls `navigator.share()` when the browser has one. `invite.create`'s output additively carries `expiresAt` (task 7.1a) alongside `url`, so the Settings section can render «Действует до {date}» instead of a second hardcoded "7 days" — `/onboarding`'s own mint call simply ignores the new field. The read-only field + «Скопировать» pair itself is `src/components/invite-link.tsx`, extracted out of the onboarding screen so both callers share one implementation of the clipboard fallback (no permission / insecure context → the link stays selectable with a "copy by hand" hint).
+
 **The claim UPDATE is the single authority on whether an invite may be redeemed.** `decideInviteAccept()` runs against the application clock on a row read a moment earlier, so it decides what to _tell_ the caller and nothing more. Every condition is then repeated in the write, evaluated once and atomically against the database clock:
 
 ```sql
@@ -103,11 +105,23 @@ Both conditions have to be there. Dropping `used_at IS NULL` lets two people red
 | ------------------- | -------------------- | --------------------------------------------------------------- |
 | `household.current` | `protectedProcedure` | `{ household, members } \| null` — null is normal, not an error |
 | `household.create`  | `protectedProcedure` | CONFLICT if the caller already has one                          |
-| `invite.create`     | `householdProcedure` | Mints a link for the caller's own household                     |
+| `invite.create`     | `householdProcedure` | Mints a link for the caller's own household; output is `{ url, expiresAt }` (task 7.1a) |
 | `invite.preview`    | `protectedProcedure` | Read-only, for rendering the join screen                        |
 | `invite.accept`     | `protectedProcedure` | Redeems the link and creates the membership                     |
 
 The three `protectedProcedure` entries cannot use `householdProcedure`: their whole audience is people who have no household yet.
+
+### S12 «Дом» (task 7.1a)
+
+`settings/household-section.tsx`, prefetched with the page like the other three sections beside it (`household.current`). Household name, then one row per member (avatar — image or an initial-letter circle, same `avatarInitial` helper `app-header.tsx` uses — and a «ты» marker on the caller's own row), then «Пригласить» / «Новая ссылка», then the identity/sign-out line moved down from the old page footer per `page.tsx`'s own doc comment.
+
+`household.current` returning `null` is treated as this section's error state (same «не удалось загрузить» + «Повторить» the other sections use), not a crash — `/settings` lives inside the `(app)` group's household gate, so it should never actually happen, but the section does not assume that.
+
+The mint button reuses `createInvite.mutateAsync()` with `networkMode: "always"` (an invite is not in the offline queue, same rule as `dish.*` writes) behind a synchronous ref, not `mutation.isPending` alone — `isPending` lands a render after the tap, and two fast taps before that render would mint two links. `aria-disabled`, never `disabled`, so a double tap is blocked without dropping the keyboard focus of the button just activated.
+
+Once a link exists it renders inside a `role="status"` region: `InviteLink` (the field + «Скопировать» pair — see [Invite links](#invite-links) above), the «Действует до {date}» line from the new `expiresAt`, and «Поделиться» when `navigator.share` exists. That existence check runs in a `useEffect`, never during render — a render-time `typeof navigator.share` read would hydrate differently on the server (no `navigator`) than the client, the exact class of bug PR #28 fixed. A rejected share is only shown as a failure when `isShareCancelled()` (`src/lib/household-invite.ts`, pure and tested) says it was not the person simply closing the share sheet (`AbortError`).
+
+`isCallerMember()`, in the same module, is the «ты» decision — a member row is the caller's own when `userId` matches the id `caller.health.whoami()` already resolves server-side and `page.tsx` passes down as a prop.
 
 ## Categories (store departments)
 
@@ -668,7 +682,7 @@ Recognizing that typed text actually names a preset is a two-layer split:
 | Route                      | What it is                                                                                                  |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `/onboarding/kitchen`      | S2 step, reached after a household exists — "Done" or a quiet "Skip", both land on `/`                      |
-| `/settings` (S12 scaffold) | Page title, the kitchen-profile section, then signed-in identity + sign-out — task 7.1 adds the rest of S12 |
+| `/settings` (S12, still growing) | Page title, then `HouseholdSection` («Дом»: name, members, invite link, signed-in identity + sign-out — task 7.1a), the kitchen-profile section, purchase history and dish archive below it — departments drag order, AI budget and language are task 7.1 |
 
 Both screens render the same `src/components/kitchen-profile-form.tsx` — checklist, free-form chips, a 1–10 household-size stepper — so the two can never drift. The form is a plain controlled component (no autosave): the caller owns the `kitchenProfile.update` mutation and passes `pending`/`onSubmit` in.
 

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 
+import { InviteLink } from "@/components/invite-link";
 import { ONBOARDING_KITCHEN_PATH } from "@/lib/auth-redirect";
 import { isConflictError } from "@/lib/trpc-errors";
 import { useTRPC } from "@/trpc/client";
@@ -30,15 +31,12 @@ export function OnboardingScreen() {
   const trpc = useTRPC();
   const router = useRouter();
   const nameFieldId = useId();
-  const linkFieldId = useId();
 
   const [name, setName] = useState("");
   const [householdReady, setHouseholdReady] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [createFailed, setCreateFailed] = useState(false);
   const [inviteFailed, setInviteFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
   const createHousehold = useMutation(trpc.household.create.mutationOptions());
@@ -75,19 +73,6 @@ export function OnboardingScreen() {
     // something to send your partner, not an empty screen.
     setHouseholdReady(true);
     await mintInvite();
-  }
-
-  async function copyLink(link: string) {
-    setCopyFailed(false);
-
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-    } catch {
-      // No clipboard permission, or an insecure context — the link stays
-      // visible and selectable, so this is a nudge rather than a failure.
-      setCopyFailed(true);
-    }
   }
 
   function continueToKitchenProfile() {
@@ -178,29 +163,7 @@ export function OnboardingScreen() {
           </div>
         ) : (
           <div className={styles.linkBlock}>
-            <label className={styles.label} htmlFor={linkFieldId}>
-              {t("linkLabel")}
-            </label>
-            <input
-              id={linkFieldId}
-              className={styles.linkField}
-              type="text"
-              value={inviteLink}
-              readOnly
-              onFocus={(event) => event.target.select()}
-            />
-            <button
-              type="button"
-              className={styles.secondaryButton}
-              onClick={() => void copyLink(inviteLink)}
-            >
-              {copied ? t("copied") : t("copy")}
-            </button>
-            {copyFailed ? (
-              <p className={styles.error} role="alert">
-                {t("copyFailed")}
-              </p>
-            ) : null}
+            <InviteLink key={inviteLink} url={inviteLink} />
           </div>
         )}
 

@@ -11,7 +11,7 @@ import {
   unusableDb,
   type StubResult,
 } from "@/server/api/test-support";
-import { INVITE_TTL_MS } from "@/server/invites";
+import { INVITE_TTL_MS, inviteExpiryFrom } from "@/server/invites";
 
 const HOUSEHOLD_ID = "3f1a6d0e-0000-4000-8000-000000000001";
 
@@ -119,6 +119,24 @@ describe("invite.create", () => {
     const b = await second.caller.invite.create();
 
     expect(a.url).not.toBe(b.url);
+  });
+
+  it("returns expiresAt equal to inviteExpiryFrom(now), not a second computation of it", async () => {
+    // Task 7.1a: the Settings «Дом» section renders this value instead of a
+    // second hardcoded "7 days" — pinned exactly, not just checked for shape,
+    // so a drift between the stored row and the response would fail here.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+
+    try {
+      const { caller } = callerWith([[membershipRow], []]);
+
+      const { expiresAt } = await caller.invite.create();
+
+      expect(expiresAt).toEqual(inviteExpiryFrom(new Date()));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
