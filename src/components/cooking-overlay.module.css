@@ -1,0 +1,343 @@
+/* S9 «Режим готовки» (DESIGN_BRIEF S9), Paper Ledger. Same z-index tier as
+   `revision-mode.tsx`'s own overlay — a takeover of the whole screen,
+   including the tab bar; the two never actually show at once (pantry vs.
+   dishes), so sharing the layer is fine. */
+
+.overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel:focus {
+  outline: none;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-4);
+  padding-top: calc(var(--s-4) + env(safe-area-inset-top));
+}
+
+.progress {
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+}
+
+.timerChip {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: var(--s-1);
+  border: var(--bd-hair) solid var(--green-rule);
+  background: var(--green-soft);
+  padding: 0 var(--s-3);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.close {
+  display: flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mute);
+  font-size: var(--t-val);
+  cursor: pointer;
+}
+
+.close:focus-visible,
+.timerChip:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Step body ── */
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-6);
+  padding: var(--s-6) var(--s-5);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stepNumber {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+}
+
+.stepText {
+  max-width: 480px;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-title);
+  font-weight: var(--w-medium);
+  line-height: var(--lead-prose);
+  text-align: center;
+}
+
+.emptyBody {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-align: center;
+}
+
+.wakeLockHint {
+  flex: none;
+  padding: 0 var(--s-5) var(--s-2);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  text-align: center;
+}
+
+/* ── Footer nav ── */
+
+.footer {
+  display: flex;
+  flex: none;
+  gap: var(--s-3);
+  border-top: var(--bd-hair) solid var(--rule-2);
+  padding: var(--s-4) var(--s-5);
+  padding-bottom: calc(var(--s-4) + env(safe-area-inset-bottom));
+}
+
+.navButton {
+  min-height: 52px;
+  flex: 1;
+  border: var(--bd-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.navButtonPrimary {
+  min-height: 52px;
+  flex: 1;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.navButton:focus-visible,
+.navButtonPrimary:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.navButton[aria-disabled="true"],
+.navButtonPrimary[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* ── Ingredients drawer — an in-overlay panel, not a nested `BottomSheet`
+   (this task's addendum): the overlay already owns Esc/focus-trap/scroll-
+   lock, and a second, independent modal underneath it would fight for all
+   three. ── */
+
+.drawer {
+  position: relative;
+  flex: none;
+  border-top: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+}
+
+.drawerHandle {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-badge);
+  cursor: pointer;
+}
+
+.drawerHandle:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: -2px;
+}
+
+.drawerBody {
+  max-height: 40vh;
+  overflow-y: auto;
+  border-top: var(--bd-hair) solid var(--rule);
+  padding: var(--s-3) var(--s-5) var(--s-4);
+}
+
+.drawerHeading {
+  margin: 0 0 var(--s-2);
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.drawerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawerRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-2);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.drawerName {
+  color: var(--ink);
+}
+
+.drawerFlag {
+  color: var(--amber-txt);
+}
+
+.drawerAmount {
+  flex: none;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Exit confirmation — inline, inside the same dialog subtree (this
+   task's addendum: no nested `BottomSheet`), replacing the body/footer
+   rather than sitting above them. ── */
+
+.confirmBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-4);
+  padding: var(--s-6) var(--s-5);
+  padding-bottom: calc(var(--s-6) + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.confirmTitle {
+  max-width: 320px;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+}
+
+.confirmHint {
+  max-width: 320px;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lead-body);
+}
+
+.confirmActions {
+  display: flex;
+  width: 100%;
+  max-width: 360px;
+  gap: var(--s-3);
+}
+
+.confirmStay {
+  min-height: 48px;
+  flex: 1;
+  border: var(--bd-ink) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.confirmLeave {
+  min-height: 48px;
+  flex: 1;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--neg);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+.confirmStay:focus-visible,
+.confirmLeave:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

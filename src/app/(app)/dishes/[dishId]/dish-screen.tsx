@@ -3,9 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/bottom-sheet";
+import { CookingOverlay } from "@/components/cooking-overlay";
 import { EquipmentBanner } from "@/components/equipment-banner";
 import { NeedsReviewChip } from "@/components/needs-review-chip";
 import { PortionsSlider } from "@/components/portions-slider";
@@ -24,7 +25,10 @@ import type {
   DishDetailOutput,
   DishIngredientOutput,
 } from "@/server/api/routers/dish";
-import { EQUIPMENT_PRESETS, type EquipmentSlug } from "@/server/kitchen/equipment";
+import {
+  EQUIPMENT_PRESETS,
+  type EquipmentSlug,
+} from "@/server/kitchen/equipment";
 import { coerceEquipmentList } from "@/server/recipes/coerce-equipment";
 import { isUnquantifiable } from "@/server/recipes/needs-review";
 import { useTRPC } from "@/trpc/client";
@@ -39,10 +43,12 @@ type SheetView = "menu" | "confirm";
  * one dish: photo, title, tags, portions, ingredients and steps.
  *
  * **The actions whose feature has not shipped are `aria-disabled` and say
- * «скоро»:** «В меню недели» is task 5.1, «Ингредиенты в корзину» is 5.2 and
- * «Готовить» is 4.7. («Редактировать» is a real link since task 4.2.) `main`
- * deploys to production on every merge, so a button that navigated nowhere
- * would be worse than one that is honest.
+ * «скоро»:** «В меню недели» is task 5.1, «Ингредиенты в корзину» is 5.2.
+ * («Редактировать» is a real link since task 4.2; «Готовить» is a real link
+ * to the S9 cooking overlay since task 4.7 — gated on the dish actually
+ * having steps, its own honest `aria-disabled` case rather than «скоро».)
+ * `main` deploys to production on every merge, so a button that navigated
+ * nowhere would be worse than one that is honest.
  * `aria-disabled` rather than `disabled` throughout: a disabled control cannot
  * be focused, so a keyboard user would never learn the option exists, and the
  * hint would have nowhere to land.
@@ -103,9 +109,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
    * fresh mount — a fresh open of this route — starts it `null` again, which
    * is the whole of "reset to portionsBase on every open, never persisted".
    */
-  const [portionsOverride, setPortionsOverride] = useState<number | null>(
-    null,
-  );
+  const [portionsOverride, setPortionsOverride] = useState<number | null>(null);
   /**
    * The screen's one announcement slot. `visible` separates the two things
    * that use it: a «скоро» tap has nothing else on screen to show for itself,
@@ -129,6 +133,8 @@ export function DishScreen({ dishId }: { dishId: string }) {
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
   /** The «…» button — where focus lands after «Вернуть» unmounts the banner. */
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  /** The «Готовить» control — where focus returns once the S9 overlay closes (task 4.7). */
+  const cookLinkRef = useRef<HTMLAnchorElement>(null);
   const restoreFocusAfterUndoRef = useRef(false);
 
   const dishFilter = trpc.dish.get.queryFilter({ id: dishId });
@@ -302,6 +308,17 @@ export function DishScreen({ dishId }: { dishId: string }) {
       seq: hintSeq.current,
       visible: true,
     });
+  }
+
+  /**
+   * Same slot as `announceSoon`, but for a message that is not «скоро» —
+   * task 4.7's «Готовить» is a real, shipped feature, so a dish saved with
+   * zero steps needs its own honest copy rather than the "not built yet"
+   * wording every other still-disabled action on this screen uses.
+   */
+  function announceVisible(text: string) {
+    hintSeq.current += 1;
+    setHint({ text, seq: hintSeq.current, visible: true });
   }
 
   function confirmArchive(version: number) {
@@ -575,14 +592,27 @@ export function DishScreen({ dishId }: { dishId: string }) {
             {t("toCart")}
           </button>
         </div>
-        <button
-          type="button"
-          className={styles.primaryAction}
-          aria-disabled="true"
-          onClick={() => announceSoon(t("cook"))}
-        >
-          {t("cook")}
-        </button>
+        {/* Task 4.7 shipped S9, so this one is a real link now — gated on
+            the dish actually having steps to cook, the one precondition
+            `cooking-overlay.tsx` cannot recover from gracefully on its own. */}
+        {detail.steps.length > 0 ? (
+          <Link
+            ref={cookLinkRef}
+            className={styles.primaryAction}
+            href={`/dishes/${dishId}?cook=1`}
+          >
+            {t("cook")}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className={styles.primaryAction}
+            aria-disabled="true"
+            onClick={() => announceVisible(t("cookNoSteps"))}
+          >
+            {t("cook")}
+          </button>
+        )}
         {/* Task 4.2 shipped S8.3, so this one is a real link now. */}
         <Link className={styles.linkAction} href={`/dishes/${dishId}/edit`}>
           {t("edit")}
@@ -642,9 +672,7 @@ export function DishScreen({ dishId }: { dishId: string }) {
                 the write would fail immediately, and «нет сети» explains that
                 better than a generic failure would. Inside the sheet's own
                 aria-modal subtree, like every other message here. */}
-            {online ? null : (
-              <p className={styles.offline}>{t("offline")}</p>
-            )}
+            {online ? null : <p className={styles.offline}>{t("offline")}</p>}
           </div>
         ) : (
           <ul className={styles.menu}>
@@ -663,6 +691,20 @@ export function DishScreen({ dishId }: { dishId: string }) {
           </ul>
         )}
       </BottomSheet>
+
+      {/* `useSearchParams` needs a Suspense boundary per Next's own rule for
+          any Client Component that reads it (nextjs.org/docs/messages/
+          missing-suspense-with-csr-bailout) — `fallback={null}` because
+          `CookingOverlay` already renders nothing until its own post-mount
+          effect decides `?cook=1` is present (see its doc comment on why),
+          so there is nothing meaningful to show while suspended anyway. */}
+      <Suspense fallback={null}>
+        <CookingOverlay
+          dishId={dishId}
+          detail={detail}
+          restoreFocusTo={cookLinkRef}
+        />
+      </Suspense>
     </section>
   );
 }
@@ -707,13 +749,7 @@ function timerText(
   return t(message.key, message.values);
 }
 
-function DishPhoto({
-  detail,
-  alt,
-}: {
-  detail: DishDetailOutput;
-  alt: string;
-}) {
+function DishPhoto({ detail, alt }: { detail: DishDetailOutput; alt: string }) {
   const [failed, setFailed] = useState(false);
 
   if (detail.photoUrl === null || failed) {

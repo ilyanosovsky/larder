@@ -27,7 +27,7 @@ import messages from "./ru.json";
  * every other gate.
  */
 function translator(
-  namespace: "dish" | "dishes" | "dishForm" | "dishPortions",
+  namespace: "dish" | "dishes" | "dishForm" | "dishPortions" | "cooking",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -178,6 +178,7 @@ describe("the keys the dish screens call by name", () => {
     "toMenu",
     "toCart",
     "cook",
+    "cookNoSteps",
     "edit",
     "moreAria",
     "archive",
@@ -314,6 +315,54 @@ describe("the keys the dish screens call by name", () => {
       expect(rendered.trim().length).toBeGreaterThan(0);
     },
   );
+});
+
+describe("cooking (task 4.7)", () => {
+  const t = translator("cooking");
+
+  /** Every entry here is a literal in `cooking-overlay.tsx` / `cook-timer.tsx` — see `dish.%s` above for why this sweep exists at all. */
+  const COOKING_KEYS = [
+    "prev",
+    "next",
+    "noSteps",
+    "timerRunningAria",
+    "timerFinished",
+    "timerFinishedSr",
+    "timerReset",
+    "timerBusy",
+    "timerJumpAria",
+    "wakeLockHint",
+    "ingredientsToggle",
+    "exitTitle",
+    "exitHint",
+    "exitCancel",
+    "exitConfirm",
+  ] as const;
+
+  it.each(COOKING_KEYS)("cooking.%s resolves to real copy", (key) => {
+    const rendered = t(key);
+
+    expect(rendered).not.toBe(`cooking.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("titles the dialog with the dish's own name", () => {
+    expect(t("dialogTitle", { title: "NYC Cookies" })).toBe(
+      "Готовим «NYC Cookies»",
+    );
+  });
+
+  it("renders «шаг N из M» from the two integers `cooking-overlay.tsx` tracks", () => {
+    expect(t("progress", { current: 3, total: 6 })).toBe("шаг 3 из 6");
+    expect(t("progress", { current: 1, total: 1 })).toBe("шаг 1 из 1");
+  });
+
+  it("composes the start button from the reused dish.timer* label, not a second copy of it", () => {
+    // `cook-timer.tsx` builds `label` from `timerMessage`/`dish.timer*` —
+    // see that file's own doc comment — and hands the already-translated
+    // string in here as a plain parameter.
+    expect(t("timerStart", { label: "9–11 мин" })).toBe("9–11 мин · запустить");
+  });
 });
 
 describe("the equipment banner's «скоро» hint", () => {
