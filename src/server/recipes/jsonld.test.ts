@@ -223,6 +223,86 @@ describe("the shapes JSON-LD actually arrives in", () => {
   );
 });
 
+describe("a page nested far deeper than any recipe", () => {
+  /** `[[[…value…]]]`, `depth` arrays deep. */
+  function nested(depth: number, value: unknown): unknown {
+    let node: unknown = value;
+    for (let index = 0; index < depth; index += 1) {
+      node = [node];
+    }
+    return node;
+  }
+
+  it.each(["recipeIngredient", "image", "name"])(
+    "reads %s without blowing the stack",
+    (field) => {
+      // `JSON.parse` is iterative in V8, so a 4 KB block nesting a field two
+      // thousand arrays deep parses happily and used to blow the JS stack in
+      // whichever reader walked it — a `RangeError` that escaped into
+      // `fromUrl` as a 500 with no `jobId`, leaving the ledger row it had
+      // already opened stuck on `running`.
+      const html = page(
+        JSON.stringify({
+          "@type": "Recipe",
+          name: "Глубокий",
+          recipeIngredient: ["Мука 285 г"],
+          [field]: nested(2_000, "что-то"),
+        }),
+      );
+
+      expect(() => skeletonOf(html)).not.toThrow();
+    },
+  );
+
+  it("clips the nesting rather than reading through it", () => {
+    // Six levels is the same limit `findRecipeNode` and `instructionSteps`
+    // already use, and it clips nothing real: every fixture and every shape
+    // this module documents sits at one or two.
+    const shallow = skeletonOf(
+      page(
+        JSON.stringify({
+          "@type": "Recipe",
+          name: "Мелко",
+          recipeIngredient: nested(2, "Мука 285 г"),
+        }),
+      ),
+    );
+    expect(shallow.ingredients).toEqual(["Мука 285 г"]);
+
+    const deep = skeletonOf(
+      page(
+        JSON.stringify({
+          "@type": "Recipe",
+          name: "Глубоко",
+          recipeIngredient: ["Соль щепотка", nested(50, "Мука 285 г")],
+        }),
+      ),
+    );
+    expect(deep.ingredients).toEqual(["Соль щепотка"]);
+  });
+});
+
+describe("the value cap", () => {
+  it("does not hand on a value longer than any real one", () => {
+    // A page controls every string here, and they feed `parseDurationMin`
+    // (quadratic on long digit runs) and the AI hint (billed by the token).
+    // `MAX_BLOCK_CHARS` allows a 500 KB block, so «bounded by the document»
+    // is not a bound.
+    const skeleton = skeletonOf(
+      page(
+        JSON.stringify({
+          "@type": "Recipe",
+          name: "я".repeat(50_000),
+          recipeIngredient: ["Мука ".repeat(20_000)],
+        }),
+      ),
+    );
+
+    expect(skeleton.title?.length).toBe(2_000);
+    expect(skeleton.ingredients[0]?.length).toBeLessThanOrEqual(2_000);
+  });
+});
+
 describe("findRecipeNode", () => {
   it("returns null for a page with no recipe on it", () => {
     // russianfood.com: the reason the third rung of the cascade exists.

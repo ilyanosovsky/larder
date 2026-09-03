@@ -74,4 +74,54 @@ describe("parseDurationMin", () => {
     expect(parseDurationMin("что-то")).toBeNull();
     expect(parseDurationMin(null)).toBeNull();
   });
+
+  it("reads a hostile digit run in milliseconds instead of minutes of CPU", () => {
+    // The page controls this string — `totalTime` inside a 500 KB ld+json
+    // block, or the text of any `itemprop` on a 2 MB page. Both Russian
+    // patterns are global and alternating, so before the length cap a run of
+    // digits backtracked quadratically: 128 000 digits measured at 51 seconds
+    // of *synchronous* CPU, which no `AbortSignal` can interrupt — it burns
+    // the whole `maxDuration` and returns a 504 with no `jobId`.
+    const started = Date.now();
+
+    expect(parseDurationMin("9".repeat(128_000))).toBeNull();
+    expect(parseDurationMin(`${"9".repeat(128_000)} минут`)).toBeNull();
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it("still reads a real duration that happens to be padded", () => {
+    // The cap must not eat the answer: 200 characters is far past any real
+    // `totalTime`, and the value is at the front of the string.
+    expect(parseDurationMin(`PT1H15M${" ".repeat(400)}`)).toBe(75);
+    expect(parseDurationMin(`Время: 30 мин${"!".repeat(400)}`)).toBe(30);
+  });
+});
+
+describe("the upper bound", () => {
+  it("refuses a duration no kitchen could mean", () => {
+    // 100 000 minutes is ten weeks. `draftFromParsed` caps again at 6 000 on
+    // the way into a draft, but the hint the model reads comes from here.
+    expect(parseIsoDuration("PT9999H")).toBeNull();
+    expect(parseRussianDuration("100000 часов")).toBeNull();
+    expect(parseDurationMin("2000 часов")).toBeNull();
+  });
+
+  it("keeps a long-but-possible one", () => {
+    // A two-day brine is a real recipe; the schema is what refuses to store
+    // it, not the reader that reports what the page said.
+    expect(parseIsoDuration("PT48H")).toBe(2_880);
+    expect(parseRussianDuration("36 часов")).toBe(2_160);
+  });
+
+  it("refuses a seven-digit duration whichever guard catches it first", () => {
+    // Two guards agree here, deliberately: the numeric groups are written
+    // `\d{1,6}` rather than `\d+` (six digits is already past the cap, so
+    // bounding them loses no readable input while stopping any single
+    // position from backtracking far), and `usableMinutes` refuses the value
+    // anyway. The group bound is defence for a future caller that skips
+    // `parseDurationMin`'s length cap; this pins the outcome either way.
+    expect(parseRussianDuration("1234567 минут")).toBeNull();
+    expect(parseIsoDuration("PT1234567M")).toBeNull();
+  });
 });

@@ -174,12 +174,28 @@
   gap: var(--s-3);
 }
 
-.paneHint {
+/* Two lines in one slot: the resting hint and the validation message. The
+   message is its own node so it can be a live region without the hint being
+   re-announced on every keystroke. */
+.paneHints {
   flex: 1;
   margin: 0;
-  color: var(--mute);
   font-family: var(--font-sans);
   font-size: var(--t-meta);
+}
+
+.paneHint {
+  color: var(--mute);
+}
+
+.paneError {
+  color: var(--null-txt);
+}
+
+/* Amber, never `--neg`: an unfinished field is not an error. */
+.paneField[aria-invalid="true"],
+.paneFieldTall[aria-invalid="true"] {
+  border-color: var(--null-rule);
 }
 
 .paneSubmit {

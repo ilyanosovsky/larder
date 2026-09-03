@@ -1,5 +1,7 @@
 import { parse } from "node-html-parser";
 
+import { MAX_TITLE } from "@/lib/recipes/draft";
+
 import {
   extractJsonLdNodes,
   findRecipeNode,
@@ -103,6 +105,12 @@ function isSocialUrl(url: string): boolean {
  * `og:title` before `<title>`: the former is the dish, the latter is usually
  * the dish plus the site's name plus a category trail. Neither is trusted
  * further than a prefilled form field a person is looking at.
+ *
+ * Capped at `MAX_TITLE` — the schema's own bound, imported rather than
+ * re-guessed. A longer value used to reach `/dishes/new` verbatim and be
+ * refused by the form's `safeParse` with only «что-то заполнено неверно» to
+ * explain it: the fallback for a failed import, unsaveable, for a reason
+ * nothing on screen named.
  */
 export function pageTitle(html: string): string | null {
   const root = parse(html);
@@ -119,5 +127,5 @@ export function pageTitle(html: string): string | null {
   const title = og ?? root.querySelector("title")?.text ?? "";
   const collapsed = title.replace(/\s+/g, " ").trim();
 
-  return collapsed.length === 0 ? null : collapsed.slice(0, 200);
+  return collapsed.length === 0 ? null : collapsed.slice(0, MAX_TITLE);
 }

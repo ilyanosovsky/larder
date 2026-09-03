@@ -5,6 +5,7 @@ import {
   FIRECRAWL_ENDPOINT,
   firecrawlScrape,
   MAX_MARKDOWN_CHARS,
+  MIN_MARKDOWN_CHARS,
   parseFirecrawlResponse,
 } from "./firecrawl";
 
@@ -69,6 +70,27 @@ describe("parseFirecrawlResponse — the shape guard (R7)", () => {
       ok: false,
       reason: "blocked",
     });
+  });
+
+  it("pins the floor that keeps a thin page off the model's bill", () => {
+    // Either side of the `<`, against the exported constant. Without this the
+    // threshold could drop from 200 to 10 — forwarding cookie banners to a
+    // billed call that comes back «это не рецепт» — with nothing failing.
+    // A run of «я» has no markup, so `condenseMarkdown` leaves the length
+    // exactly where the test put it.
+    expect(
+      parseFirecrawlResponse({
+        success: true,
+        data: { markdown: "я".repeat(MIN_MARKDOWN_CHARS - 1) },
+      }),
+    ).toEqual({ ok: false, reason: "empty" });
+
+    expect(
+      parseFirecrawlResponse({
+        success: true,
+        data: { markdown: "я".repeat(MIN_MARKDOWN_CHARS) },
+      }).ok,
+    ).toBe(true);
   });
 
   it("separates «nothing on the page» from «refused»", () => {

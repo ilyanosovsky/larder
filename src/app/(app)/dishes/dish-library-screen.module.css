@@ -229,14 +229,6 @@
   opacity: 0.75;
 }
 
-.hint {
-  margin-top: var(--s-3);
-  color: var(--mute);
-  font-family: var(--font-mono);
-  font-size: var(--t-meta);
-  text-align: center;
-}
-
 .srOnly {
   position: absolute;
   overflow: hidden;

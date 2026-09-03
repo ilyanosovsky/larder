@@ -4,6 +4,8 @@ import { fromTextInput } from "@/server/api/routers/dish-import";
 
 import {
   isLongEnough,
+  isTooLong,
+  isWithinTextBounds,
   looksLikeUrl,
   MAX_IMPORT_TEXT,
   MIN_IMPORT_TEXT,
@@ -63,5 +65,37 @@ describe("isLongEnough", () => {
       fromTextInput.safeParse({ text: "я".repeat(MAX_IMPORT_TEXT + 1) })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("isTooLong / isWithinTextBounds", () => {
+  it("pins the ceiling exactly where the server's is", () => {
+    // A `BAD_REQUEST` from the ceiling reaches S8.1 as «Сейчас не получается
+    // разобрать», whose only offer replays the same too-long string forever —
+    // so the client has to refuse it in the field, where it can still be cut.
+    expect(isTooLong("я".repeat(MAX_IMPORT_TEXT))).toBe(false);
+    expect(isTooLong("я".repeat(MAX_IMPORT_TEXT + 1))).toBe(true);
+
+    expect(
+      fromTextInput.safeParse({ text: "я".repeat(MAX_IMPORT_TEXT) }).success,
+    ).toBe(true);
+    expect(
+      fromTextInput.safeParse({ text: "я".repeat(MAX_IMPORT_TEXT + 1) })
+        .success,
+    ).toBe(false);
+  });
+
+  it("accepts only what the server would accept", () => {
+    expect(isWithinTextBounds("я".repeat(MIN_IMPORT_TEXT - 1))).toBe(false);
+    expect(isWithinTextBounds("я".repeat(MIN_IMPORT_TEXT))).toBe(true);
+    expect(isWithinTextBounds("я".repeat(MAX_IMPORT_TEXT))).toBe(true);
+    expect(isWithinTextBounds("я".repeat(MAX_IMPORT_TEXT + 1))).toBe(false);
+  });
+
+  it("measures the trimmed length, as the server's `.trim()` does", () => {
+    const padded = `${" ".repeat(500)}${"я".repeat(MAX_IMPORT_TEXT)}${" ".repeat(500)}`;
+
+    expect(isWithinTextBounds(padded)).toBe(true);
+    expect(fromTextInput.safeParse({ text: padded }).success).toBe(true);
   });
 });

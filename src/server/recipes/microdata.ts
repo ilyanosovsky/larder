@@ -27,6 +27,17 @@ const RECIPE_ITEMTYPE = /schema\.org\/recipe$/i;
 /** The nested item type whose members are steps. */
 const HOW_TO_STEP = /schema\.org\/howtostep$/i;
 
+/**
+ * Longest single value this module hands on — the same bound, and the same
+ * reason, as `jsonld.ts`'s.
+ *
+ * A microdata value is the *text of a DOM subtree*, so a single `itemprop`
+ * can carry most of a 2 MB page. That string then reaches
+ * `parseDurationMin`, whose regexes are quadratic on long digit runs, and the
+ * AI hint, which is billed by the token.
+ */
+const MAX_VALUE_CHARS = 2_000;
+
 export function recipeSkeletonFromMicrodata(
   html: string,
 ): RecipeSkeleton | null {
@@ -197,6 +208,7 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+/** Whitespace collapsed and the result bounded — see `MAX_VALUE_CHARS`. */
 function collapse(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_VALUE_CHARS);
 }

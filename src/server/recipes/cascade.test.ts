@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { MAX_TITLE, recipeDraftSchema } from "@/lib/recipes/draft";
+import { emptyDraft } from "@/lib/recipes/draft";
+
 import { decideUrlStrategy, extractPageSkeleton, pageTitle } from "./cascade";
 
 function fixture(name: string): string {
@@ -122,6 +125,20 @@ describe("pageTitle — what a failed import can still prefill", () => {
     expect(pageTitle(fixture("russianfood-plain.html"))).toBe(
       "Рецепт: Говяжий гуляш на тёмном пиве на RussianFood.com",
     );
+  });
+
+  it("caps at the length the form that receives it will accept", () => {
+    // The salvaged title prefills «создать вручную». Longer than `MAX_TITLE`
+    // and that form's own `safeParse` refuses to save, saying only «что-то
+    // заполнено неверно» — a dead end at the end of the road out of a dead
+    // end.
+    const long = "Очень длинное название рецепта ".repeat(20);
+    const title = pageTitle(`<html><head><title>${long}</title></head></html>`);
+
+    expect(title?.length).toBe(MAX_TITLE);
+    expect(
+      recipeDraftSchema.safeParse({ ...emptyDraft(), title }).success,
+    ).toBe(true);
   });
 
   it("returns null when there is no title at all", () => {

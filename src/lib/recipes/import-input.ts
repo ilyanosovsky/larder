@@ -43,3 +43,22 @@ export function looksLikeUrl(value: string): boolean {
 export function isLongEnough(value: string): boolean {
   return value.trim().length >= MIN_IMPORT_TEXT;
 }
+
+/**
+ * Past what the server will take.
+ *
+ * Checked on the client because the server's refusal is a `BAD_REQUEST` the
+ * import screen can only report as «Сейчас не получается разобрать» — whose
+ * one offer, «Ещё раз», replays the identical too-long string and fails
+ * identically every time, with the textarea already unmounted so it cannot be
+ * shortened. Refusing in the field, where the text still is, is the only
+ * place the person can act on it.
+ */
+export function isTooLong(value: string): boolean {
+  return value.trim().length > MAX_IMPORT_TEXT;
+}
+
+/** Both bounds at once — what the two textareas gate their submit on. */
+export function isWithinTextBounds(value: string): boolean {
+  return isLongEnough(value) && !isTooLong(value);
+}

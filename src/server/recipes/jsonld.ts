@@ -26,8 +26,31 @@ import { EMPTY_SKELETON, type RecipeSkeleton } from "@/server/recipes/skeleton";
 /** Ceiling on how much of one script block we will try to parse. */
 const MAX_BLOCK_CHARS = 500_000;
 
-/** Recursion limit for `@graph` / `itemListElement` nesting. */
+/**
+ * Recursion limit for `@graph` / `itemListElement` nesting — and for every
+ * value reader below.
+ *
+ * `JSON.parse` is iterative in V8, so a 4 KB block nesting `recipeIngredient`
+ * two thousand arrays deep parses happily and then blows the JS stack in
+ * whichever reader walks it. That `RangeError` escapes into `fromUrl` as a
+ * 500 with no `jobId`, leaving the ledger row it had already opened stuck on
+ * `running`. Six levels clips nothing real: every fixture and every shape
+ * this module documents sits at one or two.
+ */
 const MAX_DEPTH = 6;
+
+/**
+ * Longest single value this module hands on.
+ *
+ * A page controls every string in here, and the readers feed
+ * `parseDurationMin` (whose regexes are quadratic on long digit runs) and the
+ * AI hint (which is billed by the token). `MAX_BLOCK_CHARS` permits a 500 KB
+ * block, so «bounded by the document» is not a bound at all. Nothing real
+ * approaches this — the longest ingredient line in the four fixtures is 38
+ * characters — and `draftFromParsed` caps every field again on the way into a
+ * draft.
+ */
+const MAX_VALUE_CHARS = 2_000;
 
 /**
  * Every `<script type="application/ld+json">` on the page, parsed.
@@ -207,13 +230,16 @@ function splitProse(value: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function firstImageUrl(value: unknown): string | null {
+function firstImageUrl(value: unknown, depth = 0): string | null {
+  if (depth > MAX_DEPTH) {
+    return null;
+  }
   if (typeof value === "string") {
     return httpUrl(value);
   }
   if (Array.isArray(value)) {
     for (const item of value) {
-      const url = firstImageUrl(item);
+      const url = firstImageUrl(item, depth + 1);
       if (url !== null) {
         return url;
       }
@@ -222,7 +248,10 @@ function firstImageUrl(value: unknown): string | null {
   }
   if (isRecord(value)) {
     // An `ImageObject`, or `{ "@id": "…" }`.
-    return firstImageUrl(value.url ?? value.contentUrl ?? value["@id"]);
+    return firstImageUrl(
+      value.url ?? value.contentUrl ?? value["@id"],
+      depth + 1,
+    );
   }
   return null;
 }
@@ -234,7 +263,10 @@ function httpUrl(value: string): string | null {
 }
 
 /** A string, a number, or the first usable member of a list. */
-function firstString(value: unknown): string | null {
+function firstString(value: unknown, depth = 0): string | null {
+  if (depth > MAX_DEPTH) {
+    return null;
+  }
   if (typeof value === "string") {
     const text = collapse(value);
     return text.length === 0 ? null : text;
@@ -244,35 +276,43 @@ function firstString(value: unknown): string | null {
   }
   if (Array.isArray(value)) {
     for (const item of value) {
-      const text = firstString(item);
+      const text = firstString(item, depth + 1);
       if (text !== null) {
         return text;
       }
     }
   }
   if (isRecord(value)) {
-    return firstString(value.name ?? value.text ?? value["@value"]);
+    return firstString(value.name ?? value.text ?? value["@value"], depth + 1);
   }
   return null;
 }
 
-function stringList(value: unknown): string[] {
+function stringList(value: unknown, depth = 0): string[] {
+  if (depth > MAX_DEPTH) {
+    return [];
+  }
   if (typeof value === "string" || typeof value === "number") {
-    const text = firstString(value);
+    const text = firstString(value, depth + 1);
     return text === null ? [] : [text];
   }
   if (Array.isArray(value)) {
-    return value.flatMap((item) => stringList(item));
+    return value.flatMap((item) => stringList(item, depth + 1));
   }
   if (isRecord(value)) {
-    const text = firstString(value);
+    const text = firstString(value, depth + 1);
     return text === null ? [] : [text];
   }
   return [];
 }
 
+/**
+ * Whitespace collapsed **and** the result bounded — see `MAX_VALUE_CHARS`.
+ * Every string this module emits passes through here, which is what makes the
+ * cap one rule rather than five.
+ */
 function collapse(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_VALUE_CHARS);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

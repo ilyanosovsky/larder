@@ -104,64 +104,99 @@ const RECIPE: ParsedRecipe = {
 };
 
 /**
+ * A factory the caller helpers can hand the `DbStub` to, so a fake can stamp
+ * **where in the statement stream** it was reached.
+ *
+ * Attached to the factory function rather than passed alongside it, because
+ * every call site already hands `callerWith` a bare factory — and the point
+ * of the position is to be recorded by default, not only where somebody
+ * remembered to wire it.
+ */
+type Watchable<T> = (() => T) & { watch: (stub: DbStub) => void };
+
+/** Counts statements once a stub exists; `-1` means nothing was watching. */
+function statementClock() {
+  let count = () => -1;
+  return {
+    now: () => count(),
+    watch(stub: DbStub) {
+      count = () => stub.statements.length;
+    },
+  };
+}
+
+/**
  * A stand-in OpenAI client that also records the **per-request options**: the
  * import's 40 s timeout and its refusal to retry are as much part of the
  * contract as the prompt, and neither is visible in the request body.
+ *
+ * And it records `at` — the number of statements that had run when the model
+ * was called. Without it, «the job row opens before the model» could only be
+ * checked against *other database statements*, and the model call issues
+ * none: moving `openJob` below `parseRecipe` used to leave the whole suite
+ * green. This is the same field `fakeUploadThing` already carries, for the
+ * same reason.
  */
 function fakeOpenai(answer: string | Error) {
   const calls: {
     params: CreateParams;
     options: AiRequestOptions | undefined;
+    at: number;
   }[] = [];
+  const clock = statementClock();
 
-  return {
-    calls,
-    factory: () => ({
-      chat: {
-        completions: {
-          create(
-            params: CreateParams,
-            options?: AiRequestOptions,
-          ): Promise<Completion> {
-            calls.push({ params, options });
-            if (answer instanceof Error) {
-              return Promise.reject(answer);
-            }
-            return Promise.resolve({
-              id: "chatcmpl-test",
-              object: "chat.completion" as const,
-              created: 1_787_000_000,
-              model: "gpt-5-mini",
-              usage: {
-                prompt_tokens: 1_600,
-                completion_tokens: 900,
-                total_tokens: 2_500,
-              },
-              choices: [
-                {
-                  index: 0,
-                  finish_reason: "stop" as const,
-                  logprobs: null,
-                  message: {
-                    role: "assistant" as const,
-                    content: answer,
-                    refusal: null,
-                  },
+  const factory = () => ({
+    chat: {
+      completions: {
+        create(
+          params: CreateParams,
+          options?: AiRequestOptions,
+        ): Promise<Completion> {
+          calls.push({ params, options, at: clock.now() });
+          if (answer instanceof Error) {
+            return Promise.reject(answer);
+          }
+          return Promise.resolve({
+            id: "chatcmpl-test",
+            object: "chat.completion" as const,
+            created: 1_787_000_000,
+            model: "gpt-5-mini",
+            usage: {
+              prompt_tokens: 1_600,
+              completion_tokens: 900,
+              total_tokens: 2_500,
+            },
+            choices: [
+              {
+                index: 0,
+                finish_reason: "stop" as const,
+                logprobs: null,
+                message: {
+                  role: "assistant" as const,
+                  content: answer,
+                  refusal: null,
                 },
-              ],
-            });
-          },
+              },
+            ],
+          });
         },
       },
-    }),
-  };
+    },
+  });
+  factory.watch = clock.watch;
+
+  return { calls, factory };
 }
 
-function callerWith(
-  results: StubResult[],
-  openai?: () => ReturnType<ReturnType<typeof fakeOpenai>["factory"]>,
-) {
+type OpenaiFactory = Watchable<
+  ReturnType<ReturnType<typeof fakeOpenai>["factory"]>
+>;
+
+function callerWith(results: StubResult[], openai?: OpenaiFactory) {
   const stub = createDbStub(results);
+  // Hand the fake the stub so it can stamp *when* it was called; nothing
+  // else in this file can see across the network/database boundary.
+  openai?.watch(stub);
   return { caller: createCaller(signedInContext(stub.db, openai)), stub };
 }
 
@@ -366,15 +401,19 @@ describe("dishImport.fromPhoto — the ledger", () => {
       inputRef: FILE_KEY,
     });
 
-    // Written before the request went out: the insert is recorded ahead of
-    // every statement that follows the model's answer.
-    expect(stub.statements.indexOf(insert!)).toBeLessThan(
-      stub.statements.findIndex(
-        (statement) =>
-          statement.kind === "update" && statement.table === "ai_jobs",
-      ),
-    );
+    // **Written before the request went out** — measured against the model
+    // call itself, not against the next database statement.
+    //
+    // The difference is the whole test. `parseRecipe` issues no statement, so
+    // comparing the insert to the ledger UPDATE that *follows* the answer is
+    // true under every ordering: moving `openJob` below `parseRecipe` used to
+    // leave all 1811 tests green. `at` is how many statements had run when
+    // the model was called, which is the only thing that can tell the two
+    // orderings apart.
     expect(openai.calls).toHaveLength(1);
+    expect(openai.calls[0]?.at).toBeGreaterThan(
+      stub.statements.indexOf(insert!),
+    );
   });
 
   it("stamps a cost on the failure branch too", async () => {
@@ -987,19 +1026,23 @@ function fixture(name: string): string {
 /**
  * A stand-in transport that records every request and answers from a queue.
  *
- * Two things it makes assertable that nothing else can: **which URLs were
+ * Three things it makes assertable that nothing else can: **which URLs were
  * requested at all** (the Instagram branch must issue no direct fetch, and a
- * refused SSRF hop must issue none either), and the *order* of the page fetch
- * against the FireCrawl call.
+ * refused SSRF hop must issue none either), the *order* of the page fetch
+ * against the FireCrawl call, and — through `at` — where each request sat in
+ * the database statement stream. That last one is what actually pins «the
+ * job row opens before the fetch»: the fetch issues no statement of its own,
+ * so moving `openJob` below it used to leave the whole suite green.
  */
 function fakePageFetch(
   responses: (Response | Error)[],
   lookupAddress = "93.184.216.34",
 ) {
-  const requests: string[] = [];
+  const requests: { url: string; at: number }[] = [];
+  const clock = statementClock();
 
   const fetcher = ((input: RequestInfo | URL) => {
-    requests.push(String(input));
+    requests.push({ url: String(input), at: clock.now() });
     const next = responses.shift();
     if (next === undefined) {
       return Promise.reject(new Error(`unexpected fetch of ${String(input)}`));
@@ -1010,12 +1053,17 @@ function fakePageFetch(
     return Promise.resolve(next);
   }) as unknown as typeof globalThis.fetch;
 
+  const factory = () => ({
+    fetch: fetcher,
+    lookup: () => Promise.resolve([{ address: lookupAddress }]),
+  });
+  factory.watch = clock.watch;
+
   return {
     requests,
-    factory: () => ({
-      fetch: fetcher,
-      lookup: () => Promise.resolve([{ address: lookupAddress }]),
-    }),
+    /** Just the URLs, for the assertions that only care what was asked for. */
+    urls: () => requests.map((request) => request.url),
+    factory,
   };
 }
 
@@ -1034,13 +1082,17 @@ function firecrawlOk(markdown: string): Response {
 /** `callerWith`, plus the transport `fromUrl` needs. */
 function urlCallerWith(
   results: StubResult[],
-  pageFetch: () => {
+  pageFetch: Watchable<{
     fetch: typeof globalThis.fetch;
     lookup: () => Promise<{ address: string }[]>;
-  },
-  openai?: () => ReturnType<ReturnType<typeof fakeOpenai>["factory"]>,
+  }>,
+  openai?: OpenaiFactory,
 ) {
   const stub = createDbStub(results);
+  // Both fakes get the stub, so each can stamp where in the statement stream
+  // it was reached — see `fakePageFetch`.
+  pageFetch.watch(stub);
+  openai?.watch(stub);
   return {
     caller: createCaller(
       signedInContext(stub.db, openai, undefined, pageFetch),
@@ -1161,7 +1213,7 @@ describe("dishImport.fromUrl — the free JSON-LD path", () => {
     });
 
     // Exactly one page request, and FireCrawl was never called.
-    expect(page.requests).toEqual([RAMBLER_URL]);
+    expect(page.urls()).toEqual([RAMBLER_URL]);
     expect(openai.calls).toHaveLength(1);
     // The extraction reached the model as a hint, not as HTML.
     const message = String(openai.calls[0]?.params.messages[1]?.content);
@@ -1189,6 +1241,33 @@ describe("dishImport.fromUrl — the free JSON-LD path", () => {
     expect(result.outcome === "parsed" && result.draft.photoKey).toBeNull();
   });
 
+  it("drops an image URL too long for the draft schema, rather than the recipe", async () => {
+    // `recipeDraftSchema.photoUrl` caps at 500 characters, and a draft that
+    // fails its own validation is reported to the household as «сейчас не
+    // получается разобрать» — a whole recipe lost over a thumbnail. Without
+    // the cap this import comes back `failed`.
+    const long = `https://s1.eda.ru/${"x".repeat(520)}.jpg`;
+    const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
+    const page = fakePageFetch([
+      htmlPage(
+        fixture("rambler-jsonld.html").replace(
+          /"url": "https:\/\/s1\.eda\.ru[^"]*"/,
+          `"url": "${long}"`,
+        ),
+      ),
+    ]);
+    const { caller } = urlCallerWith(
+      [...urlPreamble(), ...draftTail()],
+      page.factory,
+      openai.factory,
+    );
+
+    const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
+
+    expect(result.outcome).toBe("parsed");
+    expect(result.outcome === "parsed" && result.draft.photoUrl).toBeNull();
+  });
+
   it("takes povar.ru through microdata, without a FireCrawl call", async () => {
     const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
     const page = fakePageFetch([htmlPage(fixture("povar-microdata.html"))]);
@@ -1203,7 +1282,7 @@ describe("dishImport.fromUrl — the free JSON-LD path", () => {
     });
 
     expect(result).toMatchObject({ outcome: "parsed", via: "microdata" });
-    expect(page.requests).toHaveLength(1);
+    expect(page.urls()).toHaveLength(1);
   });
 
   it("passes the normalizer the deadline's stage options and no retry", async () => {
@@ -1284,8 +1363,16 @@ describe("dishImport.fromUrl — the ledger", () => {
       inputRef: RAMBLER_URL,
     });
     // Two statements before it: the membership lookup and the rate-limit
-    // count. Nothing between it and the model.
-    expect(stub.statements.indexOf(inserts[0]!)).toBe(2);
+    // count.
+    const insertAt = stub.statements.indexOf(inserts[0]!);
+    expect(insertAt).toBe(2);
+
+    // **And nothing between it and the network** — measured against the
+    // requests themselves. `fetchPage` issues no database statement, so an
+    // index inside the statement stream cannot see the fetch at all: moving
+    // `openJob` below it used to leave all 1811 tests green.
+    expect(page.requests[0]?.at).toBeGreaterThan(insertAt);
+    expect(openai.calls[0]?.at).toBeGreaterThan(insertAt);
   });
 
   it("closes the row with a zero cost when the fetch itself died", async () => {
@@ -1391,7 +1478,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
     expect(result).toMatchObject({ outcome: "failed", reason: "blockedUrl" });
     // The redirect was read; the target was never requested, and FireCrawl
     // was never asked to fetch it either.
-    expect(page.requests).toEqual([RAMBLER_URL]);
+    expect(page.urls()).toEqual([RAMBLER_URL]);
   });
 
   it("refuses a public name that resolves to a private address", async () => {
@@ -1401,7 +1488,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
     const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
     expect(result).toMatchObject({ outcome: "failed", reason: "blockedUrl" });
-    expect(page.requests).toEqual([]);
+    expect(page.urls()).toEqual([]);
   });
 
   it("reports a body past the cap as tooLarge, without scraping it instead", async () => {
@@ -1425,7 +1512,7 @@ describe("dishImport.fromUrl — the SSRF guard past validation", () => {
     const result = await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
     expect(result).toMatchObject({ outcome: "failed", reason: "tooLarge" });
-    expect(page.requests).toHaveLength(1);
+    expect(page.urls()).toHaveLength(1);
   });
 });
 
@@ -1466,6 +1553,39 @@ describe("dishImport.fromUrl — the deadline", () => {
   });
 });
 
+describe("dishImport.fromUrl — a page that fights the parser", () => {
+  it("closes the job row when the HTML blows the parser's stack", async () => {
+    // `node-html-parser`'s selector walk recurses once per DOM level and
+    // throws a `RangeError` on a page nested a few thousand `<div>`s deep —
+    // 99 KB, well under the body cap. Uncaught, that left the row this
+    // procedure had just opened stuck on `running` for ever, breaking the
+    // file's own invariant that a run dying before the model still closes
+    // its entry as `error`.
+    const nested = `${"<div>".repeat(9_000)}рецепт${"</div>".repeat(9_000)}`;
+    const page = fakePageFetch([htmlPage(nested)]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), []],
+      page.factory,
+    );
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).rejects.toThrow();
+
+    const ledger = stub.statements.find(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect(ledger, "the opened row must not be left running").toBeDefined();
+    expect((ledger?.values as Record<string, unknown>).status).toBe("error");
+    expect(
+      (ledger?.values as Record<string, unknown>).finishedAt,
+    ).toBeDefined();
+    expectScopedByHousehold(ledger);
+    expectScopedByJob(ledger);
+  });
+});
+
 describe("dishImport.fromUrl — the FireCrawl branch", () => {
   it("scrapes a page with nothing structured on it", async () => {
     const openai = fakeOpenai(JSON.stringify(NORMALIZED_URL_RECIPE));
@@ -1483,8 +1603,10 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
     const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
 
     expect(result).toMatchObject({ outcome: "parsed", via: "firecrawl" });
-    expect(page.requests[0]).toBe(RUSSIANFOOD_URL);
-    expect(page.requests[1]).toBe("https://api.firecrawl.dev/v2/scrape");
+    expect(page.urls()).toEqual([
+      RUSSIANFOOD_URL,
+      "https://api.firecrawl.dev/v2/scrape",
+    ]);
     expect(String(openai.calls[0]?.params.messages[1]?.content)).toContain(
       "Режим: текст",
     );
@@ -1505,7 +1627,7 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
 
     expect(result).toMatchObject({ outcome: "failed", reason: "loginWalled" });
     // FireCrawl only — instagram.com itself was never requested.
-    expect(page.requests).toEqual(["https://api.firecrawl.dev/v2/scrape"]);
+    expect(page.urls()).toEqual(["https://api.firecrawl.dev/v2/scrape"]);
   });
 
   it("maps a FireCrawl response of the wrong shape to pageBlocked", async () => {
@@ -1558,6 +1680,84 @@ describe("dishImport.fromUrl — the FireCrawl branch", () => {
       outcome: "failed",
       reason: "pageUnreachable",
     });
+  });
+
+  it("does not start a scrape it has no budget for", async () => {
+    // The guard is defensive — reaching it needs DNS to eat forty seconds,
+    // which the fetch stage's `AbortSignal` does not cover — but «defensive»
+    // and «unpinned» are different things: neutralizing the condition used to
+    // leave all 1811 tests green, because every other FireCrawl test runs
+    // with a full budget.
+    const clock = vi.spyOn(Date, "now");
+    const started = 1_800_000_000_000;
+    clock.mockImplementation(
+      () => started + (clock.mock.calls.length > 1 ? IMPORT_DEADLINE_MS : 0),
+    );
+
+    const page = fakePageFetch([
+      htmlPage(fixture("russianfood-plain.html")),
+      firecrawlOk(`# Гуляш\n\n${"Говядина — 1 кг. ".repeat(30)}`),
+    ]);
+    const { caller, stub } = urlCallerWith(
+      [...urlPreamble(), [], []],
+      page.factory,
+    );
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    const result = await caller.dishImport.fromUrl({ url: RUSSIANFOOD_URL });
+    clock.mockRestore();
+
+    expect(result).toMatchObject({ outcome: "failed", reason: "pageBlocked" });
+    // The page was fetched; the scrape endpoint was never asked.
+    expect(page.urls()).toEqual([RUSSIANFOOD_URL]);
+
+    const ledger = stub.statements.find(
+      (statement) =>
+        statement.kind === "update" && statement.table === "ai_jobs",
+    );
+    expect((ledger?.values as Record<string, unknown>).costUsd).toBe(
+      "0.000000",
+    );
+  });
+
+  it("keeps pageUnreachable when the URL answers with something that is not a page", async () => {
+    // The `notHtml` arm of the precedence: reachable, answered, but not a
+    // document — and then the scrape fails too. Deleting that arm used to
+    // leave the suite green.
+    const page = fakePageFetch([
+      new Response("%PDF-1.7", {
+        headers: { "content-type": "application/pdf" },
+      }),
+      new Response(JSON.stringify({ success: false }), {
+        headers: { "content-type": "application/json" },
+      }),
+    ]);
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      caller.dishImport.fromUrl({ url: RAMBLER_URL }),
+    ).resolves.toMatchObject({
+      outcome: "failed",
+      reason: "pageUnreachable",
+    });
+  });
+
+  it("still reports loginWalled when a social scrape comes back thin", async () => {
+    // The precedence, not just one of its points: a login wall wins over
+    // «нечего читать», because «скриншот работает лучше» is the sentence that
+    // helps. Swapping the two guards used to leave the suite green — the one
+    // social test paired `loginWalled` with a *refused* scrape and never with
+    // a thin one.
+    const page = fakePageFetch([firecrawlOk("Cookies")]);
+    const { caller } = urlCallerWith([...urlPreamble(), [], []], page.factory);
+
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    await expect(
+      caller.dishImport.fromUrl({ url: INSTAGRAM_URL }),
+    ).resolves.toMatchObject({ outcome: "failed", reason: "loginWalled" });
   });
 
   it("prefills «создать вручную» with the page's own title", async () => {

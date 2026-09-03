@@ -62,6 +62,37 @@ describe("skeletonToHint", () => {
     expect(bare).toContain("- Соль по вкусу");
   });
 
+  it("sends at most 120 ingredient lines and 120 steps", () => {
+    // The line cap on its own. The old single assertion — «under 12 000
+    // characters» — was satisfied at 1 813 characters, so the line cap could
+    // be raised to 5 000 or deleted outright with nothing failing.
+    const hint = skeletonToHint({
+      ...EMPTY_SKELETON,
+      ingredients: new Array<string>(500).fill("Соль"),
+      steps: new Array<string>(500).fill("Мешать."),
+    });
+
+    expect(
+      hint.split("\n").filter((line) => line.startsWith("- ")).length,
+    ).toBe(120);
+    expect(hint.split("\n").filter((line) => /^\d+\. /.test(line)).length).toBe(
+      120,
+    );
+    expect(hint).toContain("120. Мешать.");
+    expect(hint).not.toContain("121. ");
+  });
+
+  it("caps the hint length even when the line count is legal", () => {
+    // The character cap on its own: a hundred long lines is well inside the
+    // line cap and well past what a hint should cost.
+    const hint = skeletonToHint({
+      ...EMPTY_SKELETON,
+      ingredients: new Array<string>(100).fill("Мука ".repeat(60)),
+    });
+
+    expect(hint.length).toBe(12_000);
+  });
+
   it("caps a pathological page instead of paying for it", () => {
     const huge = skeletonToHint({
       ...EMPTY_SKELETON,

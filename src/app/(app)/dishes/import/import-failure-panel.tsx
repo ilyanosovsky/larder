@@ -11,10 +11,15 @@ import {
 import {
   fallbackActions,
   importFailureCopyKey,
+  importSourceOf,
   type FallbackAction,
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
-import { isLongEnough } from "@/lib/recipes/import-input";
+import {
+  isTooLong,
+  isWithinTextBounds,
+  MAX_IMPORT_TEXT,
+} from "@/lib/recipes/import-input";
 
 import styles from "./import-screen.module.css";
 
@@ -41,15 +46,22 @@ export function ImportFailurePanel({
   onRetry,
   onPicked,
   onUseText,
+  initialText,
   manualHref,
   photoPickerHref,
   textPaneHref,
 }: {
   reason: ImportFailureReason;
+  /**
+   * What the failure salvaged. `sourceUrl` is here for `importSourceOf`, not
+   * for rendering: a reason alone cannot tell a screenshot from a link from a
+   * paste, and all three reach this panel.
+   */
   partial: {
     title: string | null;
     photoUrl: string | null;
     photoKey: string | null;
+    sourceUrl: string | null;
   };
   /** Discards the photo that did not work, then reopens the picker. */
   onRetryPhoto: () => void;
@@ -68,6 +80,11 @@ export function ImportFailurePanel({
    * a link back to S8.1's «Текстом» pane.
    */
   onUseText?: (text: string) => void;
+  /**
+   * What the person pasted, when the failure came from the text pane — so the
+   * field they land on holds their words rather than starting empty.
+   */
+  initialText?: string;
   manualHref: string;
   /** Used for «Загрузить скриншот» when `onPicked` is absent. */
   photoPickerHref: string;
@@ -75,8 +92,8 @@ export function ImportFailurePanel({
   textPaneHref: string;
 }) {
   const t = useTranslations("dishImport");
-  const hasPhoto = partial.photoKey !== null;
-  const actions = fallbackActions(reason, { hasPhoto });
+  const source = importSourceOf(partial);
+  const actions = fallbackActions(reason, source);
 
   return (
     <div className={styles.failure}>
@@ -94,7 +111,7 @@ export function ImportFailurePanel({
       )}
 
       <p className={styles.failureText}>
-        {t(importFailureCopyKey(reason, { hasPhoto }))}
+        {t(importFailureCopyKey(reason, source))}
       </p>
 
       <div className={styles.actions}>
@@ -107,6 +124,7 @@ export function ImportFailurePanel({
             onRetry={onRetry}
             onPicked={onPicked}
             onUseText={onUseText}
+            initialText={initialText}
             manualHref={manualHref}
             photoPickerHref={photoPickerHref}
             textPaneHref={textPaneHref}
@@ -124,6 +142,7 @@ function Action({
   onRetry,
   onPicked,
   onUseText,
+  initialText,
   manualHref,
   photoPickerHref,
   textPaneHref,
@@ -134,6 +153,11 @@ function Action({
   onRetry: () => void;
   onPicked?: (photo: UploadedPhoto) => void;
   onUseText?: (text: string) => void;
+  /**
+   * What the person pasted, when the failure came from the text pane — so the
+   * field they land on holds their words rather than starting empty.
+   */
+  initialText?: string;
   manualHref: string;
   photoPickerHref: string;
   textPaneHref: string;
@@ -178,7 +202,13 @@ function Action({
           </Link>
         );
       }
-      return <TextFallback autoFocus={primary} onSubmit={onUseText} />;
+      return (
+        <TextFallback
+          autoFocus={primary}
+          initialText={initialText}
+          onSubmit={onUseText}
+        />
+      );
     case "retry":
       return (
         <button type="button" className={className} onClick={onRetry}>
@@ -200,18 +230,25 @@ function Action({
  * Focused on mount when it is the primary way out — this component mounts
  * *because* an import failed, so the focus move is the answer to something
  * the person just did rather than a grab on page load.
+ *
+ * **Seeded once from `initialText`**, so a paste that came back «не рецепт»
+ * is still on screen to be edited instead of asking for twenty thousand
+ * characters a second time. Seeded once and not re-seeded: this is a field
+ * somebody is typing in, and a prop change must never overwrite it.
  */
 function TextFallback({
   autoFocus,
+  initialText,
   onSubmit,
 }: {
   autoFocus: boolean;
+  initialText?: string;
   onSubmit: (text: string) => void;
 }) {
   const t = useTranslations("dishImport");
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialText ?? "");
   const [invalid, setInvalid] = useState(false);
-  const valid = isLongEnough(value);
+  const valid = isWithinTextBounds(value);
 
   return (
     <form
@@ -232,6 +269,7 @@ function TextFallback({
         placeholder={t("byTextPlaceholder")}
         value={value}
         rows={3}
+        maxLength={MAX_IMPORT_TEXT}
         autoFocus={autoFocus}
         onChange={(event) => {
           setValue(event.target.value);
@@ -239,7 +277,11 @@ function TextFallback({
         }}
       />
       <p className={styles.fallbackTextHint} role="status">
-        {invalid ? t("byTextTooShort") : ""}
+        {invalid
+          ? isTooLong(value)
+            ? t("byTextTooLong")
+            : t("byTextTooShort")
+          : ""}
       </p>
       <button
         type="submit"

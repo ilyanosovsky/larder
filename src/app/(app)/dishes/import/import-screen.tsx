@@ -4,7 +4,7 @@ import { onlineManager, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { AiProgress } from "@/components/ai-progress";
 import {
@@ -12,7 +12,12 @@ import {
   type UploadedPhoto,
 } from "@/components/dish-photo-upload";
 import type { ImportFailureReason } from "@/lib/recipes/import-failure";
-import { isLongEnough, looksLikeUrl } from "@/lib/recipes/import-input";
+import {
+  isTooLong,
+  isWithinTextBounds,
+  looksLikeUrl,
+  MAX_IMPORT_TEXT,
+} from "@/lib/recipes/import-input";
 import { isRateLimitedError, trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
 import { useTRPC } from "@/trpc/client";
@@ -94,6 +99,20 @@ export function ImportScreen() {
    * right mechanism: it fires on that mount and never on a re-render.
    */
   const [refocusPicker, setRefocusPicker] = useState(false);
+  /**
+   * Which pane to focus when S8.1 comes back after a failure — the pane the
+   * person was actually using, not always the photo picker.
+   */
+  const [refocusPane, setRefocusPane] = useState<"url" | "text" | null>(null);
+  /**
+   * **The panes' text lives here, not inside them.** A rate-limit refusal
+   * returns to `phase: "source"`, which unmounts both panes — and a value
+   * held in the pane's own `useState` would go with them, losing a URL the
+   * person had just typed or up to twenty thousand characters they had
+   * pasted, with nothing on screen to recover it from.
+   */
+  const [urlValue, setUrlValue] = useState("");
+  const [textValue, setTextValue] = useState("");
   /** Render state lands a re-render too late for a double tap. */
   const runningRef = useRef(false);
   /** The last import started, so «Ещё раз» replays it rather than guessing. */
@@ -124,10 +143,21 @@ export function ImportScreen() {
    * Only the failure phase is rescued. «Разбираю рецепт…» has nothing to
    * interact with and announces itself through `role="status"`; a `parsed`
    * result navigates, which resets focus on its own.
+   *
+   * **And it yields when the panel has already placed focus inside itself.**
+   * `autoFocus` runs in the layout phase, before this passive effect, so an
+   * unconditional `.focus()` here took focus straight back off the inline
+   * text field for the five reasons whose first fallback *is* that field —
+   * landing it on an outline-less wrapper instead, one Tab away from the
+   * thing the panel had just pointed at.
    */
   useEffect(() => {
-    if (phase.kind === "failed") {
-      failureRef.current?.focus();
+    if (phase.kind !== "failed") {
+      return;
+    }
+    const shell = failureRef.current;
+    if (shell !== null && !shell.contains(document.activeElement)) {
+      shell.focus();
     }
   }, [phase.kind]);
 
@@ -160,6 +190,7 @@ export function ImportScreen() {
     lastRunRef.current = run;
     setError(null);
     setRefocusPicker(false);
+    setRefocusPane(null);
     setPhase({
       kind: "parsing",
       source: run.kind,
@@ -193,19 +224,30 @@ export function ImportScreen() {
         }
         setError(t("rateLimited"));
         setPhase({ kind: "source" });
-        setRefocusPicker(true);
+        // Focus follows the pane that was refused, not always the picker: the
+        // URL or the text is still in its field, and pointing somewhere else
+        // would read as though it had been thrown away.
+        setRefocusPicker(run.kind === "photo");
+        setRefocusPane(run.kind === "photo" ? null : run.kind);
         return;
       }
 
-      if (run.kind === "url" && trpcErrorCode(caught) === "BAD_REQUEST") {
-        // The SSRF guard lives on the input schema (decision C.8), so a URL
-        // pointing inside the network is refused *at validation* and there is
-        // deliberately no job row to show — but the fork in the road is the
-        // same one every other failure gets.
+      if (trpcErrorCode(caught) === "BAD_REQUEST") {
+        // Input the server refuses before it opens a job row, so there is
+        // deliberately no `jobId` — but the fork in the road is the same one
+        // every other failure gets. The two cases are different sentences:
+        // a URL pointing inside the network is `blockedUrl` (decision C.8's
+        // validation rejection), and a paste past `MAX_IMPORT_TEXT` is
+        // `tooLarge`, whose fallback brings the field back so it can be cut
+        // down. Reporting either as `aiUnavailable` would offer «Ещё раз»,
+        // which replays the identical input and fails identically forever.
         setPhase({
           kind: "failed",
-          reason: "blockedUrl",
-          partial: { ...EMPTY_PARTIAL, sourceUrl: run.url },
+          reason: run.kind === "url" ? "blockedUrl" : "tooLarge",
+          partial:
+            run.kind === "url"
+              ? { ...EMPTY_PARTIAL, sourceUrl: run.url }
+              : EMPTY_PARTIAL,
           jobId: null,
         });
         return;
@@ -312,6 +354,13 @@ export function ImportScreen() {
             }}
             onPicked={(photo) => void runImport({ kind: "photo", photo })}
             onUseText={(text) => void runImport({ kind: "text", text })}
+            // The words that just failed, so the field they land on holds
+            // them rather than asking for twenty thousand characters twice.
+            initialText={
+              lastRunRef.current?.kind === "text"
+                ? lastRunRef.current.text
+                : undefined
+            }
           />
         </div>
       ) : null}
@@ -346,9 +395,11 @@ export function ImportScreen() {
             fieldLabel={t("byUrlFieldLabel")}
             placeholder={t("byUrlPlaceholder")}
             submitLabel={t("byUrlSubmit")}
-            invalidLabel={t("byUrlInvalid")}
             hint={t("byUrlHint")}
-            autoFocus={requested === "url"}
+            autoFocus={requested === "url" || refocusPane === "url"}
+            value={urlValue}
+            onChange={setUrlValue}
+            invalidLabel={() => t("byUrlInvalid")}
             isValid={looksLikeUrl}
             onSubmit={(url) => void runImport({ kind: "url", url })}
           />
@@ -358,11 +409,18 @@ export function ImportScreen() {
             fieldLabel={t("byTextFieldLabel")}
             placeholder={t("byTextPlaceholder")}
             submitLabel={t("byTextSubmit")}
-            invalidLabel={t("byTextTooShort")}
             hint={t("byTextHint")}
-            autoFocus={requested === "text"}
+            autoFocus={requested === "text" || refocusPane === "text"}
             multiline
-            isValid={isLongEnough}
+            maxLength={MAX_IMPORT_TEXT}
+            value={textValue}
+            onChange={setTextValue}
+            // Which rule failed, not just that one did: «слишком коротко»
+            // under a wall of pasted text would be nonsense.
+            invalidLabel={(value) =>
+              isTooLong(value) ? t("byTextTooLong") : t("byTextTooShort")
+            }
+            isValid={isWithinTextBounds}
             onSubmit={(text) => void runImport({ kind: "text", text })}
           />
 
@@ -405,16 +463,26 @@ function partialFor(
 /**
  * One of S8.1's two typed sources.
  *
- * The validation is client-side **as well as** on the server, for one reason:
- * a person who pasted «povar.ru/…» without the scheme should be told so in
- * the field they are looking at, not after a spinner. The server's own rules
- * are still the ones that decide anything (`fromUrlInput` refuses a URL
- * pointing inside the network whatever this thinks of it).
+ * The validation is client-side **as well as** on the server, for two
+ * reasons: a person who pasted «povar.ru/…» without the scheme should be told
+ * so in the field they are looking at rather than after a spinner, and a
+ * paste past `MAX_IMPORT_TEXT` would otherwise come back as a `BAD_REQUEST`
+ * the screen can only report as «попробуй ещё раз» — with the textarea
+ * already unmounted, so the one action offered replays the same too-long
+ * string forever. The server's rules still decide anything that matters
+ * (`fromUrlInput` refuses a URL pointing inside the network whatever this
+ * thinks of it).
+ *
+ * **The value is owned by the screen, not by this component.** A rate-limit
+ * refusal unmounts both panes, and a local `useState` would take the typed
+ * URL or the pasted recipe with it.
  *
  * `aria-disabled` rather than `disabled` on the submit — the rule this
  * codebase repeats everywhere: a disabled control cannot hold focus, so
  * pressing it and having nothing happen is worse than pressing it and being
- * told why.
+ * told why. The telling is `aria-describedby` + `aria-invalid` + a
+ * `role="status"` line, matching `TextFallback`; without them the message is
+ * visible and nothing else, which is WCAG 4.1.3 all over.
  */
 function SourcePane({
   label,
@@ -425,6 +493,9 @@ function SourcePane({
   hint,
   autoFocus = false,
   multiline = false,
+  maxLength,
+  value,
+  onChange,
   isValid,
   onSubmit,
 }: {
@@ -432,15 +503,23 @@ function SourcePane({
   fieldLabel: string;
   placeholder: string;
   submitLabel: string;
-  invalidLabel: string;
+  /** Takes the value, so the message can name *which* rule failed. */
+  invalidLabel: (value: string) => string;
   hint: string;
   autoFocus?: boolean;
   multiline?: boolean;
+  maxLength?: number;
+  value: string;
+  onChange: (value: string) => void;
   isValid: (value: string) => boolean;
   onSubmit: (value: string) => void;
 }) {
-  const [value, setValue] = useState("");
   const [invalid, setInvalid] = useState(false);
+  // Both panes are mounted at once, so a literal id would collide and every
+  // field would describe the same paragraph.
+  const paneId = useId();
+  const hintId = `${paneId}-hint`;
+  const errorId = `${paneId}-error`;
 
   function submit() {
     const trimmed = value.trim();
@@ -451,6 +530,23 @@ function SourcePane({
     setInvalid(false);
     onSubmit(trimmed);
   }
+
+  function change(next: string) {
+    onChange(next);
+    setInvalid(false);
+  }
+
+  const fieldProps = {
+    "aria-label": fieldLabel,
+    "aria-invalid": invalid ? ("true" as const) : undefined,
+    // Both the resting hint and the error line: the hint explains the field,
+    // the error says what to fix, and a reader that meets the field mid-form
+    // should hear whichever is on screen.
+    "aria-describedby": `${hintId} ${errorId}`,
+    placeholder,
+    value,
+    autoFocus,
+  };
 
   return (
     <form
@@ -466,42 +562,43 @@ function SourcePane({
 
       {multiline ? (
         <textarea
+          {...fieldProps}
           className={styles.paneFieldTall}
-          aria-label={fieldLabel}
-          placeholder={placeholder}
-          value={value}
           rows={4}
-          autoFocus={autoFocus}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setInvalid(false);
-          }}
+          maxLength={maxLength}
+          onChange={(event) => change(event.target.value)}
         />
       ) : (
         <input
+          {...fieldProps}
           className={styles.paneField}
           type="url"
           inputMode="url"
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          aria-label={fieldLabel}
-          placeholder={placeholder}
-          value={value}
-          autoFocus={autoFocus}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setInvalid(false);
-          }}
+          maxLength={maxLength}
+          onChange={(event) => change(event.target.value)}
         />
       )}
 
       <div className={styles.paneFoot}>
-        <p className={styles.paneHint}>{invalid ? invalidLabel : hint}</p>
+        <p className={styles.paneHints}>
+          <span id={hintId} className={styles.paneHint}>
+            {invalid ? "" : hint}
+          </span>
+          {/* Its own node, empty while the value is fine — a `role="status"`
+              that also held the resting hint would announce the hint on every
+              keystroke. Mounted for the pane's whole life so assistive tech
+              is already watching it when the message arrives. */}
+          <span id={errorId} className={styles.paneError} role="status">
+            {invalid ? invalidLabel(value) : ""}
+          </span>
+        </p>
         <button
           type="submit"
           className={styles.paneSubmit}
-          aria-disabled={isValid(value) ? undefined : "true"}
+          aria-disabled={isValid(value.trim()) ? undefined : "true"}
         >
           {submitLabel}
         </button>

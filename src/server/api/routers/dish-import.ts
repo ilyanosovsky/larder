@@ -13,7 +13,11 @@ import {
   IMPORT_FAILURE_REASONS,
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
-import { recipeDraftSchema, type RecipeDraft } from "@/lib/recipes/draft";
+import {
+  MAX_TITLE,
+  recipeDraftSchema,
+  type RecipeDraft,
+} from "@/lib/recipes/draft";
 import { MAX_IMPORT_TEXT, MIN_IMPORT_TEXT } from "@/lib/recipes/import-input";
 import { parseRecipe, type ParsedRecipe } from "@/server/ai/parse-recipe";
 import { formatCostUsd } from "@/server/ai/pricing";
@@ -38,7 +42,11 @@ import {
   type DraftSource,
   type ImportWarning,
 } from "@/server/recipes/draft-from-parsed";
-import { fetchPage, type FetchPageResult } from "@/server/recipes/fetch-page";
+import {
+  fetchPage,
+  type FetchPageResult,
+  type PageFetcher,
+} from "@/server/recipes/fetch-page";
 import { firecrawlScrape } from "@/server/recipes/firecrawl";
 import { matchIngredients } from "@/server/recipes/match-ingredients";
 import {
@@ -483,120 +491,92 @@ export const dishImportRouter = createTRPCRouter({
         inputRef: url,
       });
 
-      const deadline = new Deadline();
-      const transport = ctx.pageFetch();
-
-      // A login wall answers a server with a login page, so the direct fetch
-      // is skipped rather than spent (VISION §6.4).
-      const fetched =
-        classified.kind === "social"
-          ? null
-          : await fetchPage(url, {
-              ...transport,
-              signal: deadline.signal(FETCH_STAGE_MS),
-            });
-
-      const html = fetched?.kind === "html" ? fetched.html : null;
       const partial = {
-        title: html === null ? null : pageTitle(html),
+        title: null as string | null,
         photoUrl: null,
         photoKey: null,
         sourceUrl: url,
       };
 
-      // Two fetch outcomes end the import here rather than falling through:
-      // a hop that pointed somewhere private (scraping it through FireCrawl
-      // would be the same request with an extra step), and a body past the
-      // cap (a page that size has no recipe card in it).
-      if (fetched?.kind === "blocked" || fetched?.kind === "tooLarge") {
-        return await failImport(ctx.db, householdId, job.id, {
-          reason: fetched.kind === "blocked" ? "blockedUrl" : "tooLarge",
-          partial,
-          error: `fetch ${fetched.kind}`,
+      // **Everything from here to the ledger runs inside the guard**, the
+      // same one `fromPhoto` uses — and the reason is not hypothetical. The
+      // stages below parse a stranger's HTML and a stranger's JSON:
+      // `node-html-parser`'s selector walk recurses once per DOM level and
+      // throws a `RangeError` on a page nested a few thousand `<div>`s deep,
+      // which is 99 KB — well under the body cap. Uncaught, that leaves as a
+      // bare 500 *and* leaves the row this procedure just opened stuck on
+      // `running` for ever, breaking the file's own invariant that a run
+      // dying before the model still closes its entry as `error` with
+      // `costUsd = 0`.
+      try {
+        const deadline = new Deadline();
+
+        const read = await readPage({
+          url,
+          social: classified.kind === "social",
+          deadline,
+          transport: ctx.pageFetch(),
         });
-      }
 
-      const strategy = decideUrlStrategy({ url, html });
-      let via: ImportVia;
-      let normalizeInput: NormalizeInput;
-      let image: string | null = null;
+        partial.title = read.title;
 
-      if (strategy.kind === "jsonld" || strategy.kind === "microdata") {
-        via = strategy.kind;
-        image = usablePhotoUrl(strategy.skeleton.image);
-        normalizeInput = { kind: "skeleton", skeleton: strategy.skeleton };
-      } else {
-        if (!canRunFirecrawl(deadline.remainingMs())) {
+        if (read.step.kind === "failed") {
           return await failImport(ctx.db, householdId, job.id, {
-            reason: "pageBlocked",
+            reason: read.step.reason,
             partial,
-            error: "No budget left for a scrape",
+            error: read.step.error,
           });
         }
 
-        const scraped = await firecrawlScrape(url, {
-          fetch: transport.fetch,
-          signal: deadline.signal(FIRECRAWL_STAGE_MS),
-        });
-
-        if (!scraped.ok) {
+        // The last stage takes what is left: a page that answered in two
+        // seconds should not make the model give up at twenty-five.
+        const normalizeMs = finalStageMs(deadline.remainingMs());
+        if (normalizeMs === 0) {
+          // A call with no budget can only be aborted, and an aborted call is
+          // still a request somebody's quota paid for. «Ещё раз» is the honest
+          // offer: whatever ate the budget — a slow page, a slow scrape — is
+          // usually not there the second time.
           return await failImport(ctx.db, householdId, job.id, {
-            reason: scrapeFailureReason(
-              classified.kind,
-              fetched,
-              scraped.reason,
-            ),
+            reason: "aiUnavailable",
             partial,
-            error: `firecrawl ${scraped.reason}`,
+            error: "No budget left to read the page",
           });
         }
 
-        via = "firecrawl";
-        normalizeInput = { kind: "markdown", markdown: scraped.markdown };
-      }
-
-      // The last stage takes what is left: a page that answered in two
-      // seconds should not make the model give up at twenty-five.
-      const normalizeMs = finalStageMs(deadline.remainingMs());
-      if (normalizeMs === 0) {
-        // A call with no budget can only be aborted, and an aborted call is
-        // still a request somebody's quota paid for. «Ещё раз» is the honest
-        // offer: whatever ate the budget — a slow page, a slow scrape — is
-        // usually not there the second time.
-        return await failImport(ctx.db, householdId, job.id, {
-          reason: "aiUnavailable",
-          partial,
-          error: "No budget left to read the page",
+        const normalized = await normalizeRecipe({
+          client: ctx.openai(),
+          input: read.step.input,
+          options: {
+            timeout: normalizeMs,
+            maxRetries: 0,
+            signal: deadline.signal(normalizeMs),
+          },
         });
+
+        await closeJob(ctx.db, householdId, job.id, normalized);
+
+        return await finishImport(ctx.db, householdId, job.id, {
+          normalized,
+          via: read.step.via,
+          partial,
+          source: {
+            sourceType: "url",
+            sourceUrl: url,
+            // A page's own image is stored as the **remote URL** with no
+            // `photoKey`: it was never uploaded, so there is no blob of ours
+            // to discard, and re-hosting somebody's photo to save a hotlink
+            // is a decision (and a bill) this feature does not need to make.
+            photoUrl: read.step.image,
+            photoKey: null,
+          },
+        });
+      } catch (error) {
+        // The row closes as `error` rather than being left running.
+        // `finishImport` already stamps anything it raised itself; a second
+        // stamp writes the same three columns and is harmless.
+        await markJobError(ctx.db, householdId, job.id, error);
+        throw error;
       }
-
-      const normalized = await normalizeRecipe({
-        client: ctx.openai(),
-        input: normalizeInput,
-        options: {
-          timeout: normalizeMs,
-          maxRetries: 0,
-          signal: deadline.signal(normalizeMs),
-        },
-      });
-
-      await closeJob(ctx.db, householdId, job.id, normalized);
-
-      return await finishImport(ctx.db, householdId, job.id, {
-        normalized,
-        via,
-        partial,
-        source: {
-          sourceType: "url",
-          sourceUrl: url,
-          // A page's own image is stored as the **remote URL** with no
-          // `photoKey`: it was never uploaded, so there is no blob of ours to
-          // discard, and re-hosting somebody's photo to save a hotlink is a
-          // decision (and a bill) this feature does not need to make.
-          photoUrl: image,
-          photoKey: null,
-        },
-      });
     }),
 
   /**
@@ -847,6 +827,119 @@ async function finishImport(
 }
 
 /**
+ * The whole «get the recipe off the page» stage: fetch, the two free
+ * extractions, and FireCrawl when neither found anything.
+ *
+ * A function of its own because the resolver's job is the *ledger* — open the
+ * row, close it the moment the model answers, record the result — and reading
+ * a page is a hundred lines of a different concern. Pulling it out is also
+ * what lets the whole stage sit inside one `try`: it returns an outcome
+ * rather than writing anything, so every `ai_jobs` write stays in one place.
+ */
+async function readPage(args: {
+  url: string;
+  /** A login wall: skip the direct fetch and spend the scrape instead. */
+  social: boolean;
+  deadline: Deadline;
+  transport: PageFetcher;
+}): Promise<{
+  /** The page's own title, for a failure's «создать вручную». */
+  title: string | null;
+  step:
+    | {
+        kind: "normalize";
+        via: ImportVia;
+        input: NormalizeInput;
+        image: string | null;
+      }
+    | { kind: "failed"; reason: ImportFailureReason; error: string };
+}> {
+  const { url, social, deadline, transport } = args;
+
+  // A login wall answers a server with a login page, so the direct fetch is
+  // skipped rather than spent (VISION §6.4).
+  const fetched = social
+    ? null
+    : await fetchPage(url, {
+        ...transport,
+        signal: deadline.signal(FETCH_STAGE_MS),
+      });
+
+  const html = fetched?.kind === "html" ? fetched.html : null;
+  const title = html === null ? null : pageTitle(html);
+
+  // Two fetch outcomes end the import here rather than falling through: a hop
+  // that pointed somewhere private (scraping it through FireCrawl would be
+  // the same request with an extra step), and a body past the cap (a page
+  // that size has no recipe card in it).
+  if (fetched?.kind === "blocked" || fetched?.kind === "tooLarge") {
+    return {
+      title,
+      step: {
+        kind: "failed",
+        reason: fetched.kind === "blocked" ? "blockedUrl" : "tooLarge",
+        error: `fetch ${fetched.kind}`,
+      },
+    };
+  }
+
+  const strategy = decideUrlStrategy({ url, html });
+
+  if (strategy.kind === "jsonld" || strategy.kind === "microdata") {
+    return {
+      title,
+      step: {
+        kind: "normalize",
+        via: strategy.kind,
+        input: { kind: "skeleton", skeleton: strategy.skeleton },
+        image: usablePhotoUrl(strategy.skeleton.image),
+      },
+    };
+  }
+
+  if (!canRunFirecrawl(deadline.remainingMs())) {
+    return {
+      title,
+      step: {
+        kind: "failed",
+        reason: "pageBlocked",
+        error: "No budget left for a scrape",
+      },
+    };
+  }
+
+  const scraped = await firecrawlScrape(url, {
+    fetch: transport.fetch,
+    signal: deadline.signal(FIRECRAWL_STAGE_MS),
+  });
+
+  if (!scraped.ok) {
+    return {
+      title,
+      step: {
+        kind: "failed",
+        reason: scrapeFailureReason(
+          social ? "social" : "ok",
+          fetched,
+          scraped.reason,
+        ),
+        error: `firecrawl ${scraped.reason}`,
+      },
+    };
+  }
+
+  return {
+    title,
+    step: {
+      kind: "normalize",
+      via: "firecrawl",
+      input: { kind: "markdown", markdown: scraped.markdown },
+      image: null,
+    },
+  };
+}
+
+/**
  * Which S8.2 copy a failed scrape earns (blueprint §3.6).
  *
  * The order matters. A login wall is `loginWalled` whatever else happened —
@@ -907,7 +1000,10 @@ async function buildDraft(
   source: DraftSource,
 ): Promise<BuildDraftResult> {
   const title = parsed.title.trim();
-  const fallbackTitle = title.length === 0 ? null : title.slice(0, 120);
+  // `MAX_TITLE`, not a repeated literal: this and `pageTitle` are the two
+  // producers of a partial's title, and both have to agree with the schema
+  // that will validate it or the manual fallback is unsaveable.
+  const fallbackTitle = title.length === 0 ? null : title.slice(0, MAX_TITLE);
 
   // Sequential rather than `Promise.all`, matching `resolve-products.ts`:
   // two indexed reads of a household-sized table are cheap, and a fixed
