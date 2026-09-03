@@ -136,6 +136,52 @@ describe("decideSwipeCommit", () => {
     ).toBeNull();
   });
 
+  // ── Direction agreement: the `distance > 0` guard above only covers the
+  // exact-origin reversal. A reversal that stops *short* of the origin still
+  // has a non-zero total `dx` pointing the old way while the recent flick
+  // points the new way — the fling must agree with the drag's own direction. ──
+
+  it("does not commit a fling whose recent direction disagrees with the drag's total direction", () => {
+    // Dragged left 30px, then flicked right 40px in the last 50ms — the
+    // *net* displacement is still left (`dx: -30`), but the actual last
+    // motion was rightward («есть»). Committing «кончилось» (from `dx`'s
+    // sign) would send the removal mutation for a card the shopper just
+    // pushed back the other way; springing back is correct.
+    expect(
+      decideSwipeCommit({ dx: -30, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBeNull();
+  });
+
+  it("does not commit the mirror-image disagreeing fling either", () => {
+    // Dragged right 30px («есть» side), then flicked left 40px in the last
+    // 50ms without crossing back past the origin.
+    expect(
+      decideSwipeCommit({ dx: 30, dy: 0, recentDx: -40, recentElapsedMs: 50 }),
+    ).toBeNull();
+  });
+
+  it("still commits a fling whose recent direction agrees with the drag's own", () => {
+    expect(
+      decideSwipeCommit({ dx: -30, dy: 0, recentDx: -40, recentElapsedMs: 50 }),
+    ).toBe("ranOut");
+    expect(
+      decideSwipeCommit({ dx: 30, dy: 0, recentDx: 40, recentElapsedMs: 50 }),
+    ).toBe("have");
+  });
+
+  it("still commits on distance alone even when the recent flick disagrees", () => {
+    // Past the 96px floor the drag is deliberate; a last-instant twitch back
+    // toward the origin does not un-decide it (the card is visibly across).
+    expect(
+      decideSwipeCommit({
+        dx: -120,
+        dy: 0,
+        recentDx: 30,
+        recentElapsedMs: 50,
+      }),
+    ).toBe("ranOut");
+  });
+
   // ── Recent-window velocity (finding 8): a long hold before a fast final
   // flick must still read as fast — averaging over the whole gesture's
   // elapsed time would dilute it into "slow". ──
