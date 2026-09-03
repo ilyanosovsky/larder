@@ -57,18 +57,17 @@ export function DishLibraryScreen() {
   const [tag, setTag] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   /**
-   * The screen's one announcement slot. `visible` separates its two writers,
-   * the same split `dish-screen.tsx` makes: a «скоро» tap has nothing else on
-   * screen to show for itself and needs visible copy, while «ничего не
-   * нашлось» is already on screen as a paragraph and only needs *speaking* —
-   * a live region that mounts together with its text is not reliably
-   * announced.
+   * The screen's announcement slot, and — since task 4.4 gave the source
+   * sheet's «скоро» rows real links — its one writer: «ничего не нашлось».
+   *
+   * It is announced but not rendered here, because it is already on screen as
+   * its own paragraph; the region exists because a live region that mounts
+   * *together with* its text is not reliably announced. (It used to carry a
+   * `visible` flag separating that writer from the sheet's «скоро» tap, which
+   * had nothing else on screen to show for itself. The tap is gone, so the
+   * flag was a branch that could no longer be reached.)
    */
-  const [hint, setHint] = useState<{
-    text: string;
-    seq: number;
-    visible: boolean;
-  } | null>(null);
+  const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
   const sourceOpener = useSheetOpener();
 
@@ -140,27 +139,18 @@ export function DishLibraryScreen() {
     if (!nothingFound) {
       // The region keeps whatever it last held, so a filter that starts
       // matching again would otherwise leave «Ничего не нашлось» sitting in
-      // the accessibility tree, contradicting the grid. Matched on the text
-      // rather than cleared outright, so a «скоро» hint set in the meantime
-      // survives.
-      setHint((current) =>
-        current?.text === nothingFoundTextRef.current ? null : current,
-      );
+      // the accessibility tree, contradicting the grid.
+      setHint(null);
       return;
     }
 
     const timer = setTimeout(() => {
       hintSeq.current += 1;
-      setHint({
-        text: nothingFoundTextRef.current,
-        seq: hintSeq.current,
-        visible: false,
-      });
+      setHint({ text: nothingFoundTextRef.current, seq: hintSeq.current });
     }, ANNOUNCE_DELAY_MS);
 
     return () => clearTimeout(timer);
   }, [nothingFound]);
-
 
   /**
    * «30 мин · 8 порций · выпечка, духовка» (DESIGN_BRIEF §3): whichever of
@@ -213,7 +203,9 @@ export function DishLibraryScreen() {
       <div className={styles.toolbar}>
         <h1 className={styles.title}>{t("title")}</h1>
         {hasList ? (
-          <span className={styles.count}>{t("count", { count: items.length })}</span>
+          <span className={styles.count}>
+            {t("count", { count: items.length })}
+          </span>
         ) : null}
         <button
           type="button"
@@ -251,7 +243,10 @@ export function DishLibraryScreen() {
             >
               <button
                 type="button"
-                className={cx(styles.tag, activeTag === null && styles.tagActive)}
+                className={cx(
+                  styles.tag,
+                  activeTag === null && styles.tagActive,
+                )}
                 aria-pressed={activeTag === null}
                 onClick={() => setTag(null)}
               >
@@ -261,7 +256,10 @@ export function DishLibraryScreen() {
                 <button
                   key={value}
                   type="button"
-                  className={cx(styles.tag, activeTag === value && styles.tagActive)}
+                  className={cx(
+                    styles.tag,
+                    activeTag === value && styles.tagActive,
+                  )}
                   aria-pressed={activeTag === value}
                   onClick={() => setTag(activeTag === value ? null : value)}
                 >
@@ -297,20 +295,12 @@ export function DishLibraryScreen() {
           {/* The main road out of an empty library (VISION scenario Б): a
               screenshot, not a form. `?src=photo` lands on S8.1 with the
               picker already focused. */}
-          <Link
-            className={styles.emptyAction}
-            href="/dishes/import?src=photo"
-          >
+          <Link className={styles.emptyAction} href="/dishes/import?src=photo">
             {t("emptyAction")}
           </Link>
           <Link className={styles.emptySecondary} href="/dishes/new">
             {t("emptyManual")}
           </Link>
-          {hint === null || !hint.visible ? null : (
-            <p className={styles.hint} aria-hidden="true">
-              {hint.text}
-            </p>
-          )}
         </div>
       ) : null}
 
@@ -343,12 +333,10 @@ export function DishLibraryScreen() {
         </div>
       )}
 
-      {/* Permanently mounted, keyed child — see `dish-source-sheet.tsx` and
-          S3/S5 for why both halves matter. This node is for assistive tech
-          only; whether the same text also appears on screen depends on the
-          writer (`hint.visible`): a «скоро» tap renders it in the empty state
-          above, an empty search result is already visible as its own
-          paragraph. */}
+      {/* Permanently mounted, keyed child — see S3/S5 for why both halves
+          matter. This node is for assistive tech only: its one sentence is
+          already on screen as the paragraph above, and rendering it twice
+          would have it read twice while browsing. */}
       <p className={styles.srOnly} role="status">
         <span key={hint?.seq ?? "empty"}>{hint?.text ?? ""}</span>
       </p>

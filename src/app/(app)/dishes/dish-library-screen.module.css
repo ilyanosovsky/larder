@@ -229,14 +229,6 @@
   opacity: 0.75;
 }
 
-.hint {
-  margin-top: var(--s-3);
-  color: var(--mute);
-  font-family: var(--font-mono);
-  font-size: var(--t-meta);
-  text-align: center;
-}
-
 .srOnly {
   position: absolute;
   overflow: hidden;
@@ -325,23 +317,6 @@
 
 .sourceHint {
   color: var(--mute);
-  font-size: var(--t-meta);
-}
-
-.sourceSoon {
-  flex: none;
-  color: var(--mute-2);
-  font-family: var(--font-mono);
-  font-size: var(--t-label);
-  letter-spacing: var(--track-badge);
-  text-transform: uppercase;
-}
-
-.sheetStatus {
-  min-height: 18px;
-  padding-top: var(--s-3);
-  color: var(--mute);
-  font-family: var(--font-mono);
   font-size: var(--t-meta);
 }
 

@@ -35,6 +35,9 @@ const anonymousContext: TRPCContext = {
   uploadThing: () => {
     throw new Error("ctx.uploadThing() must not be called in unit tests");
   },
+  pageFetch: () => {
+    throw new Error("ctx.pageFetch() must not be called in unit tests");
+  },
 };
 
 const signedInContext: TRPCContext = {

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { DishForm } from "@/components/dish-form";
 import { DishPhotoUpload } from "@/components/dish-photo-upload";
 import { emptyDraft, type RecipeDraft } from "@/lib/recipes/draft";
+import { draftFromPartial } from "@/lib/recipes/import-seed";
 import {
   consumableJobId,
   consumedDishIdOf,
@@ -152,13 +153,9 @@ function draftFrom(result: ImportResultOutput | undefined): RecipeDraft | null {
     return emptyDraft();
   }
 
-  return {
-    ...emptyDraft(),
-    title: result.partial.title ?? "",
-    photoUrl: result.partial.photoUrl,
-    photoKey: result.partial.photoKey,
-    // The dish did come from a photo, even though the parse did not work —
-    // S7's source line should say so rather than claim it was typed by hand.
-    sourceType: result.partial.photoKey === null ? "manual" : "photo",
-  };
+  // The seed rule lives in `@/lib/recipes/import-seed` so it can be tested:
+  // the dish did come from that photo or that page even though the parse did
+  // not work, and S7's source line should say so rather than claim it was
+  // typed by hand.
+  return draftFromPartial(result.partial);
 }

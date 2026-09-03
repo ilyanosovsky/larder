@@ -143,12 +143,6 @@
   text-transform: uppercase;
 }
 
-.paneSoon {
-  color: var(--mute-2);
-  font-family: var(--font-mono);
-  font-size: var(--t-small);
-}
-
 .paneField,
 .paneFieldTall {
   width: 100%;
@@ -156,15 +150,73 @@
   border: var(--bd-hair) solid var(--rule-2);
   background: var(--paper);
   padding: var(--s-3) var(--s-4);
-  color: var(--mute-2);
+  color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--t-field);
   text-align: left;
-  cursor: default;
 }
 
 .paneFieldTall {
   min-height: 76px;
+  resize: vertical;
+  line-height: var(--lead-body);
+}
+
+.paneField::placeholder,
+.paneFieldTall::placeholder {
+  color: var(--mute-2);
+}
+
+.paneFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+/* Two lines in one slot: the resting hint and the validation message. The
+   message is its own node so it can be a live region without the hint being
+   re-announced on every keystroke. */
+.paneHints {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.paneHint {
+  color: var(--mute);
+}
+
+.paneError {
+  color: var(--null-txt);
+}
+
+/* Amber, never `--neg`: an unfinished field is not an error. */
+.paneField[aria-invalid="true"],
+.paneFieldTall[aria-invalid="true"] {
+  border-color: var(--null-rule);
+}
+
+.paneSubmit {
+  flex: none;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--ink);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+/* `aria-disabled`, never `disabled`: a disabled control cannot hold focus, so
+   pressing it and being told why beats pressing it and nothing happening. */
+.paneSubmit[aria-disabled="true"] {
+  border-color: var(--rule-2);
+  background: var(--zebra);
+  color: var(--mute);
 }
 
 .manual {
@@ -275,11 +327,43 @@
   min-height: 44px;
 }
 
-.status {
-  margin: var(--s-3) 0 0;
+/* S8.2's inline «вставь текст» — a field, not a button (DESIGN_BRIEF S8.2:
+   «без тупика, сразу поля»). Full width, so it reads as the way forward
+   rather than as one of two equal chips. */
+.fallbackText {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: var(--s-2);
+  text-align: left;
+}
+
+.fallbackTextField {
+  width: 100%;
+  min-height: 76px;
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  padding: var(--s-3) var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+  resize: vertical;
+}
+
+.fallbackTextField[aria-invalid="true"] {
+  border-color: var(--null-rule);
+}
+
+.fallbackTextHint {
+  margin: 0;
   min-height: 1em;
-  color: var(--mute);
+  color: var(--null-txt);
   font-family: var(--font-sans);
   font-size: var(--t-meta);
-  text-align: center;
+}
+
+/* The failure panel's own submit spans the row it lives in. */
+.fallbackText .primaryAction {
+  flex: none;
 }
