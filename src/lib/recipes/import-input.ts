@@ -15,6 +15,8 @@
  * vitest cannot reach — there is no DOM harness in this repo.
  */
 
+import { MAX_SOURCE_URL } from "@/lib/recipes/draft";
+
 /**
  * Shortest pasted text worth an AI call, in characters. Below this it is a
  * dish name, not a recipe, and the model would invent the rest.
@@ -37,6 +39,28 @@ export const MAX_IMPORT_TEXT = 20_000;
  */
 export function looksLikeUrl(value: string): boolean {
   return /^https?:\/\/[^\s/]+\.[^\s/]/i.test(value.trim());
+}
+
+/**
+ * Longer, once normalized, than `recipes.source_url` can hold.
+ *
+ * The server refuses this as a `BAD_REQUEST`, which the screen can only
+ * show as `blockedUrl` — copy that blames the site, with fallbacks that lead
+ * away from the URL field. The link is short as typed (`new URL()` grows a
+ * Cyrillic path sixfold), so the one place to say «укороти» is the field.
+ * Not a URL at all → `false`: `looksLikeUrl` owns that message.
+ */
+export function isUrlTooLong(value: string): boolean {
+  try {
+    return new URL(value.trim()).href.length > MAX_SOURCE_URL;
+  } catch {
+    return false;
+  }
+}
+
+/** What the URL pane gates its submit on. */
+export function isSubmittableUrl(value: string): boolean {
+  return looksLikeUrl(value) && !isUrlTooLong(value);
 }
 
 /** Enough pasted text to be worth sending. */

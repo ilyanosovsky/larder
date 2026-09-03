@@ -1,15 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import { fromTextInput } from "@/server/api/routers/dish-import";
+import { MAX_SOURCE_URL } from "@/lib/recipes/draft";
+import { fromTextInput, fromUrlInput } from "@/server/api/routers/dish-import";
 
 import {
   isLongEnough,
+  isSubmittableUrl,
   isTooLong,
+  isUrlTooLong,
   isWithinTextBounds,
   looksLikeUrl,
   MAX_IMPORT_TEXT,
   MIN_IMPORT_TEXT,
 } from "./import-input";
+
+describe("isUrlTooLong / isSubmittableUrl", () => {
+  const long = `https://example.com/${"щ".repeat(700)}`;
+  const fits = `https://example.com/${"щ".repeat(300)}`;
+
+  it("measures the normalized href, not the typed string", () => {
+    expect(long.length).toBeLessThan(MAX_SOURCE_URL);
+    expect(isUrlTooLong(long)).toBe(true);
+    expect(isUrlTooLong(fits)).toBe(false);
+    expect(isUrlTooLong(`  ${fits}  `)).toBe(false);
+  });
+
+  it("leaves a non-URL to looksLikeUrl", () => {
+    expect(isUrlTooLong("povar.ru/recepty")).toBe(false);
+    expect(isSubmittableUrl("povar.ru/recepty")).toBe(false);
+  });
+
+  it("refuses in the field exactly what fromUrlInput refuses", () => {
+    // The whole point: no spinner followed by `blockedUrl` copy that blames
+    // the site for a link the person could have shortened.
+    expect(isSubmittableUrl(long)).toBe(false);
+    expect(fromUrlInput.safeParse({ url: long }).success).toBe(false);
+    expect(isSubmittableUrl(fits)).toBe(true);
+    expect(fromUrlInput.safeParse({ url: fits }).success).toBe(true);
+  });
+});
 
 describe("looksLikeUrl", () => {
   it.each([

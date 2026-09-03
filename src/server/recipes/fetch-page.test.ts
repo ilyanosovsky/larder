@@ -200,6 +200,27 @@ describe("fetchPage — the SSRF guard", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("follows a redirect through a URL too long to store", async () => {
+    // The storage cap (`MAX_SOURCE_URL`) belongs to the input boundary, not
+    // to the hop guard: a tracking redirect or a signed CDN URL is routinely
+    // longer than anything worth keeping, and the page behind it is still
+    // the page. Only what the person typed is bounded.
+    const long = `https://povar.ru/go?${"t=".repeat(1_200)}`;
+    const { fetch, calls } = queuedFetch([
+      new Response(null, { status: 302, headers: { location: long } }),
+      htmlResponse("<html>ok</html>"),
+    ]);
+
+    const result = await fetchPage("https://povar.ru/r", {
+      fetch,
+      lookup: publicLookup,
+    });
+
+    expect(long.length).toBeGreaterThan(2_000);
+    expect(result).toMatchObject({ kind: "html", finalUrl: long });
+    expect(calls).toHaveLength(2);
+  });
+
   it("gives up after three hops rather than riding a redirect loop", async () => {
     const loop = () =>
       new Response(null, {

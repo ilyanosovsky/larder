@@ -14,6 +14,7 @@ import {
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
 import {
+  MAX_SOURCE_URL,
   MAX_TITLE,
   recipeDraftSchema,
   type RecipeDraft,
@@ -173,10 +174,16 @@ export const getJobInput = z.object({ jobId: z.uuid() });
 export const fromUrlInput = z.object({
   url: z
     .url()
-    .max(2000)
-    .refine((value) => classifyImportUrl(value).kind !== "blocked", {
-      error: "URL is not fetchable",
-    }),
+    .max(MAX_SOURCE_URL)
+    // `maxHref` here and in the re-check below, nowhere else: the normalized
+    // href is what `recipes.source_url` stores, and `new URL()` can grow a
+    // Cyrillic path sixfold — see `classifyImportUrl`.
+    .refine(
+      (value) =>
+        classifyImportUrl(value, { maxHref: MAX_SOURCE_URL }).kind !==
+        "blocked",
+      { error: "URL is not fetchable" },
+    ),
 });
 
 export const fromTextInput = z.object({
@@ -470,7 +477,9 @@ export const dishImportRouter = createTRPCRouter({
     .output(importResultOutput)
     .mutation(async ({ ctx, input }) => {
       const householdId = ctx.household.id;
-      const classified = classifyImportUrl(input.url);
+      const classified = classifyImportUrl(input.url, {
+        maxHref: MAX_SOURCE_URL,
+      });
 
       if (classified.kind === "blocked") {
         // Unreachable in practice — the input schema refuses these — but the

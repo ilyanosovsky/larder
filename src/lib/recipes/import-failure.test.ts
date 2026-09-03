@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  badRequestReason,
   fallbackActions,
   importFailureCopyKey,
   importSourceOf,
@@ -11,6 +12,25 @@ import {
 import messages from "@/messages/ru.json";
 
 const SOURCES: readonly ImportSource[] = ["photo", "url", "text"];
+
+describe("badRequestReason", () => {
+  it("names a reason whose first fallback fits the source", () => {
+    expect(badRequestReason("url")).toBe("blockedUrl");
+    expect(badRequestReason("text")).toBe("tooLarge");
+    expect(badRequestReason("photo")).toBe("photoUnreadable");
+    // A refused photo key: the way out is another photo, and the copy must
+    // not talk about a page. The text field is offered right after.
+    expect(fallbackActions(badRequestReason("photo"), "photo")).toEqual([
+      "retryPhoto",
+      "useText",
+      "manual",
+    ]);
+    // A too-long paste: the field comes back first, so it can be cut down.
+    expect(fallbackActions(badRequestReason("text"), "text")[0]).toBe(
+      "useText",
+    );
+  });
+});
 
 describe("importSourceOf", () => {
   it("reads the source off what the failure salvaged", () => {

@@ -25,8 +25,6 @@
  * unit-tested directly.
  */
 
-import { MAX_SOURCE_URL } from "@/lib/recipes/draft";
-
 /**
  * Hosts whose recipes only exist behind a login wall.
  *
@@ -74,7 +72,20 @@ export type ImportUrlClassification =
  * everything downstream (the ledger's `input_ref`, the fetch, the draft's
  * `sourceUrl`) agrees on one spelling.
  */
-export function classifyImportUrl(raw: string): ImportUrlClassification {
+export function classifyImportUrl(
+  raw: string,
+  options: {
+    /**
+     * Longest **normalized** href the caller can store. Passed by the two
+     * storage-facing callers only (`fromUrlInput` and `fromUrl`'s re-check,
+     * both with `MAX_SOURCE_URL`) and deliberately NOT by `fetchPage`'s
+     * per-hop guard: a redirect target is never stored, and a site that
+     * bounces through a long tracking URL on its way to a short canonical
+     * one is a recipe page, not an attack.
+     */
+    readonly maxHref?: number;
+  } = {},
+): ImportUrlClassification {
   let url: URL;
   try {
     url = new URL(raw);
@@ -106,8 +117,8 @@ export function classifyImportUrl(raw: string): ImportUrlClassification {
   // The input schema bounds the string as typed, and `new URL()` percent-
   // encodes every non-ASCII byte (a Cyrillic path grows sixfold), so a link
   // that fits the field can normalize into one the draft refuses — after the
-  // page was fetched and the model paid for. Refuse it here, with the rest.
-  if (url.href.length > MAX_SOURCE_URL) {
+  // page was fetched and the model paid for. Refuse it at the boundary.
+  if (options.maxHref !== undefined && url.href.length > options.maxHref) {
     return { kind: "blocked" };
   }
 

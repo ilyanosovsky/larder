@@ -108,6 +108,27 @@ export type FallbackAction =
  * A boolean got two of the three right and told the third that «на этой
  * странице» — a page it never had — has no recipe on it.
  */
+/**
+ * What a `BAD_REQUEST` — input the server refuses before it opens a job row,
+ * so there is no `jobId` — means per source. A URL pointing inside the
+ * network is `blockedUrl` (decision C.8's validation rejection); a paste past
+ * `MAX_IMPORT_TEXT` is `tooLarge`, whose fallback brings the field back so it
+ * can be cut down; and a photo whose key the server refuses is not something
+ * a person can fix by editing — the key was minted by the upload callback —
+ * so the honest reason is the one whose first fallback is another photo, not
+ * «страница слишком тяжёлая» about a page that never existed.
+ */
+export function badRequestReason(source: ImportSource): ImportFailureReason {
+  switch (source) {
+    case "url":
+      return "blockedUrl";
+    case "text":
+      return "tooLarge";
+    case "photo":
+      return "photoUnreadable";
+  }
+}
+
 export function importFailureCopyKey(
   reason: ImportFailureReason,
   source: ImportSource,

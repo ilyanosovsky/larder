@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import {
   DishPhotoUpload,
@@ -15,10 +15,7 @@ import {
   type FallbackAction,
   type ImportFailureReason,
 } from "@/lib/recipes/import-failure";
-import {
-  isTooLong,
-  isWithinTextBounds,
-} from "@/lib/recipes/import-input";
+import { isTooLong, isWithinTextBounds } from "@/lib/recipes/import-input";
 
 import styles from "./import-screen.module.css";
 
@@ -248,6 +245,10 @@ function TextFallback({
   const [value, setValue] = useState(initialText ?? "");
   const [invalid, setInvalid] = useState(false);
   const valid = isWithinTextBounds(value);
+  // The message is announced once by the live region; the association is
+  // what re-reads it when the field regains focus (WCAG 4.1.3) — the same
+  // pairing `SourcePane` makes on S8.1.
+  const errorId = `${useId()}-error`;
 
   return (
     <form
@@ -265,6 +266,7 @@ function TextFallback({
         className={styles.fallbackTextField}
         aria-label={t("byTextFieldLabel")}
         aria-invalid={invalid ? "true" : undefined}
+        aria-describedby={errorId}
         placeholder={t("byTextPlaceholder")}
         value={value}
         rows={3}
@@ -276,7 +278,7 @@ function TextFallback({
           setInvalid(false);
         }}
       />
-      <p className={styles.fallbackTextHint} role="status">
+      <p id={errorId} className={styles.fallbackTextHint} role="status">
         {invalid
           ? isTooLong(value)
             ? t("byTextTooLong")

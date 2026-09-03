@@ -471,6 +471,7 @@
     "byUrlSubmit": "Разобрать",
     "byUrlHint": "eda.rambler.ru, povar.ru и другие сайты с рецептами",
     "byUrlInvalid": "Нужна ссылка целиком — с http:// или https:// в начале",
+    "byUrlTooLong": "Слишком длинная ссылка — укороти её или вставь текст рецепта",
     "byText": "📝 Текстом",
     "byTextPlaceholder": "Вставь текст рецепта…",
     "byTextFieldLabel": "Текст рецепта",

@@ -92,12 +92,21 @@ describe("classifyImportUrl — the URL as written", () => {
     const raw = `https://example.com/${"щ".repeat(700)}`;
     expect(raw.length).toBeLessThan(MAX_SOURCE_URL);
     expect(new URL(raw).href.length).toBeGreaterThan(MAX_SOURCE_URL);
-    expect(classifyImportUrl(raw)).toEqual({ kind: "blocked" });
+    expect(classifyImportUrl(raw, { maxHref: MAX_SOURCE_URL })).toEqual({
+      kind: "blocked",
+    });
 
     const fits = `https://example.com/${"щ".repeat(300)}`;
-    expect(classifyImportUrl(fits)).toEqual({
+    expect(classifyImportUrl(fits, { maxHref: MAX_SOURCE_URL })).toEqual({
       kind: "ok",
       url: new URL(fits).href,
+    });
+
+    // Without the option the guard is the network guard only: a redirect
+    // hop through a long URL is followed, because nothing stores it.
+    expect(classifyImportUrl(raw)).toEqual({
+      kind: "ok",
+      url: new URL(raw).href,
     });
   });
 

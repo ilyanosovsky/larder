@@ -68,6 +68,16 @@ describe("parseRussianDuration", () => {
 });
 
 describe("parseDurationMin", () => {
+  it("does not read a duration past the cap — the slice is deliberate", () => {
+    // Both callers already cap values at 2 000 characters, so at this
+    // length the bounded patterns are fast either way; the slice is the
+    // outermost layer, for a future caller that skips those caps. Pinned
+    // from this side so deleting it is a red test, and from the other by
+    // the padded-prefix cases below (a cap shrunk under a real page's
+    // `totalTime` fails those).
+    expect(parseDurationMin(`${"x".repeat(250)}30 мин`)).toBeNull();
+  });
+
   it("tries ISO first and Russian prose second", () => {
     expect(parseDurationMin("PT1H15M")).toBe(75);
     expect(parseDurationMin("1 ч 20 мин")).toBe(80);

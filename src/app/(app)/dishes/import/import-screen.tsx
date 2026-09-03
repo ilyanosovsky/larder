@@ -11,11 +11,16 @@ import {
   DishPhotoUpload,
   type UploadedPhoto,
 } from "@/components/dish-photo-upload";
-import type { ImportFailureReason } from "@/lib/recipes/import-failure";
 import {
+  badRequestReason,
+  type ImportFailureReason,
+} from "@/lib/recipes/import-failure";
+import { pickImportFocusTarget } from "@/lib/recipes/import-focus";
+import {
+  isSubmittableUrl,
   isTooLong,
+  isUrlTooLong,
   isWithinTextBounds,
-  looksLikeUrl,
 } from "@/lib/recipes/import-input";
 import { isRateLimitedError, trpcErrorCode } from "@/lib/trpc-errors";
 import type { ImportResultOutput } from "@/server/api/routers/dish-import";
@@ -178,21 +183,13 @@ export function ImportScreen() {
    * unchanged screen.
    */
   const requested = searchParams.get("src");
-  /**
-   * **Exactly one control claims focus when S8.1 mounts.** The three
-   * `autoFocus` props used to OR the `?src=` deep link with the refusal state
-   * independently, so a rate-limit refusal on one pane while `?src=` named
-   * another mounted two nodes with the prop true — and React commits them in
-   * document order, so the later one won, taking focus off the field whose
-   * text had just been refused. The refusal outranks the link: the link says
-   * where the person started, the refusal says where they are.
-   */
-  const focusTarget: ImportRun["kind"] | null = refocusPicker
-    ? "photo"
-    : (refocusPane ??
-      (requested === "photo" || requested === "url" || requested === "text"
-        ? requested
-        : null));
+  // Exactly one control claims focus when S8.1 mounts — the rule, and why
+  // it is a pure module, is in `import-focus.ts`.
+  const focusTarget = pickImportFocusTarget({
+    refocusPicker,
+    refocusPane,
+    requested,
+  });
 
   /**
    * One runner for all three sources.
@@ -249,6 +246,15 @@ export function ImportScreen() {
         // would read as though it had been thrown away.
         setRefocusPicker(run.kind === "photo");
         setRefocusPane(run.kind === "photo" ? null : run.kind);
+        // «Still in its field» has to be made true, not assumed: a paste
+        // that came through the failure panel's inline fallback lived in
+        // that panel's own state, which the phase change just unmounted.
+        // The pane about to be focused renders `textValue`, so the paste
+        // goes there — otherwise «слишком много запросов» would sit over an
+        // empty textarea with the recipe gone.
+        if (run.kind === "text") {
+          setTextValue(run.text);
+        }
         return;
       }
 
@@ -417,8 +423,12 @@ export function ImportScreen() {
             autoFocus={focusTarget === "url"}
             value={urlValue}
             onChange={setUrlValue}
-            invalidLabel={() => t("byUrlInvalid")}
-            isValid={looksLikeUrl}
+            // Which rule failed: a link too long to store once normalized
+            // is short as typed, and «нужна ссылка целиком» would be wrong.
+            invalidLabel={(value) =>
+              isUrlTooLong(value) ? t("byUrlTooLong") : t("byUrlInvalid")
+            }
+            isValid={isSubmittableUrl}
             onSubmit={(url) => void runImport({ kind: "url", url })}
           />
 
@@ -475,26 +485,6 @@ function partialFor(
     photoKey: partial.photoKey ?? (run.kind === "photo" ? run.photo.key : null),
     sourceUrl: partial.sourceUrl ?? (run.kind === "url" ? run.url : null),
   };
-}
-
-/**
- * What a `BAD_REQUEST` means per source. A URL pointing inside the network
- * is `blockedUrl` (decision C.8's validation rejection); a paste past
- * `MAX_IMPORT_TEXT` is `tooLarge`, whose fallback brings the field back so
- * it can be cut down; and a photo whose key the server refuses is not
- * something a person can fix by editing — its key was minted by the upload
- * callback — so the honest reason is the one whose first fallback is another
- * photo, not «страница слишком тяжёлая» about a page that never existed.
- */
-function badRequestReason(kind: ImportRun["kind"]): ImportFailureReason {
-  switch (kind) {
-    case "url":
-      return "blockedUrl";
-    case "text":
-      return "tooLarge";
-    case "photo":
-      return "photoUnreadable";
-  }
 }
 
 /**
