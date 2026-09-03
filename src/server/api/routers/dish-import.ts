@@ -148,11 +148,12 @@ export const dishImportRouter = createTRPCRouter({
    *    still in flight has to count against the window already.
    * 3. **The ledger closes immediately after `parseRecipe` returns**, on both
    *    branches, *before* catalog matching and draft validation (decision
-   *    C.2). Everything after that runs inside `try/finally`, so a throw
-   *    downstream still leaves the row stamped `error` with the cost it
-   *    already incurred. A ledger that only records the calls whose
-   *    *post-processing* also succeeded under-reports exactly when things go
-   *    wrong.
+   *    C.2). Everything after that runs inside a `try/catch` that re-throws,
+   *    so a failure downstream still leaves the row stamped — with the cost
+   *    it already incurred *and* the reason. (`catch` rather than `finally`
+   *    precisely so the reason is available to write.) A ledger that only
+   *    recorded the calls whose *post-processing* also succeeded would
+   *    under-report exactly when things go wrong.
    * 4. **Never throws for a parse failure** — see the file comment.
    */
   fromPhoto: householdProcedure
@@ -167,6 +168,12 @@ export const dishImportRouter = createTRPCRouter({
       );
 
       await assertWithinRateLimit(ctx.db, ctx.user.id);
+
+      // Built before the ledger row, not after: `uploadThingUrl` throws on a
+      // missing or malformed `UPLOADTHING_TOKEN`, and a deployment
+      // misconfiguration should fail outright rather than leave a `running`
+      // job nothing will ever close.
+      const imageUrl = uploadThingUrl(input.fileKey);
 
       const partial = {
         title: null,
@@ -196,12 +203,9 @@ export const dishImportRouter = createTRPCRouter({
       const deadline = new Deadline();
       const parsed = await parseRecipe({
         client: ctx.openai(),
-        input: {
-          kind: "photo",
-          // Rebuilt server-side from the key: no client-supplied URL exists
-          // anywhere on this path (decision D5).
-          imageUrl: uploadThingUrl(input.fileKey),
-        },
+        // `imageUrl` was rebuilt server-side from the key above: no
+        // client-supplied URL exists anywhere on this path (decision D5).
+        input: { kind: "photo", imageUrl },
         options: {
           timeout: PHOTO_STAGE_MS,
           // No retry: it doubles both the latency someone is watching and the
