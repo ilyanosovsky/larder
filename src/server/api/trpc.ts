@@ -7,6 +7,7 @@ import type { db } from "@/db";
 import { householdMembers, households } from "@/db/schema";
 import type { Session } from "@/lib/session";
 import type { AiChatClient } from "@/server/ai/openai";
+import type { UploadedFileStore } from "@/server/uploadthing-files";
 
 type Database = ReturnType<typeof db>;
 type SessionData = NonNullable<Session>;
@@ -38,6 +39,14 @@ export interface TRPCContext {
    * hit one while prerendering.
    */
   openai: () => AiChatClient;
+  /**
+   * The upload store, as a factory for the same reason `openai` is one:
+   * building the client reads `UPLOADTHING_TOKEN`, and only the one procedure
+   * that deletes a blob should need it. Injected rather than imported so the
+   * deletion branch is assertable without a network — a test that forgets to
+   * supply a fake fails loudly.
+   */
+  uploadThing: () => UploadedFileStore;
 }
 
 const t = initTRPC.context<TRPCContext>().create({

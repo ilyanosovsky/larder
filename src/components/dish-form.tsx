@@ -126,8 +126,19 @@ export function DishForm({
   } | null;
   /** Names and icons for the products the rows are already bound to. */
   productLabels?: Readonly<Record<string, BoundProduct>>;
-  /** Task 4.3 drops its uploader here; 4.2 only clears an existing photo. */
-  photoUploadSlot?: ReactNode;
+  /**
+   * The photo picker, as a render prop rather than a node (task 4.3).
+   *
+   * The uploader lives outside this component — it owns compression,
+   * `useUploadThing` and its own errors — but the photo it produces belongs
+   * to the form's state, so the two have to talk. A plain `ReactNode` could
+   * only be *displayed*; a function that receives `onPicked` can hand the
+   * result back without the caller having to mirror the form's state.
+   */
+  photoUploadSlot?: (api: {
+    current: { url: string | null; key: string | null };
+    onPicked: (photo: { url: string; key: string }) => void;
+  }) => ReactNode;
 }) {
   const t = useTranslations("dishForm");
   const equipmentLabels = useTranslations("kitchenProfile.equipment");
@@ -191,6 +202,18 @@ export function DishForm({
     aiFailed: boolean;
   } | null>(null);
 
+  /**
+   * Upload keys this session replaced or cleared, discarded once a save
+   * lands. Held in a ref rather than in state: nothing renders them, and a
+   * re-render must not be able to lose one.
+   *
+   * Discarded *after* the save, never before — until the write commits, the
+   * old photo is still the one the dish has, and deleting it on the tap of
+   * «Заменить фото» would leave a saved dish pointing at a blob that no
+   * longer exists if the save then failed.
+   */
+  const displacedKeysRef = useRef<string[]>([]);
+
   /** Render state lands a re-render too late for a double tap. */
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
@@ -211,6 +234,23 @@ export function DishForm({
   const update = useMutation(
     trpc.dish.update.mutationOptions({ networkMode: "always" }),
   );
+  const discardPhoto = useMutation(
+    trpc.dishImport.discardPhoto.mutationOptions({ networkMode: "always" }),
+  );
+
+  /**
+   * Swaps the photo, remembering the key it displaced.
+   *
+   * The displaced key is computed here rather than inside a `setPhoto`
+   * updater: React invokes updaters twice in development's strict mode, and a
+   * side effect in one would queue the same key for deletion twice.
+   */
+  function replacePhoto(next: { url: string | null; key: string | null }) {
+    if (photo.key !== null && photo.key !== next.key) {
+      displacedKeysRef.current.push(photo.key);
+    }
+    setPhoto(next);
+  }
 
   // The one place the form is re-seeded after mount, and only ever from a tap
   // on the banner: what the partner saved replaces what is on screen, on
@@ -228,7 +268,7 @@ export function DishForm({
     );
     setEquipment([...latest.draft.equipment]);
     setTags([...latest.draft.tags]);
-    setPhoto({ url: latest.draft.photoUrl, key: latest.draft.photoKey });
+    replacePhoto({ url: latest.draft.photoUrl, key: latest.draft.photoKey });
     setIngredients(keyRows(latest.draft.ingredients));
     setSteps(keyRows(latest.draft.steps));
     // Merged, not replaced: an id this form bound during the session is still
@@ -520,6 +560,29 @@ export function DishForm({
         ...trpc.product.pathFilter(),
         refetchType: "none",
       });
+      // The import job this save consumed. `dish.create` writes
+      // `consumedDishId` server-side, but the review route decides whether to
+      // redirect from its *cached* `getJob` — and a browser Back is restored
+      // from Next's router cache with no server render, so inside the 30 s
+      // staleTime nothing would refetch. Without this, Back onto
+      // `/dishes/import/<jobId>` re-opens a live form for an already-saved
+      // recipe and «Сохранить блюдо» mints a second complete dish (dishes
+      // archive, never delete). Unconditional: the path is cheap, and a form
+      // with no `jobId` simply has nothing cached to drop.
+      //
+      // `refetchType: "none"` like the sibling above, and here it is
+      // load-bearing rather than tidy: this form is often *mounted inside*
+      // the review screen, so an active refetch would return the
+      // `consumedDishId` this very save just stamped, fire that screen's
+      // redirect effect a round trip later, and unmount the «Блюдо
+      // сохранено · Создано N новых продуктов» panel before anyone could read
+      // it. Marking the entry stale is enough for the case the paragraph
+      // above is about — a Back remounts the observer and `refetchOnMount`
+      // does the rest.
+      void queryClient.invalidateQueries({
+        ...trpc.dishImport.pathFilter(),
+        refetchType: "none",
+      });
 
       // The version this form just authored. Without it the refetch above
       // raises `latest.version` past `expectedVersion` and the form tells the
@@ -527,6 +590,16 @@ export function DishForm({
       setExpectedVersion(result.dish.version);
 
       const created = result.createdProducts.length;
+      // The blobs this session displaced are now provably unreferenced by the
+      // aggregate that was just written. Not awaited (and its failures are
+      // ignored): an orphaned upload is hygiene, and a save that succeeded
+      // must not report an error because a third-party delete did not.
+      // `discardPhoto` refuses a key any dish still points at, so a photo the
+      // partner is using cannot be deleted from here either.
+      for (const fileKey of displacedKeysRef.current.splice(0)) {
+        discardPhoto.mutate({ fileKey });
+      }
+
       setSaved({ dishId: result.dish.id, created, aiFailed: result.aiFailed });
       announce(
         created === 0
@@ -671,13 +744,16 @@ export function DishForm({
             <button
               type="button"
               className={styles.inlineButton}
-              onClick={() => setPhoto({ url: null, key: null })}
+              onClick={() => replacePhoto({ url: null, key: null })}
             >
               {t("removePhoto")}
             </button>
           </div>
         )}
-        {photoUploadSlot}
+        {photoUploadSlot?.({
+          current: photo,
+          onPicked: (next) => replacePhoto({ url: next.url, key: next.key }),
+        })}
       </div>
 
       <div className={styles.twoUp}>

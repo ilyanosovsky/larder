@@ -16,9 +16,30 @@ export interface AiChatClient {
     readonly completions: {
       create(
         body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+        options?: AiRequestOptions,
       ): Promise<OpenAI.Chat.Completions.ChatCompletion>;
     };
   };
+}
+
+/**
+ * Per-request overrides of the client's own defaults — the subset of the
+ * SDK's `RequestOptions` this codebase uses, so the real client satisfies it
+ * structurally and a fake in a test can assert what arrived.
+ *
+ * **Per request rather than per client** (decision C.1): the single cached
+ * client's 15 s timeout and one retry are right for an icon lookup the user
+ * is watching in a sheet, and wrong for a recipe parse — which needs 40 s and
+ * must not retry, because a retry doubles both the latency someone is staring
+ * at and the bill for a call whose fallback is instant and usable. Widening
+ * the factory instead would have meant a second cached client per timeout, or
+ * a client rebuilt per call.
+ */
+export interface AiRequestOptions {
+  readonly signal?: AbortSignal | null;
+  /** Milliseconds for this one request. */
+  readonly timeout?: number;
+  readonly maxRetries?: number;
 }
 
 /**

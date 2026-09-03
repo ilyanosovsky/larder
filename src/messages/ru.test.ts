@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
 import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
@@ -5,6 +8,27 @@ import { ingredientsForMessage } from "@/lib/recipes/portions";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 
 import messages from "./ru.json";
+
+/** Every file that binds a `dishImport` translator, found by walking `src/`. */
+function importCopyCallSites(): string[] {
+  const found: string[] = [];
+
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) {
+        walk(path);
+      } else if (path.endsWith(".tsx")) {
+        if (readFileSync(path, "utf8").includes('Translations("dishImport")')) {
+          found.push(path);
+        }
+      }
+    }
+  };
+
+  walk("src");
+  return found;
+}
 
 /**
  * The dictionary is the one place Russian grammar lives (AGENTS.md: UI
@@ -27,7 +51,13 @@ import messages from "./ru.json";
  * every other gate.
  */
 function translator(
-  namespace: "dish" | "dishes" | "dishForm" | "dishPortions" | "cooking",
+  namespace:
+    | "dish"
+    | "dishes"
+    | "dishForm"
+    | "dishImport"
+    | "dishPortions"
+    | "cooking",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -246,6 +276,60 @@ describe("the keys the dish screens call by name", () => {
 
     expect(rendered).not.toBe(`dishForm.${key}`);
     expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  const DISH_IMPORT_KEYS = Object.keys(
+    messages.dishImport,
+  ) as (keyof typeof messages.dishImport)[];
+
+  it.each(DISH_IMPORT_KEYS)("dishImport.%s resolves to real copy", (key) => {
+    // Swept off the dictionary for the same reason as the form above. S8.2's
+    // failure copy is the part that matters most: nine of these keys are
+    // reached only through `importFailureCopyKey`, so a rename would put the
+    // literal «dishImport.failedNotARecipe» on the screen a person lands on
+    // precisely when something has already gone wrong. `soonHint` is the only
+    // message here with a placeholder.
+    const rendered = translator("dishImport")(key, { action: "По ссылке" });
+
+    expect(rendered).not.toBe(`dishImport.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("has every dishImport key the screens actually ask for", () => {
+    // The sweep above cannot catch a *deletion* — it derives its key list from
+    // the dictionary, so a removed key is simply never swept. This asks the
+    // opposite question, and it is the one that matters: every literal key the
+    // seven `dishImport` call sites pass to their translator must resolve.
+    //
+    // Read off the source rather than hand-kept, for the same reason the
+    // sweeps use `Object.keys`: a list maintained by hand is a list that stops
+    // covering the newest screen. Keys built at runtime (S8.2's failure copy,
+    // via `importFailureCopyKey`) are pinned by `import-failure.test.ts`.
+    const dictionary = messages.dishImport as Record<string, unknown>;
+    const asked = new Map<string, string>();
+
+    for (const file of importCopyCallSites()) {
+      const source = readFileSync(file, "utf8");
+
+      for (const [, binding] of source.matchAll(
+        /const (\w+) = (?:await )?(?:use|get)Translations\("dishImport"\)/g,
+      )) {
+        for (const [, key] of source.matchAll(
+          new RegExp(`\\b${binding}\\(\\s*"([A-Za-z][A-Za-z0-9]*)"`, "g"),
+        )) {
+          if (key !== undefined) {
+            asked.set(key, file);
+          }
+        }
+      }
+    }
+
+    // A guard on the guard: if the scan ever stops finding call sites it must
+    // fail loudly rather than pass vacuously.
+    expect(asked.size).toBeGreaterThan(20);
+
+    const missing = [...asked].filter(([key]) => !(key in dictionary));
+    expect(missing).toEqual([]);
   });
 
   it("declines the saved-products count across Russian plural categories", () => {

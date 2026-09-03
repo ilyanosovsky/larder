@@ -29,6 +29,7 @@
     "@trpc/client": "^11.18.0",
     "@trpc/server": "^11.18.0",
     "@trpc/tanstack-react-query": "^11.18.0",
+    "@uploadthing/react": "^7.3.3",
     "better-auth": "^1.7.1",
     "drizzle-orm": "^0.45.2",
     "idb-keyval": "^6.3.0",
@@ -41,6 +42,7 @@
     "resend": "^6.20.0",
     "server-only": "^0.0.1",
     "superjson": "^2.2.6",
+    "uploadthing": "^7.7.4",
     "zod": "^4"
   },
   "devDependencies": {

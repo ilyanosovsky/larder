@@ -50,11 +50,11 @@ export const caller = createCaller(createTRPCContext);
  * the segment waits for `max(prefetch latency)`. The prefetches run in
  * parallel with each other, and the `(app)` layout already awaits the session
  * and `household.current` before any page renders, so this is one extra
- * parallel round trip rather than a new blocking phase. Each of the five
- * routes that prefetch — `/`, `/dishes`, `/dishes/[dishId]`,
- * `/dishes/[dishId]/edit`, `/settings` — has its own `loading.tsx` so the
- * wait is that screen's own skeleton rather than a blank tab; add one for any
- * new route that prefetches.
+ * parallel round trip rather than a new blocking phase. Every route that
+ * prefetches — `/`, `/dishes`, `/dishes/[dishId]`, `/dishes/[dishId]/edit`,
+ * `/dishes/new` (only for `?from=`), `/dishes/import/[jobId]`, `/settings` —
+ * has its own `loading.tsx` so the wait is that screen's own skeleton rather
+ * than a blank tab; add one for any new route that prefetches.
  */
 export async function HydrateClient({ children }: { children: ReactNode }) {
   const state = await dehydrateSettled(getQueryClient());

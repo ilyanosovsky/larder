@@ -188,8 +188,12 @@
   line-height: var(--lead-body);
 }
 
+/* A link since task 4.3 — `display: inline-flex` so the 44px target is the
+   whole button shape rather than one line of text inside it. */
 .emptyAction {
+  display: inline-flex;
   min-height: 44px;
+  align-items: center;
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
@@ -198,6 +202,7 @@
   font-family: var(--font-sans);
   font-size: var(--t-field);
   font-weight: var(--w-medium);
+  text-decoration: none;
   cursor: pointer;
 }
 

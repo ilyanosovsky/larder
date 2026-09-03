@@ -12,9 +12,9 @@ import styles from "./dish-library-screen.module.css";
  * «+ Блюдо» → the four ways to add one (DESIGN_BRIEF S6, in exactly this
  * order — photo first, because a screenshot is the main road).
  *
- * **«✍️ Вручную» is a real link since task 4.2; the three import rows are
- * still `aria-disabled` and announce «скоро».** `/dishes/import` is task
- * 4.3/4.4, and `main` auto-deploys to production, so every merged PR has to
+ * **«📷 С фото» and «✍️ Вручную» are real links; «🔗 По ссылке» and «📝
+ * Текстом» are still `aria-disabled` and announce «скоро».** Those two are
+ * task 4.4, and `main` auto-deploys to production, so every merged PR has to
  * be shippable — a row linking to a 404 would be worse than a row that says
  * honestly it is not ready.
  *
@@ -65,7 +65,10 @@ export function DishSourceSheet({
       icon: "📷",
       label: t("sourcePhoto"),
       hint: t("sourcePhotoHint"),
-      href: null,
+      // `?src=photo` lands on S8.1 with the picker focused. It cannot open
+      // the file dialog itself: browsers require transient user activation,
+      // and a tap that caused a navigation does not carry it across.
+      href: "/dishes/import?src=photo",
     },
     { key: "url", icon: "🔗", label: t("sourceUrl"), hint: null, href: null },
     { key: "text", icon: "📝", label: t("sourceText"), hint: null, href: null },

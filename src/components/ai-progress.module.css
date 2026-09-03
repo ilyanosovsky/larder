@@ -1,0 +1,71 @@
+/* S8.2 «Разбираю рецепт…» — Paper Ledger: a thumbnail, a line of type and a
+   hairline rule with one travelling segment. */
+
+.block {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-8) var(--s-5);
+  text-align: center;
+}
+
+.photo {
+  width: 132px;
+  max-width: 40vw;
+  height: auto;
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--zebra);
+  object-fit: cover;
+  aspect-ratio: 3 / 4;
+}
+
+.label {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+}
+
+.rule {
+  position: relative;
+  width: 200px;
+  max-width: 60vw;
+  height: 2px;
+  overflow: hidden;
+  background: var(--rule);
+}
+
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--toast-accent);
+  animation: sweep 1.4s var(--ease-out) infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* No motion, and no fake progress either: the segment simply sits at the
+   start, because the text above it is the real status. */
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    animation: none;
+  }
+}
+
+.hint {
+  margin: 0;
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}

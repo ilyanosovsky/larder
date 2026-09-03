@@ -1,6 +1,7 @@
 import { getTableName, type Table } from "drizzle-orm";
 
 import type { AiChatClient } from "@/server/ai/openai";
+import type { UploadedFileStore } from "@/server/uploadthing-files";
 
 import type { TRPCContext } from "./trpc";
 
@@ -55,18 +56,31 @@ export const unusableOpenai = (): AiChatClient => {
   throw new Error("ctx.openai() must not be called in unit tests");
 };
 
+/**
+ * The upload store must never be reached either — same idea again. A test that
+ * exercises `discardPhoto` has to hand over a fake and assert what it was
+ * asked to delete; without this the deletion branch would run against a real
+ * (or absent) token and pass either way, which is exactly how it went
+ * untested.
+ */
+export const unusableUploadThing = (): UploadedFileStore => {
+  throw new Error("ctx.uploadThing() must not be called in unit tests");
+};
+
 export function anonymousContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
+  uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
 ): TRPCContext {
-  return { session: null, user: null, db, openai };
+  return { session: null, user: null, db, openai, uploadThing };
 }
 
 export function signedInContext(
   db: TRPCContext["db"],
   openai: TRPCContext["openai"] = unusableOpenai,
+  uploadThing: TRPCContext["uploadThing"] = unusableUploadThing,
 ): TRPCContext {
-  return { session: testSession, user: testUser, db, openai };
+  return { session: testSession, user: testUser, db, openai, uploadThing };
 }
 
 /** One statement the router ran, in the order it ran it. */
@@ -141,6 +155,16 @@ export interface RecordedStatement {
     setWhere?: unknown;
   } | null;
   /**
+   * Whether the insert ended in `.onConflictDoNothing()`.
+   *
+   * A boolean rather than a config object because the call takes no arguments
+   * on the only path that uses it — the UploadThing callback, where a
+   * redelivered notification for a key already recorded must be a no-op
+   * rather than a 23505. Recorded so that dropping the link is a test
+   * failure and not a production surprise.
+   */
+  onConflictDoNothing: boolean;
+  /**
    * How many `transaction()` callbacks the statement was issued inside: `0`
    * for a bare statement, `1` inside a transaction, `2` inside a nested one.
    *
@@ -204,6 +228,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       limit: null,
       lock: null,
       onConflict: null,
+      onConflictDoNothing: false,
       txDepth,
     };
     statements.push(statement);
@@ -247,6 +272,10 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       },
       for(strength: unknown, config?: unknown) {
         statement.lock = { strength, config };
+        return chain;
+      },
+      onConflictDoNothing() {
+        statement.onConflictDoNothing = true;
         return chain;
       },
       onConflictDoUpdate(config: {

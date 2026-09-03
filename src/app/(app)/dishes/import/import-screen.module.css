@@ -1,0 +1,285 @@
+/* S8.1 + S8.2 — Paper Ledger: a dashed drop zone, hairline rules, one green. */
+
+.screen {
+  display: flex;
+  min-height: 60vh;
+  flex-direction: column;
+  padding-bottom: var(--s-8);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.back {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  text-decoration: none;
+}
+
+.back:hover {
+  text-decoration: underline;
+}
+
+/* «Отмена» on the review screen is a <button>, and this app has no global
+   button reset — `globals.css` resets only box-sizing/margin/padding, so
+   `appearance: auto` survives and a bare `.back` button renders with native
+   grey chrome, `cursor: default` and a 20px-tall tap target. The reset mirrors
+   `dish-form.module.css`'s `.inlineButton`; `composes` keeps the typography in
+   one place so the `<span class="back">` in this route's loading.tsx and the
+   `<Link class="back">` in its header keep rendering identically. */
+.backButton {
+  composes: back;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0;
+  appearance: none;
+  cursor: pointer;
+}
+
+.error {
+  margin: 0 0 var(--s-4);
+  border: var(--bd-hair) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.errorLink {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+
+/* ── S8.1 ─────────────────────────────────────────────────────────────── */
+
+.source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.photoZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  border: var(--bd-hair) dashed var(--rule-2);
+  background: var(--zebra);
+  padding: var(--s-8) var(--s-6);
+  text-align: center;
+}
+
+.photoIcon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.photoHint {
+  margin: 0;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.divider::before,
+.divider::after {
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+  content: "";
+}
+
+.dividerWord {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.paneHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.paneLabel {
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.paneSoon {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.paneField,
+.paneFieldTall {
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  background: var(--paper);
+  padding: var(--s-3) var(--s-4);
+  color: var(--mute-2);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-align: left;
+  cursor: default;
+}
+
+.paneFieldTall {
+  min-height: 76px;
+}
+
+.manual {
+  margin: 0;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+
+.manualLink {
+  color: var(--accent-ink);
+  border-bottom: var(--bd-hair) solid var(--green-rule);
+  text-decoration: none;
+}
+
+/* ── S8.2 failure ─────────────────────────────────────────────────────── */
+
+/* Programmatically focusable (the focus rescue lands here), never in the tab
+   order, and with no ring of its own — the panel inside carries the visuals. */
+.failureShell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.failureShell:focus {
+  outline: none;
+}
+
+.failure {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-7) var(--s-4);
+  text-align: center;
+}
+
+.failedPhoto {
+  width: 132px;
+  max-width: 40vw;
+  height: auto;
+  border: var(--bd-hair) solid var(--rule-2);
+  opacity: 0.5;
+  object-fit: cover;
+  aspect-ratio: 3 / 4;
+}
+
+.failureText {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+.actions {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
+.primaryAction,
+.secondaryAction {
+  flex: 1 1 40%;
+  min-height: 44px;
+  padding: var(--s-3);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  font-weight: var(--w-medium);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primaryAction {
+  border: var(--bd-hair) solid var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.secondaryAction {
+  display: block;
+  border: var(--bd-hair) solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+}
+
+.primaryAction[aria-disabled="true"],
+.secondaryAction[aria-disabled="true"] {
+  border-color: var(--rule-2);
+  background: var(--zebra);
+  color: var(--mute);
+  cursor: default;
+}
+
+/* The picker renders its own button; this only gives it the row's share. */
+.actionUpload {
+  flex: 1 1 40%;
+}
+
+.actionUpload button {
+  width: 100%;
+  min-height: 44px;
+}
+
+.status {
+  margin: var(--s-3) 0 0;
+  min-height: 1em;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  text-align: center;
+}
