@@ -5,10 +5,11 @@ import {
   Deadline,
   deadlineStageMs,
   FETCH_STAGE_MS,
+  finalStageMs,
   FIRECRAWL_MIN_REMAINING_MS,
   FIRECRAWL_STAGE_MS,
   IMPORT_DEADLINE_MS,
-  NORMALIZE_STAGE_MS,
+  RESPONSE_RESERVE_MS,
 } from "@/server/recipes/deadline";
 
 describe("deadlineStageMs", () => {
@@ -126,29 +127,44 @@ describe("the URL path's budget (task 4.4)", () => {
     expect(canRunFirecrawl(0)).toBe(false);
   });
 
-  it("keeps the free path inside the budget even at its worst", () => {
-    // JSON-LD costs a fetch and a normalization; that pair must always fit,
-    // or the common case would be the one that 504s.
-    expect(FETCH_STAGE_MS + NORMALIZE_STAGE_MS).toBeLessThan(
-      IMPORT_DEADLINE_MS,
+  it("gives the last stage everything the earlier ones did not spend", () => {
+    // The bug this replaced: a fixed 25 s cap on the normalizer aborted a
+    // model that was still writing, on a page that had fetched in half a
+    // second — with twenty seconds of budget sitting unused behind it.
+    const time = clock();
+    const deadline = new Deadline(IMPORT_DEADLINE_MS, time.now);
+
+    time.advance(2_000);
+    expect(finalStageMs(deadline.remainingMs())).toBe(
+      IMPORT_DEADLINE_MS - 2_000 - RESPONSE_RESERVE_MS,
     );
   });
 
-  it("deliberately over-books the three stages, and lets the clock arbitrate", () => {
-    // 8 + 20 + 25 = 53 against a 50 s budget. That is the design: each stage
-    // gets its share *capped by what is left*, so the sum being larger than
-    // the whole is exactly what `Deadline` absorbs — and the alternative,
-    // shrinking every stage to fit the worst case, would make the common
-    // path give up early for no reason.
-    expect(
-      FETCH_STAGE_MS + FIRECRAWL_STAGE_MS + NORMALIZE_STAGE_MS,
-    ).toBeGreaterThan(IMPORT_DEADLINE_MS);
-
+  it("still shrinks with the clock when the earlier stages were slow", () => {
     const time = clock();
     const deadline = new Deadline(IMPORT_DEADLINE_MS, time.now);
+
     time.advance(FETCH_STAGE_MS + FIRECRAWL_STAGE_MS);
-    expect(deadlineStageMs(deadline.remainingMs(), NORMALIZE_STAGE_MS)).toBe(
-      22_000,
+    expect(finalStageMs(deadline.remainingMs())).toBe(
+      IMPORT_DEADLINE_MS -
+        FETCH_STAGE_MS -
+        FIRECRAWL_STAGE_MS -
+        RESPONSE_RESERVE_MS,
     );
+  });
+
+  it("never asks for a negative timeout, however late it is called", () => {
+    // `AbortSignal.timeout(-1)` throws, and a RangeError is not a reason S8.2
+    // has copy for.
+    expect(finalStageMs(1_000)).toBe(0);
+    expect(finalStageMs(0)).toBe(0);
+    expect(finalStageMs(Number.NaN)).toBe(0);
+  });
+
+  it("always leaves room to build and send the answer", () => {
+    // Whatever the model spends, the catalog reads, the draft and the two
+    // small writes still have to happen inside `maxDuration`.
+    expect(finalStageMs(IMPORT_DEADLINE_MS)).toBeLessThan(IMPORT_DEADLINE_MS);
+    expect(RESPONSE_RESERVE_MS).toBeGreaterThan(0);
   });
 });

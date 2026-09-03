@@ -25,11 +25,15 @@ The test CI runs without secrets by design — tests must never call external se
 | `EMAIL_FROM`            | ✅       | e.g. `Larder <noreply@yourdomain.tld>`; the domain must be the one verified in Resend                                                                                                          |
 | `OPENAI_API_KEY`        | ✅       | platform.openai.com. **Used at runtime since task 1.3** — `product.create` calls it to pick an icon and a department. Cheap model + `reasoning_effort: low`; assistant respects the budget cap |
 | `AI_MONTHLY_BUDGET_USD` | —        | Default 20. At the cap the assistant switches off until next month; import keeps working                                                                                                       |
-| `FIRECRAWL_API_KEY`     | ✅       | firecrawl.dev — fallback recipe scraping only (~1000 free credits/month)                                                                                                                       |
+| `FIRECRAWL_API_KEY`     | ✅       | firecrawl.dev — fallback recipe scraping only (~1000 free credits/month). **Used at runtime since task 4.4** — see the note below                                                              |
 | `UPLOADTHING_TOKEN`     | ✅       | uploadthing.com (2 GB free tier — images are client-compressed to ~300 KB before upload). **Used at runtime since task 4.3** — see the note below                                              |
 | `NEXT_PUBLIC_APP_URL`   | ✅       | Public app URL, exposed to the client                                                                                                                                                          |
 
 Adding a new variable? Update `.env.example`, the README table, and this page — in the same PR (rule in [CLAUDE.md](https://github.com/ilyanosovsky/larder/blob/main/CLAUDE.md)).
+
+**`FIRECRAWL_API_KEY` is read at runtime since task 4.4** — by `firecrawlScrape` (`src/server/recipes/firecrawl.ts`) and nowhere else. Read **inside** the call, never at module scope (`pnpm build` runs in CI with no environment at all), and straight off `process.env` rather than through `env()` for the same reason as the token below: `env()` validates the whole schema on its first call, so an unrelated missing variable would make a recipe import fail with a message about `RESEND_API_KEY`. An absent or empty key is not an exception — the scrape returns `pageBlocked`, which is the same fork in the road every other FireCrawl failure offers, so a half-configured deployment degrades to «вставь текст или скриншот» instead of throwing a 500 at somebody.
+
+Only the third branch of the import cascade spends a credit: eda.rambler.ru (JSON-LD) and povar.ru (microdata) never reach it, and a login-walled link (Instagram) spends exactly one before falling back to the screenshot path.
 
 **`UPLOADTHING_TOKEN` is read at runtime by three places, all lazily and all straight off `process.env`.** No new variable — the entry above has existed since phase 1; task 4.3 is simply the first code to spend it.
 

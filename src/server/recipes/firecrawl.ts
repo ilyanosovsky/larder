@@ -120,10 +120,78 @@ export function parseFirecrawlResponse(json: unknown): FirecrawlResult {
     return { ok: false, reason: "blocked" };
   }
 
-  const markdown = parsed.data.data.markdown.trim();
+  const markdown = condenseMarkdown(parsed.data.data.markdown);
   if (markdown.length < MIN_MARKDOWN_CHARS) {
     return { ok: false, reason: "empty" };
   }
 
   return { ok: true, markdown: markdown.slice(0, MAX_MARKDOWN_CHARS) };
+}
+
+/**
+ * Strips a scraped page down to its words — **before** the truncation, which
+ * is the whole point.
+ *
+ * Found the hard way against russianfood.com, one of VISION §6.4's three
+ * verified sites: its scrape comes back as 58 000 characters of nested
+ * table-layout markdown whose first twelve thousand are the logo, the menu,
+ * a login box and a share widget. Truncating that hands the model a
+ * navigation bar and gets back `isRecipe: false` for a page that has a
+ * perfectly good recipe on it. Condensing first leaves 8 000 characters that
+ * start with the dish's own heading.
+ *
+ * Every rule below removes *markup*, never words: a table row keeps its
+ * cells, a link keeps its label, an image keeps nothing because it was never
+ * text. Cheaper too — the model is billed by the token, and a page of `| ---
+ * | --- |` is tokens spent on punctuation.
+ */
+export function condenseMarkdown(markdown: string): string {
+  const lines: string[] = [];
+
+  for (const raw of markdown.split(/\r?\n/)) {
+    let line = raw.trim();
+
+    if (line.length === 0) {
+      // One blank line survives, so paragraphs stay paragraphs.
+      if (lines.at(-1) !== "") {
+        lines.push("");
+      }
+      continue;
+    }
+
+    // A table separator row (`| --- | --- |`) is pure layout.
+    if (/^\|[\s|:-]*\|?$/.test(line)) {
+      continue;
+    }
+
+    // A table row keeps its cells, joined — a recipe laid out in a table
+    // (which is exactly how russianfood.com writes its ingredients) must not
+    // lose a single one of them.
+    if (line.startsWith("|")) {
+      line = line
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map((cell) => cell.trim())
+        .filter((cell) => cell.length > 0)
+        .join(" · ");
+    }
+
+    line = line
+      // Images first: `![alt](src)` is a link shape too, and reducing it to
+      // its alt text would leave stray words from decorative icons.
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+      // A link keeps its label and drops its href.
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Nothing but punctuation left: a separator, a spacer cell, an icon.
+    if (line.length === 0 || !/[\p{L}\p{N}]/u.test(line)) {
+      continue;
+    }
+
+    lines.push(line);
+  }
+
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }

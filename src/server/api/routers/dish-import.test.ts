@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiRequestOptions } from "@/server/ai/openai";
 import type { ParsedRecipe } from "@/server/ai/parse-recipe";
 import { createCaller } from "@/server/api/root";
+import { IMPORT_DEADLINE_MS } from "@/server/recipes/deadline";
 import {
   anonymousContext,
   createDbStub,
@@ -1217,10 +1218,14 @@ describe("dishImport.fromUrl — the free JSON-LD path", () => {
 
     await caller.dishImport.fromUrl({ url: RAMBLER_URL });
 
-    expect(openai.calls[0]?.options).toMatchObject({
-      timeout: 25_000,
-      maxRetries: 0,
-    });
+    // Not a fixed 25 s: the normalizer is the last stage, so it takes what
+    // the fetch did not spend — a page that answered instantly must not make
+    // the model give up early with twenty seconds of budget unused.
+    expect(openai.calls[0]?.options?.maxRetries).toBe(0);
+    expect(openai.calls[0]?.options?.timeout).toBeGreaterThan(40_000);
+    expect(openai.calls[0]?.options?.timeout).toBeLessThan(
+      IMPORT_DEADLINE_MS,
+    );
     expect(openai.calls[0]?.options?.signal).toBeInstanceOf(AbortSignal);
   });
 

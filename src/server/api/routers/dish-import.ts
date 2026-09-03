@@ -28,8 +28,8 @@ import {
   canRunFirecrawl,
   Deadline,
   FETCH_STAGE_MS,
+  finalStageMs,
   FIRECRAWL_STAGE_MS,
-  NORMALIZE_STAGE_MS,
   PHOTO_STAGE_MS,
 } from "@/server/recipes/deadline";
 import {
@@ -546,13 +546,16 @@ export const dishImportRouter = createTRPCRouter({
         normalizeInput = { kind: "markdown", markdown: scraped.markdown };
       }
 
+      // The last stage takes what is left: a page that answered in two
+      // seconds should not make the model give up at twenty-five.
+      const normalizeMs = finalStageMs(deadline.remainingMs());
       const normalized = await normalizeRecipe({
         client: ctx.openai(),
         input: normalizeInput,
         options: {
-          timeout: NORMALIZE_STAGE_MS,
+          timeout: normalizeMs,
           maxRetries: 0,
-          signal: deadline.signal(NORMALIZE_STAGE_MS),
+          signal: deadline.signal(normalizeMs),
         },
       });
 
@@ -599,14 +602,17 @@ export const dishImportRouter = createTRPCRouter({
         inputRef: `text:${input.text.slice(0, 80)}`,
       });
 
+      // The only stage there is, so it gets the whole budget less the
+      // reserve — same rule as the URL path's last stage.
       const deadline = new Deadline();
+      const normalizeMs = finalStageMs(deadline.remainingMs());
       const normalized = await normalizeRecipe({
         client: ctx.openai(),
         input: { kind: "text", text: input.text },
         options: {
-          timeout: NORMALIZE_STAGE_MS,
+          timeout: normalizeMs,
           maxRetries: 0,
-          signal: deadline.signal(NORMALIZE_STAGE_MS),
+          signal: deadline.signal(normalizeMs),
         },
       });
 

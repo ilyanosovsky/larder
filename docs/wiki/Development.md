@@ -942,6 +942,59 @@ The upload route is a **second public entry point**: `src/middleware.ts` exclude
 
 **`?src=photo` focuses the picker; it does not click it.** Browsers only open a file dialog under transient user activation, and a tap that caused a navigation does not carry activation into the new page — an auto-click would be silently ignored while the user stared at an unchanged screen. S6's empty state and the source sheet's «📷 С фото» row both route here.
 
+### Recipe import: URL and text (S8.1–S8.2, task 4.4)
+
+The second and third sources. Both end where the photo path ends — one `ai_jobs` row, one draft in `output_json`, the same review URL — and everything below is about the two things a link adds that a screenshot does not: **a page has to be fetched, and a URL a user chose is a request the server makes on their behalf.**
+
+**The cascade (VISION §6.4).**
+
+```
+dishImport.fromUrl({ url })
+  ├ classifyImportUrl(url)                    ← on the INPUT SCHEMA, not the resolver
+  │    blocked → BAD_REQUEST, no ai_jobs row, no fetch
+  │    instagram|facebook|tiktok → "social": skip the direct fetch entirely
+  ├ assertWithinRateLimit(user)
+  ├ INSERT ai_jobs (parse_url, running, input_ref = url)   ← BEFORE the fetch
+  ├ deadline = new Deadline(50_000)
+  ├ fetchPage(url, 8 s)     → JSON-LD Recipe?    free  → via "jsonld"
+  │                         → microdata Recipe?  free  → via "microdata"
+  ├ nothing structured, ≥10 s left → firecrawlScrape(url, 20 s) → via "firecrawl"
+  ├ normalizeRecipe(...)    ← ALWAYS, free path included; takes what is left
+  ├ UPDATE ai_jobs (done|error, cost_usd)       ← immediately after, both branches
+  └ try { matchIngredients → draftFromParsed → output_json } catch { markJobError }
+```
+
+`fromText` is the same procedure with the fetch removed: `ai_jobs (parse_text, input_ref = "text:" + first 80 chars)`, the same normalizer, the same ledger order.
+
+**Verified against the three sites VISION §6.4 names, on 2026-09-03**: eda.rambler.ru is JSON-LD and free; povar.ru is microdata and free (its only `ld+json` block is an `Organization`, which is why "has JSON-LD" cannot be read as "has a recipe"); russianfood.com has nothing structured and costs one FireCrawl credit plus ~$0.007.
+
+**The normalizer runs on the free path too, ungated** (decision D15). JSON-LD hands back «285 г муки», and «муки» matches «Мука» under no string ranker this app has — so a skipped normalization does not save a cent so much as fill the household's catalog with genitives that never match again. The extraction goes in as a **hint the model corrects** (`skeleton` mode of the one shared prompt; the model never sees HTML), and if that call fails the import still succeeds: every extracted line becomes `{ rawText, name: rawText, qty: null }`, the result carries `normalizationFailed`, and the review screen says so. An editable draft wearing amber chips beats an error screen for a page we had already read.
+
+**The SSRF guard is two halves, and they answer different questions** (`src/server/recipes/url-guard.ts`, `fetch-page.ts`).
+
+- `classifyImportUrl` reads the URL **as written**: scheme ∈ {http, https}, no credentials, port ∈ {∅, 80, 443}, hostname not `localhost` / `*.localhost` / `*.local` / `*.internal` / `*.home.arpa`, and **no literal IP at all** (a public literal is refused too — no recipe site is addressed by number, and allowing them would mean trusting the range list to be complete). Pure string work, so it runs as a Zod `.refine` on `fromUrlInput`: a blocked URL is a **validation rejection with no ledger row** (decision C.8), because `ai_jobs` counts calls the household could be billed for. The client maps that `BAD_REQUEST` onto S8.2's `blockedUrl` copy — the one failure that carries no `jobId` by design.
+- `isBlockedAddress` reads what the name **resolved to**, and `fetchPage` runs it on every address of every hop: `0/8`, `10/8`, `127/8`, `100.64/10`, `169.254/16`, `172.16/12`, `192.0.0.0/24`, `192.168/16`, `198.18/15`, everything from `224/4` up, plus `::/96`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `2002::/16` (6to4) and `64:ff9b::/96` (NAT64) — with IPv4-mapped IPv6 unwrapped and re-checked as IPv4. This is the only check that survives wildcard DNS: `127.0.0.1.nip.io` is a perfectly ordinary public hostname. Anything unparseable is **blocked**, not allowed.
+
+Other limits in the same file, each for a specific failure: `redirect: "manual"` with **at most 3 hops, every one re-classified and re-resolved** (a single-hop check is defeated by a 302 to `169.254.169.254`); `content-length > 2 MB` refuses early and the body is then streamed with a running counter that cancels the reader past `MAX_HTML_BYTES` (the header is optional and can lie); and the bytes are decoded in the **page's own charset** — russianfood.com still serves `windows-1251`, and `Response.text()` would hand the model a page of replacement characters.
+
+**Accepted residual risk (R4): TOCTOU.** A hostname can resolve public in `lookup` and private inside `fetch`. Closing it needs an undici dispatcher pinned to the resolved address — real complexity for an attack that needs an attacker-controlled DNS server *and* a target on Vercel's function network, which has no metadata endpoint. Revisit if this app ever runs somewhere with one.
+
+**FireCrawl is called with `fetch` and no SDK** (`src/server/recipes/firecrawl.ts`): `POST https://api.firecrawl.dev/v2/scrape`, `{ url, formats: ["markdown"], onlyMainContent: true }`, bearer read **inside** the function off `process.env` (the reason `uploadthing-url.ts` does the same: `env()` validates the whole schema, so an unrelated missing variable would make a recipe import fail over `RESEND_API_KEY`). **The response is Zod-parsed and any mismatch becomes `pageBlocked`** (R7) — an API change degrades into S8.2's text/screenshot fork, never a stack trace. An absent key does the same rather than throwing a 500. Credits: this is the rare third branch, so ~1000/month is not a constraint.
+
+**The scrape is condensed before it is truncated**, and this was found on a real import rather than reasoned about. russianfood.com's scrape comes back as 58 000 characters of nested table-layout markdown whose first twelve thousand are the logo, the menu, a login box and a share widget; truncating *that* handed the model a navigation bar and got back «на этой странице нет рецепта» for a page with a perfectly good recipe on it. `condenseMarkdown` strips *markup only* — a table row keeps its cells, a link keeps its label, an image keeps nothing — which leaves 8 000 characters starting at the dish's own heading, and costs fewer tokens besides.
+
+**The time budget, and why the last stage is not a fixed number.** `Deadline` (`src/server/recipes/deadline.ts`) gives the fetch 8 s and FireCrawl 20 s — both bounded, because both have a cheap alternative — and skips FireCrawl entirely below 10 s remaining (`pageBlocked`, whose copy already offers text and a screenshot; starting a 20 s scrape with 6 s left would burn a credit to produce a 504). The **normalizer then takes everything left** less a 3 s reserve, because it is the last thing that runs and there is no one to hand the surplus to. That is not a detail: a fixed 25 s cap aborted a model still writing a twenty-step recipe on a page that had fetched in half a second, with twenty seconds of budget sitting unused. Per-request `{ timeout, maxRetries: 0, signal }` as always.
+
+**A page's own image is stored as a remote URL with `photo_key: null`.** Nothing was uploaded, so there is no blob of ours to discard; re-hosting somebody's photo to avoid a hotlink is a decision (and a bill) this feature does not need to make. A URL longer than `recipeDraftSchema`'s 500-character cap is dropped rather than allowed to fail the whole draft's validation — reporting a good import as a failure over a thumbnail would be the wrong trade.
+
+**`fetchPage` distinguishes a refusal from a dead host.** Its result carries `status` separately from `unreachable`, because blueprint §3.6 maps them to different copy: 403/429/503 is «страница не отдала рецепт» (`pageBlocked`) and a dead host is «не удалось прочитать страницу» (`pageUnreachable`). When FireCrawl also fails, the *fetch's* own verdict is the more specific one and survives; a login wall overrides both with `loginWalled`, and a scrape that came back too thin is `noRecipeOnPage` — the page was reachable, it simply had no recipe on it.
+
+**`ctx.pageFetch()` is injected like `ctx.openai()` and `ctx.uploadThing()`**, and with the sharpest edge of the three: every rule above is only testable if the transport can be faked, and a router test that forgets to supply one has to fail loudly rather than have CI issue real requests to whatever host a fixture named. `src/app/api/trpc/[trpc]/route.ts` therefore also declares `runtime = "nodejs"` explicitly — `node:dns` does not exist on the Edge runtime, and the default should have to argue with a comment before it changes.
+
+**Fixtures, not the network** (`src/server/recipes/__fixtures__/`, with a README recording every source URL and capture date). Each of the three real pages was fetched once, trimmed to the recipe fragment under 50 KB, and checked in as a **parser test input** — they pin what the parsers must survive, not what a site looks like today, so a test that starts failing is a parser regression until proven otherwise. `dirty-graph.html` is hand-written and carries every awkward JSON-LD shape at once: a malformed block first, an `@graph` wrapper, `@type` as an array, `HowToSection` with nested `itemListElement`, an `ImageObject`, and `recipeYield` as an array. **No test touches the network.**
+
+**S8.2 renders «вставь текст» as a field, not a button** — DESIGN_BRIEF's «без тупика, сразу поля» — focused when text is the primary way out (every URL failure) and sitting under the screenshot button when it is not (a login wall, where a screenshot genuinely works better). `importFailureCopyKey` now takes the same `{ hasPhoto }` context `fallbackActions` does, because «Похоже, на фото не рецепт» after a pasted link is a sentence about something that never happened.
+
 ### AI budget does not gate this
 
 `AI_MONTHLY_BUDGET_USD` caps **the assistant only** (task 6.1). Recipe import (4.3/4.4), the batched product enrichment inside a save (4.2) and the recipe adaptation (4.6) keep working at the cap: every one of them is a thing the user started and is waiting on, and losing a reviewed recipe to a quota is the wrong trade. They are still rate-limited per user like every other AI endpoint, and every call still writes its `ai_jobs` row with `costUsd`.

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  condenseMarkdown,
   FIRECRAWL_ENDPOINT,
   firecrawlScrape,
   MAX_MARKDOWN_CHARS,
@@ -76,6 +77,25 @@ describe("parseFirecrawlResponse — the shape guard (R7)", () => {
     expect(
       parseFirecrawlResponse({ success: true, data: { markdown: "Cookies" } }),
     ).toEqual({ ok: false, reason: "empty" });
+  });
+
+  it("condenses the scrape before truncating it", () => {
+    // The bug this exists for: russianfood.com's scrape is 58 000 characters
+    // of table-layout markdown whose first twelve thousand are the logo, the
+    // menu and a login box. Truncating *that* handed the model a navigation
+    // bar and got back «на этой странице нет рецепта» for a page with a
+    // perfectly good recipe on it.
+    const chrome = "| [Рецепты](https://x/r) | [Войти](https://x/l) |\n| --- | --- |\n".repeat(400);
+    const recipe = `# Гуляш\n\n| Говядина – 1 кг |\n| Лук репчатый – 600 г |\n${"Тушим два часа. ".repeat(20)}`;
+
+    const result = parseFirecrawlResponse({
+      success: true,
+      data: { markdown: chrome + recipe },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.markdown).toContain("Говядина – 1 кг");
+    expect(result.ok && result.markdown).toContain("Лук репчатый – 600 г");
   });
 
   it("truncates a very long page before the model is billed for it", () => {
@@ -174,5 +194,45 @@ describe("a deployment with no FIRECRAWL_API_KEY", () => {
       }),
     ).resolves.toEqual({ ok: false, reason: "blocked" });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("condenseMarkdown", () => {
+  it("keeps every cell of a table-laid-out ingredient list", () => {
+    // russianfood.com writes its ingredients as table rows; losing one to a
+    // layout rule would silently drop an ingredient from the recipe.
+    expect(
+      condenseMarkdown("| Говядина – 1 кг | Лук – 600 г |\n| --- | --- |"),
+    ).toBe("Говядина – 1 кг · Лук – 600 г");
+  });
+
+  it("keeps a link's words and drops its href", () => {
+    expect(condenseMarkdown("[Рецепты](https://example.invalid/r)")).toBe(
+      "Рецепты",
+    );
+  });
+
+  it("drops an image entirely rather than leaving its alt text loose", () => {
+    expect(
+      condenseMarkdown("![Фото шага 1](https://example.invalid/1.jpg)\nТушим."),
+    ).toBe("Тушим.");
+  });
+
+  it("drops rows that carry no words at all", () => {
+    expect(condenseMarkdown("|     |     |\n| --- | --- |\n***\nМука")).toBe(
+      "Мука",
+    );
+  });
+
+  it("leaves ordinary prose alone", () => {
+    const markdown = "# Гуляш\n\nТушим два часа.\n\n- Говядина – 1 кг\n- Лук – 600 г";
+
+    expect(condenseMarkdown(markdown)).toBe(markdown);
+  });
+
+  it("collapses blank runs to one, so paragraphs stay paragraphs", () => {
+    expect(condenseMarkdown("Первый\n\n\n\nВторой")).toBe(
+      "Первый\n\nВторой",
+    );
   });
 });

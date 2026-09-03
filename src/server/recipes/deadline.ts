@@ -24,14 +24,39 @@ export const IMPORT_DEADLINE_MS = 50_000;
 export const PHOTO_STAGE_MS = 40_000;
 
 /**
- * The URL path's three stages (task 4.4): 8 + 20 + 25 = 53 s of *worst case*
- * inside a 50 s budget, which is the point — the stages share one shrinking
- * clock, so the sum being larger than the whole is exactly what `Deadline`
- * exists to absorb.
+ * The URL path's two *bounded* stages (task 4.4). Bounded because each has a
+ * cheap alternative: a page that has not answered in eight seconds is one
+ * FireCrawl can scrape instead, and a scrape that has not answered in twenty
+ * is one the user should be offered a screenshot for.
  */
 export const FETCH_STAGE_MS = 8_000;
 export const FIRECRAWL_STAGE_MS = 20_000;
-export const NORMALIZE_STAGE_MS = 25_000;
+
+/**
+ * What the response itself needs after the model answers: the catalog reads,
+ * the draft, two small writes and the superjson encode.
+ */
+export const RESPONSE_RESERVE_MS = 3_000;
+
+/**
+ * The **last** stage's share: everything that is left, less the reserve.
+ *
+ * Not a fixed number, and the difference is not academic — it was found on a
+ * real import. russianfood.com fetches in half a second and scrapes in under
+ * two, which leaves ~46 s of a 50 s budget; a fixed 25 s cap then aborted a
+ * model that was still writing a twenty-step recipe, and the household got
+ * «попробуй ещё раз» for a page nothing was wrong with. There is no one to
+ * hand the surplus to — the normalizer is the last thing that runs — so
+ * giving it away early is not prudence, it is a self-inflicted failure.
+ *
+ * The ceiling is still the deadline: 50 s inside `maxDuration = 60`.
+ */
+export function finalStageMs(remainingMs: number): number {
+  if (!Number.isFinite(remainingMs)) {
+    return 0;
+  }
+  return Math.max(0, remainingMs - RESPONSE_RESERVE_MS);
+}
 
 /**
  * Below this, FireCrawl is not started at all.
