@@ -433,6 +433,7 @@ describe("dishAdapt (task 4.6)", () => {
       to: 4,
       count: 4,
       list: "Миксер",
+      unit: "печений",
     });
 
     expect(rendered).not.toBe(`dishAdapt.${key}`);
@@ -468,13 +469,18 @@ describe("dishAdapt (task 4.6)", () => {
     );
   });
 
-  it("renders the two diff headings the proposal composes", () => {
+  it("renders the diff headings the proposal composes", () => {
     const t = translator("dishAdapt");
 
     expect(t("portionsChange", { from: 8, to: 4 })).toBe("Порции: 8 → 4");
     expect(t("equipmentDropped", { list: "Миксер" })).toBe(
       "Больше не нужно: Миксер",
     );
+    // Both of these vanish with a rescale and have no revert path for a dish
+    // that was never imported, so the sheet says so rather than dropping them
+    // quietly.
+    expect(t("portionsRangeDropped", { from: 7, to: 8 })).toContain("7–8");
+    expect(t("yieldUnitDropped", { unit: "печений" })).toContain("печений");
   });
 
   it("tells a failed save apart from a failed adaptation", () => {
@@ -498,6 +504,9 @@ describe("dishAdapt (task 4.6)", () => {
       t("addedLabel"),
       t("wasLabel"),
       t("nowLabel"),
+      t("noteLabel"),
+      t("noteRemoved"),
+      t("sourceLabel"),
     ];
 
     expect(new Set(spoken).size).toBe(spoken.length);

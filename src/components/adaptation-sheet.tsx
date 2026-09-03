@@ -6,17 +6,27 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { AiProgress } from "@/components/ai-progress";
 import { BottomSheet } from "@/components/bottom-sheet";
+import {
+  adaptPhase,
+  classifyApplyFailure,
+  failureOf,
+  isBusy,
+  primaryActionOf,
+  proposalOf,
+  type AdaptFailure,
+  type AdaptPhase,
+  type AdaptProposal,
+} from "@/lib/recipes/adapt-phase";
 import type { RecipeDraft } from "@/lib/recipes/draft";
 import { formatRecipeQty } from "@/lib/recipes/rescale";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 import { useIsOnline } from "@/lib/sync/use-is-online";
-import { isConflictError, isRateLimitedError } from "@/lib/trpc-errors";
 import type { DishDetailOutput } from "@/server/api/routers/dish";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
 // Pure, database-free server helpers, imported into a client component the
 // same way `equipment-banner.tsx` imports `missingEquipment` — the alternative
 // is a second copy of the predicate that drifts from the one under test.
-import { isEmptyDiff, type AdaptationDiff } from "@/server/recipes/adapt";
+import { isEmptyDiff } from "@/server/recipes/adapt";
 import { useTRPC } from "@/trpc/client";
 
 import styles from "./adaptation-sheet.module.css";
@@ -108,55 +118,33 @@ export function AdaptationSheet({
    * variable the component sets itself has exactly one answer at any moment,
    * and every branch below reads it.
    */
-  const [phase, setPhase] = useState<Phase>({ kind: "running" });
+  const [phase, setPhase] = useState<AdaptPhase>({ kind: "running" });
 
   /** Synchronous mutex: render state lands a re-render too late for a double tap. */
   const pendingRef = useRef(false);
   const startedRef = useRef(false);
   /** The proposal a save is in flight for, so a failure can hand it back. */
-  const applyingRef = useRef<Proposal | null>(null);
+  const applyingRef = useRef<AdaptProposal | null>(null);
   /** The summary paragraph, focused when the proposal lands (see the effect). */
   const summaryRef = useRef<HTMLParagraphElement>(null);
   /** «Отмена» — where focus is rescued when the primary slot unmounts. */
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   /**
-   * A failure of the **adaptation call**: there is no proposal to keep, so the
-   * only thing «Ещё раз» can mean is "ask again".
+   * Every transition goes through the pure machine in
+   * `src/lib/recipes/adapt-phase.ts`, so the rules that matter — a save
+   * failure keeps the proposal, a conflict is terminal — are pinned by tests
+   * this node-environment suite can actually run. All this component adds is
+   * the one side effect a reducer must not have: refreshing the card behind
+   * the scrim when the version it was built on turns out to be spent.
    */
-  function reportAdapt(cause: unknown) {
-    if (isConflictError(cause)) {
-      onConflict();
-      setPhase({ kind: "failed", text: dish("conflict"), retryable: false });
-      return;
-    }
-    setPhase({
-      kind: "failed",
-      text: isRateLimitedError(cause) ? t("rateLimited") : t("failed"),
-      retryable: true,
-    });
-  }
-
-  /**
-   * A failure of the **save**, which is a different event and must not be
-   * told as if it were the first one.
-   *
-   * The proposal the household just read and approved is kept, so «Ещё раз»
-   * retries *that save* rather than billing a fresh adaptation that would
-   * come back subtly different — and the copy stops blaming the model for a
-   * `BAD_REQUEST`, a lost connection or a 500. A `CONFLICT` stays terminal:
-   * the version this draft was built on is spent, and retrying re-sends it.
-   */
-  function reportApply(cause: unknown, accepted: Proposal) {
-    if (isConflictError(cause)) {
-      onConflict();
-      setPhase({ kind: "failed", text: dish("conflict"), retryable: false });
-      return;
-    }
-    setPhase({
-      kind: "applyFailed",
-      proposal: accepted,
-      text: isRateLimitedError(cause) ? t("rateLimited") : t("applyFailed"),
+  function dispatch(event: Parameters<typeof adaptPhase>[1]) {
+    setPhase((current) => {
+      const next = adaptPhase(current, event);
+      if (failureOf(next) === "conflict") {
+        onConflict();
+      }
+      return next;
     });
   }
 
@@ -167,27 +155,25 @@ export function AdaptationSheet({
       // `mutationFn` ever ran and the sheet would spin forever.
       networkMode: "always",
       onSuccess: (result) => {
-        setPhase(
-          result.outcome === "proposed"
-            ? {
-                kind: "proposed",
-                proposal: {
-                  draft: result.draft,
-                  summary: result.summary,
-                  diff: result.diff,
-                },
-              }
-            : {
-                kind: "failed",
-                text:
-                  result.reason === "nothingToAdapt"
-                    ? t("nothingToAdapt")
-                    : t("failed"),
-                retryable: result.reason !== "nothingToAdapt",
-              },
-        );
+        if (result.outcome === "proposed") {
+          dispatch({
+            type: "proposed",
+            proposal: {
+              draft: result.draft,
+              // Normalized once, here, where the proposal enters the sheet:
+              // `summary` is an unbounded `z.string()` the strict schema
+              // cannot require content from, and an empty one would leave the
+              // focus target with nothing to announce *and* disagree with the
+              // note «Применить» stores.
+              summary: result.summary.trim() || t("defaultNote"),
+              diff: result.diff,
+            },
+          });
+          return;
+        }
+        dispatch({ type: "refused", reason: result.reason });
       },
-      onError: reportAdapt,
+      onError: (cause) => dispatch({ type: "adaptThrew", cause }),
       onSettled: () => {
         pendingRef.current = false;
       },
@@ -206,10 +192,10 @@ export function AdaptationSheet({
         // only thing that survives the failure — `phase` is `applying` at this
         // point, but reading it here would close over a stale render.
         if (accepted === null) {
-          reportAdapt(cause);
+          dispatch({ type: "adaptThrew", cause });
           return;
         }
-        reportApply(cause, accepted);
+        dispatch({ type: "applyThrew", cause, proposal: accepted });
       },
       onSettled: () => {
         pendingRef.current = false;
@@ -229,15 +215,19 @@ export function AdaptationSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const busy = phase.kind === "running" || phase.kind === "applying";
-  const proposal =
-    phase.kind === "proposed" ||
-    phase.kind === "applying" ||
-    phase.kind === "applyFailed"
-      ? phase.proposal
-      : null;
+  const busy = isBusy(phase);
+  const proposal = proposalOf(phase);
+  const failure = failureOf(phase);
+  /**
+   * Which dictionary key a failure resolves to. `conflict` is the screen's
+   * own copy, so the sheet and the card word the same event the same way.
+   */
   const failureText =
-    phase.kind === "failed" || phase.kind === "applyFailed" ? phase.text : null;
+    failure === null
+      ? null
+      : failure === "conflict"
+        ? dish("conflict")
+        : t(FAILURE_KEY[failure]);
   /**
    * Whether the action row has a second button at all. Both transitions that
    * remove it — «Ещё раз» (`failed` → `running`) and a `CONFLICT` on apply
@@ -245,8 +235,8 @@ export function AdaptationSheet({
    * and `BottomSheet`'s own focus effect is keyed on `open`, which does not
    * change while the sheet is up.
    */
-  const hasPrimary =
-    proposal !== null || (phase.kind === "failed" && phase.retryable);
+  const primary = primaryActionOf(phase);
+  const hasPrimary = primary !== null;
 
   /**
    * Moves focus to the summary when the proposal lands (A5).
@@ -287,24 +277,24 @@ export function AdaptationSheet({
     }
     pendingRef.current = true;
     applyingRef.current = null;
-    setPhase({ kind: "running" });
+    dispatch({ type: "retryAdapt" });
     adapt.mutate({ dishId, expectedVersion, targetPortions });
   }
 
-  function applyProposal(accepted: Proposal) {
+  function applyProposal(accepted: AdaptProposal) {
     if (pendingRef.current) {
       return;
     }
     pendingRef.current = true;
     applyingRef.current = accepted;
-    setPhase({ kind: "applying", proposal: accepted });
+    dispatch({ type: "applyStarted", proposal: accepted });
     apply.mutate({
       id: dishId,
       expectedVersion,
       draft: accepted.draft,
-      // The summary the household just read and approved. Empty only if the
-      // model said nothing; the dictionary carries the fallback rather than
-      // the server inventing Russian copy.
+      // Already non-empty by construction (see `onSuccess`); the fallback
+      // stays as a backstop, and `dishAdaptationStamp`'s own `.min(1)` is the
+      // server-side one — an empty `adapted_note` can never be persisted.
       adaptation: { note: accepted.summary.trim() || t("defaultNote") },
     });
   }
@@ -356,13 +346,11 @@ export function AdaptationSheet({
             {proposal === null ? common("cancel") : t("cancel")}
           </button>
 
-          {proposal === null ? (
-            phase.kind === "failed" && phase.retryable ? (
-              <button type="button" className={styles.primary} onClick={retry}>
-                {t("retry")}
-              </button>
-            ) : null
-          ) : (
+          {primary === "retryAdapt" ? (
+            <button type="button" className={styles.primary} onClick={retry}>
+              {t("retry")}
+            </button>
+          ) : proposal === null ? null : (
             // One button for three phases: it re-sends the **same approved
             // draft** after a save failure, and never falls back to a fresh
             // billed adaptation that would return a different proposal.
@@ -434,15 +422,20 @@ export function RevertSheet({
   const pendingRef = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  /** Same split as the proposal sheet's — see `AdaptationSheet.reportAdapt`. */
+  /** The same classifier the proposal sheet's machine uses — one rule for
+   *  «the version is spent», in one tested place. */
   function report(cause: unknown) {
-    if (isConflictError(cause)) {
+    const failure = classifyApplyFailure(cause);
+
+    if (failure === "conflict") {
       onConflict();
       setConflicted(true);
       setError(dish("conflict"));
       return;
     }
-    setError(isRateLimitedError(cause) ? t("rateLimited") : t("failed"));
+    // A revert is a save, but «Не удалось сохранить» would be odd copy under
+    // «Вернуть исходный рецепт» — this sheet has one generic failure line.
+    setError(failure === "rateLimited" ? t("rateLimited") : t("failed"));
   }
 
   const revert = useMutation(
@@ -575,36 +568,16 @@ export function RevertSheet({
 }
 
 /**
- * Where the sheet is, as one value.
- *
- * `retryable` rides along with the failure because the two are decided
- * together: retrying a `CONFLICT` re-sends the same frozen version and fails
- * identically, and there is nothing to retry about «менять нечего».
+ * Failure reason → dictionary key, spelled out rather than derived from the
+ * value. `conflict` is deliberately absent: it resolves to the *screen's*
+ * `dish.conflict`, in another namespace, and is handled at the call site.
  */
-type Phase =
-  | { kind: "running" }
-  | { kind: "proposed"; proposal: Proposal }
-  | { kind: "applying"; proposal: Proposal }
-  /**
-   * The save failed and the reviewed proposal is still on screen. Its own
-   * phase rather than a flag on `failed`, because the two differ in every way
-   * that matters: what is rendered, what the primary button says, and what
-   * pressing it does.
-   */
-  | { kind: "applyFailed"; proposal: Proposal; text: string }
-  | { kind: "failed"; text: string; retryable: boolean };
-
-interface Proposal {
-  draft: RecipeDraft;
-  summary: string;
-  /**
-   * The server's own type, not a structural copy. `diff: result.diff` assigns
-   * a variable rather than an object literal, so TypeScript's excess-property
-   * check never fires — a field added to `AdaptationDiff` would be silently
-   * dropped by a local re-declaration and missed by every reader here.
-   */
-  diff: AdaptationDiff;
-}
+const FAILURE_KEY = {
+  rateLimited: "rateLimited",
+  unavailable: "failed",
+  nothingToAdapt: "nothingToAdapt",
+  saveFailed: "applyFailed",
+} as const satisfies Partial<Record<AdaptFailure, string>>;
 
 
 /**
@@ -623,7 +596,7 @@ function ProposalView({
 }: {
   /** The dish as it stood when the proposal was computed — frozen upstream. */
   before: DishDetailOutput;
-  proposal: Proposal;
+  proposal: AdaptProposal;
   equipmentLabels: Readonly<Record<EquipmentSlug, string>>;
   summaryRef: RefObject<HTMLParagraphElement | null>;
 }) {
@@ -631,7 +604,6 @@ function ProposalView({
   const dish = useTranslations("dish");
   const { draft, diff } = proposal;
 
-  const portionsChanged = draft.portionsBase !== before.recipe.portionsBase;
   // Read off the diff rather than recomputed here: the equipment removal is a
   // persisted change like any other, and `isEmptyDiff` counts it — so «менять
   // ничего не пришлось» can never sit above «Больше не нужно: Миксер».
@@ -649,12 +621,30 @@ function ProposalView({
 
       {nothing ? <p className={styles.hint}>{t("noChanges")}</p> : null}
 
-      {portionsChanged ? (
+      {diff.portionsChanged ? (
         <p className={styles.meta}>
           {t("portionsChange", {
             from: before.recipe.portionsBase,
             to: draft.portionsBase,
           })}
+        </p>
+      ) : null}
+
+      {/* Both of these disappear with a rescale and are worth saying out
+          loud: for a dish that was never imported there is no
+          `original_draft` to get them back from. */}
+      {diff.portionsRangeDropped && before.recipe.portionsMin !== null ? (
+        <p className={styles.meta}>
+          {t("portionsRangeDropped", {
+            from: before.recipe.portionsMin,
+            to: before.recipe.portionsBase,
+          })}
+        </p>
+      ) : null}
+
+      {diff.yieldUnitDropped && before.recipe.yieldUnit !== null ? (
+        <p className={styles.meta}>
+          {t("yieldUnitDropped", { unit: before.recipe.yieldUnit })}
         </p>
       ) : null}
 
@@ -714,12 +704,29 @@ function ProposalView({
                     </span>
                   </span>
                   {noteChanged ? (
-                    // `—` when the adaptation dropped a qualifier: a row that
-                    // silently lost «холодное» would look unchanged.
-                    <span className={styles.rowNote}>{row.note ?? "—"}</span>
+                    <span className={styles.rowNote}>
+                      <span className={styles.srOnly}>{t("noteLabel")} </span>
+                      {row.note === null ? (
+                        // A dropped qualifier renders as a bare «—», which
+                        // most screen readers skip at default punctuation
+                        // settings — so the removal gets a word of its own and
+                        // the glyph stays for sighted readers.
+                        <>
+                          <span aria-hidden="true">—</span>
+                          <span className={styles.srOnly}>
+                            {t("noteRemoved")}
+                          </span>
+                        </>
+                      ) : (
+                        row.note
+                      )}
+                    </span>
                   ) : null}
                   {sourceChanged ? (
-                    <span className={styles.rowSource}>{row.rawText}</span>
+                    <span className={styles.rowSource}>
+                      <span className={styles.srOnly}>{t("sourceLabel")} </span>
+                      {row.rawText}
+                    </span>
                   ) : null}
                 </li>
               );

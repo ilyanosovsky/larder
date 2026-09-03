@@ -80,7 +80,13 @@ export function coerceEquipmentSlug(raw: string): EquipmentSlug | null {
     return normalized as EquipmentSlug;
   }
 
-  return WORD_TO_SLUG[normalized] ?? null;
+  // `Object.hasOwn`, not a bare lookup: `WORD_TO_SLUG` is an object literal,
+  // so `WORD_TO_SLUG["constructor"]` returns an inherited function typed as
+  // `EquipmentSlug`. A kitchen profile can hold any 1–40-character string a
+  // household types into S12's free-text field, «constructor» included.
+  return Object.hasOwn(WORD_TO_SLUG, normalized)
+    ? WORD_TO_SLUG[normalized]!
+    : null;
 }
 
 /**

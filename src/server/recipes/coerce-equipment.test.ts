@@ -98,3 +98,19 @@ describe("EQUIPMENT_WORD (task 4.6's prompt vocabulary)", () => {
     }
   });
 });
+
+describe("prototype-named entries (round 2, R2)", () => {
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])(
+    "returns null for %s rather than an inherited member",
+    (entry) => {
+      // `WORD_TO_SLUG` is an object literal, so a bare lookup handed back
+      // `Object`'s own functions typed as `EquipmentSlug`. A kitchen profile
+      // can hold any 1–40-character string a household types.
+      expect(coerceEquipmentSlug(entry)).toBeNull();
+    },
+  );
+
+  it("drops them from a list instead of poisoning it", () => {
+    expect(coerceEquipmentList(["constructor", "духовка"])).toEqual(["oven"]);
+  });
+});

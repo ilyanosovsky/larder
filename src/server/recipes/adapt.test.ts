@@ -12,6 +12,7 @@ import {
   applyAdaptation,
   describeAdaptation,
   isEmptyDiff,
+  matchDroppedEquipment,
   rescaleDraft,
 } from "@/server/recipes/adapt";
 
@@ -650,6 +651,129 @@ describe("describeAdaptation", () => {
       addedSteps: [1],
       removedSteps: [1, 2],
       droppedEquipment: [],
+      portionsChanged: false,
+      portionsRangeDropped: false,
+      yieldUnitDropped: false,
     });
+  });
+});
+
+describe("matchDroppedEquipment (round 2, R4)", () => {
+  it("accepts the exact word the prompt handed the model", () => {
+    expect(matchDroppedEquipment(["миксер"], ["mixer"])).toEqual(["mixer"]);
+    expect(matchDroppedEquipment(["Миксер."], ["mixer"])).toEqual(["mixer"]);
+  });
+
+  it("accepts an inflected or qualified answer — Russian declines", () => {
+    // The failure this exists for: «убрали миксером» is unmistakably about
+    // the mixer, and refusing it left the recipe declaring an appliance it no
+    // longer uses, with S7's banner nagging forever.
+    for (const said of [
+      "миксера",
+      "миксером",
+      "ручной миксер",
+      "миксер (заменён венчиком)",
+      "mixer",
+    ]) {
+      expect(matchDroppedEquipment([said], ["mixer"]), said).toEqual(["mixer"]);
+    }
+  });
+
+  it("handles the words that inflect on a soft sign or a second word", () => {
+    expect(matchDroppedEquipment(["аэрогрилем"], ["airfryer"])).toEqual([
+      "airfryer",
+    ]);
+    expect(matchDroppedEquipment(["тёркой"], ["grater"])).toEqual(["grater"]);
+    expect(matchDroppedEquipment(["на индукционной плите"], ["induction_hob"]))
+      .toEqual(["induction_hob"]);
+    expect(matchDroppedEquipment(["кухонного комбайна"], ["food_processor"]))
+      .toEqual(["food_processor"]);
+  });
+
+  it("never matches outside the candidate set", () => {
+    // Containment is only safe because the candidates are what the household
+    // was actually missing — a proposal cannot decide to remove a requirement
+    // nobody asked about.
+    expect(matchDroppedEquipment(["духовка", "миксер"], ["mixer"])).toEqual([
+      "mixer",
+    ]);
+    expect(matchDroppedEquipment(["миксер"], [])).toEqual([]);
+    expect(matchDroppedEquipment(["сувид", "штуковина"], ["mixer"])).toEqual([]);
+  });
+
+  it("returns candidate order and never repeats a slug", () => {
+    expect(
+      matchDroppedEquipment(
+        ["миксером", "аэрогриль", "миксер"],
+        ["airfryer", "mixer"],
+      ),
+    ).toEqual(["airfryer", "mixer"]);
+  });
+
+  it("ignores blank and punctuation-only answers", () => {
+    expect(matchDroppedEquipment(["", "   ", "—"], ["mixer"])).toEqual([]);
+  });
+});
+
+describe("a rescale that moves no quantity (round 2, R1)", () => {
+  /** Every amount unstated — «по вкусу» and «уточнить» rows only. */
+  function unquantified(): RecipeDraft {
+    return {
+      ...emptyDraft(),
+      title: "Соус на глаз",
+      portionsBase: 8,
+      portionsMin: 7,
+      yieldUnit: "порций",
+      ingredients: [
+        ingredient({ name: "Соль", qty: null, unit: null, note: "по вкусу" }),
+        ingredient({ name: "Перец", qty: null, unit: null, note: "по вкусу" }),
+      ],
+      steps: [{ text: "Смешать", timerSec: null, timerMaxSec: null }],
+    };
+  }
+
+  const result = applied(unquantified(), {}, {
+    targetPortions: 4,
+    dropEquipment: [],
+  });
+
+  it("still counts as a change — the yield really did move", () => {
+    // The regression: with only the five array fields, `isEmptyDiff` said
+    // «менять ничего не пришлось» directly above «Порции: 8 → 4», over a
+    // change «Применить» persists.
+    expect(result.diff.changedIngredients).toEqual([]);
+    expect(result.diff.portionsChanged).toBe(true);
+    expect(isEmptyDiff(result.diff)).toBe(false);
+  });
+
+  it("reports the range and the yield noun it dropped", () => {
+    expect(result.diff.portionsRangeDropped).toBe(true);
+    expect(result.diff.yieldUnitDropped).toBe(true);
+    expect(result.draft.portionsMin).toBeNull();
+    expect(result.draft.yieldUnit).toBeNull();
+  });
+
+  it("reports neither when there was no range or noun to lose", () => {
+    const plain: RecipeDraft = {
+      ...unquantified(),
+      portionsMin: null,
+      yieldUnit: null,
+    };
+
+    const diff = applied(plain, {}, {
+      targetPortions: 4,
+      dropEquipment: [],
+    }).diff;
+
+    expect(diff.portionsRangeDropped).toBe(false);
+    expect(diff.yieldUnitDropped).toBe(false);
+    expect(diff.portionsChanged).toBe(true);
+  });
+
+  it("reports nothing at all when the portions did not move", () => {
+    const diff = applied(unquantified(), {}, NO_OPTIONS).diff;
+
+    expect(isEmptyDiff(diff)).toBe(true);
+    expect(diff.portionsChanged).toBe(false);
   });
 });

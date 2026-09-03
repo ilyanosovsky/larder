@@ -11,7 +11,10 @@ import { rescaleQty } from "@/lib/recipes/rescale";
 import { MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
 import type { RecipeAdaptation } from "@/server/ai/adapt-recipe";
-import { coerceEquipmentList } from "@/server/recipes/coerce-equipment";
+import {
+  coerceEquipmentSlug,
+  EQUIPMENT_WORD,
+} from "@/server/recipes/coerce-equipment";
 import { coerceRecipeUnit } from "@/server/recipes/coerce-unit";
 import { deriveNeedsReview } from "@/server/recipes/needs-review";
 
@@ -72,6 +75,22 @@ export interface AdaptationDiff {
    * «менять ничего не пришлось» beside one.
    */
   readonly droppedEquipment: EquipmentSlug[];
+  /**
+   * The yield moved. Counted for the same reason the equipment drop is: a
+   * rescale of a recipe whose quantities are all unstated («по вкусу», «уточнить»)
+   * moves no ingredient row at all, and without this `isEmptyDiff` reported
+   * «менять ничего не пришлось» directly above «Порции: 8 → 4» — over a change
+   * «Применить» really persists.
+   */
+  readonly portionsChanged: boolean;
+  /**
+   * The source's own stated range («7–8 печений») is gone with the rescale.
+   * Disclosed rather than silent: for a dish that was never imported there is
+   * no `original_draft` to restore it from.
+   */
+  readonly portionsRangeDropped: boolean;
+  /** The source's own yield noun is gone with the rescale. Same reason. */
+  readonly yieldUnitDropped: boolean;
 }
 
 export type ApplyAdaptationResult =
@@ -199,15 +218,9 @@ export function applyAdaptation(
   const ingredients = applyIngredientEdits(rescaled, proposal);
   const steps = applyStepEdits(rescaled, proposal);
   // The intersection, both ways: only an appliance the household was actually
-  // missing, and only one the model says it actually worked around. Coerced
-  // because the model answers in its own Russian words, and filtered against
-  // the candidates because a proposal cannot decide to remove a requirement
-  // nobody asked about.
-  const droppable = new Set<EquipmentSlug>(options.dropEquipment);
+  // missing, and only one the model says it actually worked around.
   const dropped = new Set<EquipmentSlug>(
-    coerceEquipmentList(proposal.droppedEquipment).filter((slug) =>
-      droppable.has(slug),
-    ),
+    matchDroppedEquipment(proposal.droppedEquipment, options.dropEquipment),
   );
 
   const candidate: RecipeDraft = {
@@ -307,6 +320,10 @@ export function describeAdaptation(
     addedSteps,
     removedSteps,
     droppedEquipment,
+    portionsChanged: before.portionsBase !== after.portionsBase,
+    portionsRangeDropped:
+      before.portionsMin !== null && after.portionsMin === null,
+    yieldUnitDropped: before.yieldUnit !== null && after.yieldUnit === null,
   };
 }
 
@@ -317,8 +334,87 @@ export function isEmptyDiff(diff: AdaptationDiff): boolean {
     diff.changedSteps.length === 0 &&
     diff.addedSteps.length === 0 &&
     diff.removedSteps.length === 0 &&
-    diff.droppedEquipment.length === 0
+    diff.droppedEquipment.length === 0 &&
+    !diff.portionsChanged &&
+    !diff.portionsRangeDropped &&
+    !diff.yieldUnitDropped
   );
+}
+
+/**
+ * Which of the appliances the household was missing the model says it actually
+ * worked around — the evidence behind every `recipe.equipment` removal.
+ *
+ * **Deliberately more forgiving than `coerceEquipmentSlug`, and only safe
+ * because `candidates` is bounded.** That function's contract is whole-string
+ * matching, on purpose: `missingEquipment` and 4.5's banner compare two
+ * *vocabularies* against each other, where «нужна духовка» must not count as
+ * «духовка». Here the question is different — a free-text answer from a model
+ * that was handed the exact nominatives in its prompt, checked against the two
+ * or three slugs this household is actually missing. Russian declines, and
+ * «убрали миксером» or «ручной миксер» are unmistakably about the mixer;
+ * refusing them silently leaves the recipe declaring an appliance it no longer
+ * uses, and S7's banner nagging about it forever.
+ *
+ * The containment test runs against the *stem* of each candidate's own word,
+ * so it can only ever match the handful of appliances already in play — never
+ * a slug nobody asked about, and never something outside the preset list.
+ */
+export function matchDroppedEquipment(
+  said: readonly string[],
+  candidates: readonly EquipmentSlug[],
+): EquipmentSlug[] {
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const wanted = candidates.map((slug) => ({
+    slug,
+    needles: [slug.toLowerCase(), stemOf(EQUIPMENT_WORD[slug])],
+  }));
+  const found = new Set<EquipmentSlug>();
+
+  for (const raw of said) {
+    const exact = coerceEquipmentSlug(raw);
+    const normalized = normalizeSaid(raw);
+
+    for (const { slug, needles } of wanted) {
+      if (found.has(slug)) {
+        continue;
+      }
+      if (exact === slug || needles.some((needle) => normalized.includes(needle))) {
+        found.add(slug);
+      }
+    }
+  }
+
+  // Candidate order, not the model's — the diff and the copy read better when
+  // «Больше не нужно: …» lists appliances the way the banner did.
+  return candidates.filter((slug) => found.has(slug));
+}
+
+/** Vowel endings Russian inflects; `ь` goes too («аэрогриль» → «аэрогрилем»). */
+const INFLECTED_TAIL = /[аеиоуыэюяьй]$/;
+
+/**
+ * The part of a vocabulary word that survives declension: its last word (the
+ * noun — «индукционная плита» inflects on «плита»), minus one grammatical
+ * ending. Short words keep their tail, so «свч» stays «свч».
+ */
+function stemOf(word: string): string {
+  const last = normalizeSaid(word).split(" ").at(-1) ?? "";
+
+  return last.length > 4 ? last.replace(INFLECTED_TAIL, "") : last;
+}
+
+/** Lower case, ё→е, punctuation and whitespace runs reduced to single spaces. */
+function normalizeSaid(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replaceAll("ё", "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function applyIngredientEdits(

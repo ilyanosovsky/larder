@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 
 import { emptyDraft, type RecipeDraft } from "@/lib/recipes/draft";
+import { normalizeEquipment } from "@/server/kitchen/equipment";
 import {
   adaptRecipe,
   describeDraftForModel,
@@ -288,6 +289,43 @@ describe("describeDraftForModel", () => {
     });
 
     expect(messy).toContain("Есть на кухне: кухонные весы.");
+  });
+
+  it.each([
+    "constructor",
+    "toString",
+    "valueOf",
+    "hasOwnProperty",
+    "__proto__",
+  ])("survives a profile entry named %s", (entry) => {
+    // `EQUIPMENT_WORD` is an object literal, so a bare lookup returned an
+    // inherited *function* for these, skipped the `?? entry` fallback and
+    // threw inside `cap` — dead-ending every adaptation for that household
+    // until the chip was deleted. `normalizeEquipment` lets any 1–40-char
+    // string through, so S12's free-text field really can store one.
+    expect(normalizeEquipment([entry])).toEqual([entry]);
+
+    const prompt = describeDraftForModel({
+      draft: draft(),
+      profile: { equipment: [entry] },
+      missing: ["mixer"],
+      targetPortions: null,
+      basePortions: 8,
+    });
+
+    expect(prompt).toContain(`Есть на кухне: ${entry}.`);
+  });
+
+  it("renders a free-text entry that names a preset as the canonical word", () => {
+    const prompt = describeDraftForModel({
+      draft: draft(),
+      profile: { equipment: ["Тёрка"] },
+      missing: ["mixer"],
+      targetPortions: null,
+      basePortions: 8,
+    });
+
+    expect(prompt).toContain("Есть на кухне: тёрка.");
   });
 
   it("lists no more than MAX_PROFILE_ENTRIES appliances", () => {

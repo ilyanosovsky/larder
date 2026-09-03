@@ -179,6 +179,13 @@ export const MAX_ADAPTED_NOTE = 200;
  * saves the recipe together with the sentence that explains it. It is bounded
  * and trimmed here like any other client-sent string.
  *
+ * `.min(1)` is the server-side half of the empty-summary guard: the model's
+ * `summary` is an unbounded `z.string()` that strict mode cannot require
+ * content from, so the sheet substitutes its own `dishAdapt.defaultNote` — the
+ * fallback has to be Russian UI copy, which lives in the dictionary, not in a
+ * router — and this makes a blank `adapted_note` impossible to persist by any
+ * other route.
+ *
  * **Never `dishes.tags`** (decision D20). `tags` feeds S6's user-facing filter
  * chips and `collectTags()`; a machine tag «переделано под твою духовку» would
  * be both a hardcoded Russian string in the database and system state
@@ -250,6 +257,11 @@ export const adaptationDiffOutput = z.object({
    * client import `AdaptationDiff` itself instead of re-declaring the shape.
    */
   droppedEquipment: z.array(z.enum(EQUIPMENT_PRESETS)),
+  /** The yield moved — counted so an all-unstated recipe still reads as changed. */
+  portionsChanged: z.boolean(),
+  /** The source's own «7–8» range and its yield noun do not survive a rescale. */
+  portionsRangeDropped: z.boolean(),
+  yieldUnitDropped: z.boolean(),
 });
 
 /**
@@ -1171,6 +1183,34 @@ export const dishRouter = createTRPCRouter({
 
       if (!detail) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Unknown dish" });
+      }
+
+      // **Read again, after the whole aggregate.** `readDishDetail` is three
+      // separate statements outside any transaction, so a partner's
+      // `dish.update` committing between the guard above and the last child
+      // read produces a proposal indexed against rows the client never saw —
+      // a diff whose «было» column points at a different ingredient. The
+      // write itself was always safe (the frozen version turns «Применить»
+      // into a CONFLICT), but the preview was not, and the household would
+      // have paid for it.
+      //
+      // A post-children check is sufficient because `dishes.version` only
+      // ever increases: any commit a child select could have seen is visible
+      // to this read too. It sits before the rate limiter and the `ai_jobs`
+      // insert, so losing the race costs nothing at all.
+      const [after] = await ctx.db
+        .select({ version: dishes.version })
+        .from(dishes)
+        .where(
+          and(eq(dishes.id, input.dishId), eq(dishes.householdId, householdId)),
+        )
+        .limit(1);
+
+      if (!after || after.version !== input.expectedVersion) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The dish changed while it was being read",
+        });
       }
 
       const [profile] = await ctx.db

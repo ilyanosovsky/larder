@@ -2119,10 +2119,12 @@ describe("dish.adapt (task 4.6)", () => {
   }
 
   /** Every read `adapt` makes before the AI call, in order. */
+  /** The version is read again after the children — see the race test below. */
   const ADAPT_READS: StubResult[] = [
     [membershipRow],
     [{ version: EXPECTED_VERSION }],
     ...ADAPT_DETAIL,
+    [{ version: EXPECTED_VERSION }],
     [PROFILE_ROW],
     [{ minute: 0, day: 0 }],
     [{ id: JOB_ID }],
@@ -2166,11 +2168,52 @@ describe("dish.adapt (task 4.6)", () => {
     expect(stub.statements).toHaveLength(2);
   });
 
+  it("refuses when the dish moves between the guard and the last child read", async () => {
+    // `readDishDetail` is three separate statements outside any transaction,
+    // so a partner's commit inside that window would produce a diff indexed
+    // against rows the client never saw. The re-read sits before the rate
+    // limiter and the ledger, so losing the race costs nothing.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...ADAPT_DETAIL,
+      [{ version: EXPECTED_VERSION + 1 }],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("CONFLICT"),
+    );
+
+    // Guard, three detail reads, the re-read — and nothing after it.
+    expect(stub.statements).toHaveLength(6);
+    const recheck = stub.statements[5];
+    expect([recheck?.kind, recheck?.table]).toEqual(["select", "dishes"]);
+    expectScopedByHousehold(recheck);
+    expect(stub.statements.some((s) => s.table === "ai_jobs")).toBe(false);
+    expect(stub.statements.some((s) => s.table === "kitchen_profiles")).toBe(
+      false,
+    );
+  });
+
+  it("is NOT_FOUND when the dish disappears between the guard and the re-read", async () => {
+    const { caller } = callerWith([
+      [membershipRow],
+      [{ version: EXPECTED_VERSION }],
+      ...ADAPT_DETAIL,
+      [],
+    ]);
+
+    await expect(caller.dish.adapt(adaptInput())).rejects.toSatisfy(
+      hasCode("CONFLICT"),
+    );
+  });
+
   it("reports nothingToAdapt without opening a job when the kitchen covers the recipe", async () => {
     const { caller, stub } = callerWith([
       [membershipRow],
       [{ version: EXPECTED_VERSION }],
       ...detailResults(),
+      [{ version: EXPECTED_VERSION }],
       [PROFILE_ROW],
     ]);
 
@@ -2190,6 +2233,7 @@ describe("dish.adapt (task 4.6)", () => {
       [membershipRow],
       [{ version: EXPECTED_VERSION }],
       ...detailResults(),
+      [{ version: EXPECTED_VERSION }],
       [PROFILE_ROW],
     ]);
 
@@ -2276,6 +2320,7 @@ describe("dish.adapt (task 4.6)", () => {
       [membershipRow],
       [{ version: EXPECTED_VERSION }],
       ...ADAPT_DETAIL,
+      [{ version: EXPECTED_VERSION }],
       [PROFILE_ROW],
       [{ minute: 99, day: 99 }],
     ]);
@@ -2368,6 +2413,7 @@ describe("dish.adapt (task 4.6)", () => {
         [membershipRow],
         [{ version: EXPECTED_VERSION }],
         ...ADAPT_DETAIL,
+        [{ version: EXPECTED_VERSION }],
         NO_PROFILE,
       ]);
 
@@ -2397,6 +2443,7 @@ describe("dish.adapt (task 4.6)", () => {
           [membershipRow],
           [{ version: EXPECTED_VERSION }],
           ...ADAPT_DETAIL,
+          [{ version: EXPECTED_VERSION }],
           NO_PROFILE,
           [{ minute: 0, day: 0 }],
           [{ id: JOB_ID }],
@@ -2455,6 +2502,7 @@ describe("dish.adapt (task 4.6)", () => {
           [detailIngredientRow()],
           [detailStepRow({ text: "я".repeat(MAX_STEP_TEXT + 1) })],
         ),
+        [{ version: EXPECTED_VERSION }],
         [PROFILE_ROW],
         [{ minute: 0, day: 0 }],
         [{ id: JOB_ID }],

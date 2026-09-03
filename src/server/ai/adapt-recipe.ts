@@ -13,7 +13,10 @@ import {
   usageFrom,
   type AiUsage,
 } from "@/server/ai/pricing";
-import { EQUIPMENT_WORD } from "@/server/recipes/coerce-equipment";
+import {
+  coerceEquipmentSlug,
+  EQUIPMENT_WORD,
+} from "@/server/recipes/coerce-equipment";
 import type { EquipmentSlug } from "@/server/kitchen/equipment";
 
 /**
@@ -255,8 +258,9 @@ const SYSTEM_PROMPT = [
   "    Если способ изменился и время меняется — обнови его. Если времени в шаге нет — null.",
   "12. summary — ОДНА короткая фраза по-русски о том, что изменилось: «переделано под духовку вместо аэрогриля»,",
   "    «взбиваем венчиком вручную, пересчитано на 4 порции».",
-  "13. droppedEquipment — техника из списка «НЕТ на кухне», от которой ты ДЕЙСТВИТЕЛЬНО ушёл в шагах выше,",
-  "    её собственными словами («миксер», «аэрогриль»). Если шаги ты не переделывал — пустой массив.",
+  "13. droppedEquipment — техника из списка «НЕТ на кухне», от которой ты ДЕЙСТВИТЕЛЬНО ушёл в шагах выше.",
+  "    Копируй слово из того списка как есть, в именительном падеже («миксер», «аэрогриль»).",
+  "    Если шаги ты не переделывал — пустой массив.",
   "14. Если менять нечего — верни пустые массивы и summary «Ничего менять не нужно».",
 ].join("\n");
 
@@ -468,12 +472,19 @@ function profileWords(equipment: readonly string[]): string[] {
   const words: string[] = [];
 
   for (const entry of equipment.slice(0, MAX_PROFILE_ENTRIES)) {
-    const slug = (EQUIPMENT_WORD as Record<string, string | undefined>)[entry];
+    // Through the coercion rather than a bracket lookup on `EQUIPMENT_WORD`:
+    // that map is an object literal, so an entry named after an
+    // `Object.prototype` member («constructor», «toString») resolved to an
+    // inherited *function*, skipped the `?? entry` fallback and threw inside
+    // `cap` — dead-ending every adaptation for that household until the chip
+    // was deleted. Going through `coerceEquipmentSlug` also renders a
+    // free-text «Тёрка» as the canonical word instead of as typed.
+    const slug = coerceEquipmentSlug(entry);
     // Free text the household typed itself, so the risk is self-injection
     // rather than a hostile page — but it is interpolated into the same
     // newline-joined document, and one rule for every value is cheaper to
     // keep true than an exception with a reason attached.
-    const word = cap(slug ?? entry);
+    const word = cap(slug === null ? entry : EQUIPMENT_WORD[slug]);
     const key = word.toLowerCase();
 
     if (word.length === 0 || seen.has(key)) {
