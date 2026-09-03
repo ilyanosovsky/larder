@@ -53,8 +53,8 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
     trpc.dishImport.discardPhoto.mutationOptions({ networkMode: "always" }),
   );
 
-  /** The first answer, and only that one. */
-  const [seed, setSeed] = useState<ImportResultOutput | null>(
+  /** The first *settled* answer, and only that one. */
+  const [seed, setSeed] = useState<SettledImport | null>(
     () => stableSeed(job.data) ?? null,
   );
   if (seed === null) {
@@ -153,19 +153,6 @@ export function ReviewScreen({ jobId }: { jobId: string }) {
     );
   }
 
-  if (seed.outcome === "running") {
-    return (
-      <section className={styles.screen}>
-        <Header title={t("title")} />
-        <AiProgress
-          label={t("reviewRunning")}
-          hint={t("parsingHint")}
-          photoAlt={t("photoAlt")}
-        />
-      </section>
-    );
-  }
-
   const draft: RecipeDraft = seed.draft;
 
   return (
@@ -238,15 +225,22 @@ function Header({ title }: { title: string }) {
 }
 
 /**
- * What may be frozen as the form's seed.
+ * An import that has finished one way or the other.
  *
- * A `running` job is deliberately **not** seedable: it is a state the screen
- * polls out of, and freezing it would leave a spinner that never resolves
- * even after the parse landed.
+ * A `running` job is deliberately **not** seedable — it is a state the screen
+ * polls out of, and freezing it would leave a spinner that never resolved
+ * even after the parse landed. Narrowing the type here rather than checking
+ * for it again below is what keeps the render free of a branch that can never
+ * run.
  */
+type SettledImport = Extract<
+  ImportResultOutput,
+  { outcome: "parsed" | "failed" }
+>;
+
 function stableSeed(
   data: ImportResultOutput | undefined,
-): ImportResultOutput | null {
+): SettledImport | null {
   if (!data || data.outcome === "running") {
     return null;
   }
