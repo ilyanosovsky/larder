@@ -159,6 +159,11 @@ export function coerceRecipeUnit(raw: string | null): CoercedUnit {
     return { unit: mapped, leftover: null };
   }
 
+  const spoon = coerceSpoon(normalized);
+  if (spoon !== null) {
+    return { unit: spoon, leftover: null };
+  }
+
   // «зубчик», «по вкусу», «веточка»: a real measure the app has no column
   // for. It survives as words on the row rather than becoming a wrong number.
   return { unit: null, leftover: trimmed };
@@ -174,6 +179,35 @@ export function coerceRecipeUnit(raw: string | null): CoercedUnit {
  * near-duplicate product. Derived from the same two lists the coercion uses,
  * so a spelling added above is covered here without a second edit.
  */
+/**
+ * Spoons, in every declension, by rule rather than by enumeration.
+ *
+ * Real recipes write «2 ст. ложки», «1 чайной ложки», «столовых ложек» —
+ * Russian declines both words, and the table above would need a dozen entries
+ * per spoon to cover it (a real import missed «ст. ложки» that way). The
+ * `лож(к|ек)` stem is what makes the shortcut safe: «ст» on its own is
+ * «стакан», and only a word carrying that stem can be a spoon. Both halves
+ * are needed — the genitive plural «ложек» drops the к's vowel neighbour, so
+ * «ложк» alone misses «2 ст. ложек».
+ *
+ * Deliberately not a general stemmer: it answers one question about one
+ * family of words, and everything it does not recognize still survives as a
+ * leftover rather than becoming a wrong unit.
+ */
+function coerceSpoon(normalized: string): RecipeUnit | null {
+  if (!/лож(к|ек)/.test(normalized)) {
+    return null;
+  }
+  if (/^(ч|чаин|чайн)/.test(normalized)) {
+    return "ч.л.";
+  }
+  if (/^(ст|столов)/.test(normalized)) {
+    return "ст.л.";
+  }
+  // «Ложка» with no size named is not a measure we can honestly pick.
+  return null;
+}
+
 export const UNIT_WORDS: ReadonlySet<string> = new Set([
   ...RECIPE_UNITS.map(normalize),
   ...Object.keys(SPELLINGS),

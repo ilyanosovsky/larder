@@ -26,10 +26,19 @@ The test CI runs without secrets by design — tests must never call external se
 | `OPENAI_API_KEY`        | ✅       | platform.openai.com. **Used at runtime since task 1.3** — `product.create` calls it to pick an icon and a department. Cheap model + `reasoning_effort: low`; assistant respects the budget cap |
 | `AI_MONTHLY_BUDGET_USD` | —        | Default 20. At the cap the assistant switches off until next month; import keeps working                                                                                                       |
 | `FIRECRAWL_API_KEY`     | ✅       | firecrawl.dev — fallback recipe scraping only (~1000 free credits/month)                                                                                                                       |
-| `UPLOADTHING_TOKEN`     | ✅       | uploadthing.com (2 GB free tier — images are client-compressed to ~300 KB before upload)                                                                                                       |
+| `UPLOADTHING_TOKEN`     | ✅       | uploadthing.com (2 GB free tier — images are client-compressed to ~300 KB before upload). **Used at runtime since task 4.3** — see the note below                                              |
 | `NEXT_PUBLIC_APP_URL`   | ✅       | Public app URL, exposed to the client                                                                                                                                                          |
 
 Adding a new variable? Update `.env.example`, the README table, and this page — in the same PR (rule in [CLAUDE.md](https://github.com/ilyanosovsky/larder/blob/main/CLAUDE.md)).
+
+**`UPLOADTHING_TOKEN` is read at runtime by two places, both lazily and both straight off `process.env`.** No new variable — the entry above has existed since phase 1; task 4.3 is simply the first code to spend it.
+
+- `src/app/api/uploadthing/route.ts` passes it explicitly into `createRouteHandler`'s config rather than letting the library find it, and builds the handler inside the first request.
+- `src/server/uploadthing-url.ts` decodes the app id out of it (the v7 token is base64 JSON: `{ apiKey, appId, regions }`) to rebuild `https://<appId>.ufs.sh/f/<key>` server-side, memoized after the first call.
+
+Both read `process.env.UPLOADTHING_TOKEN` directly instead of going through `env()`. `env()` validates the *whole* schema on its first call, so an unrelated missing variable would make a photo import fail with a message about `RESEND_API_KEY`; the token's own shape is validated where it is decoded, and a token that carries no `appId` throws with a message naming the variable. Nothing reads it at module scope — `pnpm build` runs in CI with zero environment variables.
+
+**Watch the value's shape when pasting it.** UploadThing's dashboard copies the whole `UPLOADTHING_TOKEN='…'` line, so pasting it after `UPLOADTHING_TOKEN=` yields `UPLOADTHING_TOKEN=UPLOADTHING_TOKEN='…'` — every upload then fails with `Invalid token. A token is a base64 encoded JSON object matching { apiKey, appId, regions }`. The value must be the bare base64 string, unquoted.
 
 **A missing `OPENAI_API_KEY` takes the whole app down — a broken one does not.** The two cases are worth keeping apart:
 

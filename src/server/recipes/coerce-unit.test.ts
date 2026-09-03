@@ -44,6 +44,36 @@ describe("coerceRecipeUnit", () => {
     expect(coerceRecipeUnit(raw)).toEqual({ unit, leftover: null });
   });
 
+  it.each([
+    ["ст. ложки", "ст.л."],
+    ["ст. ложек", "ст.л."],
+    ["столовых ложек", "ст.л."],
+    ["ст.ложки", "ст.л."],
+    ["ч. ложки", "ч.л."],
+    ["чайных ложек", "ч.л."],
+    ["чайные ложки", "ч.л."],
+  ])("declines the spoon in «%s» to «%s»", (raw, unit) => {
+    // A real povar.ru import missed «ст. ложки» when the table enumerated
+    // spellings one by one; Russian declines both words, so the stem decides.
+    expect(coerceRecipeUnit(raw)).toEqual({ unit, leftover: null });
+  });
+
+  it("keeps a bare «ложка» as a leftover — no size is named", () => {
+    expect(coerceRecipeUnit("ложка")).toEqual({
+      unit: null,
+      leftover: "ложка",
+    });
+  });
+
+  it("does not read «стакана» as a spoon", () => {
+    // «ст» prefixes both «стакан» and «ст.л.»; only the `ложк` stem separates
+    // them, and getting it wrong is a sixteen-fold error.
+    expect(coerceRecipeUnit("стакана")).toEqual({
+      unit: "стакан",
+      leftover: null,
+    });
+  });
+
   it("folds ё and is case-insensitive", () => {
     expect(coerceRecipeUnit("Щёпотка")).toEqual({
       unit: "щепотка",

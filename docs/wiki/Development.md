@@ -880,6 +880,61 @@ The form does **not** navigate on its own: it replaces itself with a «Блюд�
 
 Photo **upload** (task 4.3): the form renders a saved photo with «Удалить фото» (clearing `photoUrl` + `photoKey`) and exposes a `photoUploadSlot` prop for 4.3 to fill. `yieldUnit` is display-only — it is the source's own noun, imported data like `raw_text`, and nothing in a manual form should invent one.
 
+### Recipe import: photo (S8.1–S8.2, task 4.3)
+
+The main road (VISION scenario Б): a screenshot already sitting in the gallery becomes a reviewable draft. Everything below exists to keep two promises — the household is never billed for a call the ledger does not record, and a parse that fails is a fork in the road rather than an error screen.
+
+**The pipeline, end to end.**
+
+```
+<input type="file" accept="image/*">        no `capture` — see below
+  → pickCompressionPlan()                    pure: max side 1600, quality ladder
+  → canvas → JPEG ≤ ~300 KB                  src/lib/images/compress.ts
+  → useUploadThing("dishPhoto")              browser → UploadThing directly
+       └ onUploadComplete → INSERT photo_uploads (the ownership row)
+  → dishImport.fromPhoto({ fileKey })        tRPC, maxDuration = 60
+       ├ ownership: photo_uploads WHERE file_key = $1 AND household_id = $2
+       ├ assertWithinRateLimit(user)
+       ├ INSERT ai_jobs (parse_photo, running, input_ref = fileKey)
+       ├ parseRecipe({ kind: "photo", imageUrl: uploadThingUrl(fileKey) })
+       ├ UPDATE ai_jobs (done|error, cost_usd, finished_at)   ← immediately
+       ├ try { matchIngredients → draftFromParsed } finally { … }
+       └ UPDATE ai_jobs (output_json = the whole importResultOutput)
+  → replace() to /dishes/import/<jobId>      the review form (S8.3)
+```
+
+**The `ai_jobs` lifecycle, and the cost-before-matching rule.** The row opens *before* the call, because `src/server/ai/rate-limit.ts` counts `ai_jobs` rows — a burst still in flight has to count against the window already. The row closes in the statement **immediately after `parseRecipe` returns**, on both branches, *before* catalog matching and draft validation. Everything downstream sits in a `try/catch` that stamps `status: 'error'` on the way out. A ledger that recorded only the calls whose post-processing also succeeded would under-report exactly when things go wrong. `dish-import.test.ts` pins this by making the catalog `SELECT` reject and asserting the recorded `UPDATE` still carries a non-zero `cost_usd`.
+
+**A parse failure is an `outcome`, never a thrown `TRPCError`.** S8.2's whole design is a specific fallback per failure (`src/lib/recipes/import-failure.ts`, exhaustive switches with **no `default`** so task 4.4's new reasons cannot ship without copy and a way out). Throwing would collapse nine outcomes into one red box and lose the `jobId` — and with it the cost record and the handle a reload needs. Only `UNAUTHORIZED`, `FORBIDDEN` and `TOO_MANY_REQUESTS` throw, the last so `isRateLimitedError()` keeps working unchanged.
+
+**`photo_uploads` — the ownership table, and why the contract is a key.** `fromPhoto` accepts a file **key** and nothing else; the URL OpenAI fetches is rebuilt server-side by `uploadThingUrl()` from the app id decoded out of `UPLOADTHING_TOKEN`. So the SSRF question on this path is closed by construction rather than by a filter: there is no client-supplied string that can become the thing we fetch, hence no allowlist to get wrong and no redirect to re-validate. But a key is a short, guessable-shaped string, so ownership is a second, separate check: `photo_uploads (file_key PK, household_id, user_id, url, created_at)` is written from the UploadThing `onUploadComplete` callback — the only place the key is born, because the browser uploads directly — and both `fromPhoto` and `discardPhoto` require the row to belong to `ctx.household.id`. `discardPhoto` additionally refuses a key any `dishes.photo_key` still references, so «Отмена» on a review screen reopened after the save cannot delete the blob the dish is now showing.
+
+The upload route is a **second public entry point**: `src/middleware.ts` excludes `/api/**`, so `dishPhoto`'s `.middleware()` re-checks the Better Auth session *and* household membership, which is what `householdProcedure` does for tRPC.
+
+**`UPLOADTHING_TOKEN` is now read at runtime** (no new variable). Two places read it, both lazily and both directly off `process.env` rather than through `env()`: the route handler's factory (`src/app/api/uploadthing/route.ts`) and `uploadThingAppId()`. `env()` validates the *whole* schema on its first call, so an unrelated missing variable would make a photo import fail with a message about `RESEND_API_KEY`; the token's own shape is validated where it is decoded. Nothing reads it at module scope — `pnpm build` runs in CI with zero environment variables, and this is the one file in the feature at risk of it.
+
+**The deadline and `maxDuration`.** `src/app/api/trpc/[trpc]/route.ts` sets `maxDuration = 60` (Vercel Hobby's ceiling) — a ceiling, not a floor; nothing else on the route runs long, and a separate route for import would fork the context and auth plumbing for one number. `Deadline` (`src/server/recipes/deadline.ts`) keeps the import itself inside 50 s so the function always has room to answer; the photo path is a single 40 s stage, and task 4.4 adds fetch and FireCrawl in front of it against the same shrinking budget. The vision call passes `{ timeout: 40_000, maxRetries: 0, signal }` per request — the shared client's 15 s / one retry is right for an icon lookup in a sheet and wrong here, where a retry doubles both the wait someone is watching and the bill for a call whose fallback is instant.
+
+**The strict schema is primitives only, and a shape test enforces it.** `parsedRecipeSchema` carries no `.min()`, `.max()`, `.trim()`, `z.enum` or `z.uuid()` at any depth: `z.toJSONSchema` emits `minLength`/`maximum`/`format` for those and OpenAI strict mode rejects them with a 400 on the first real call. `parse-recipe.schema.test.ts` walks the emitted document at every depth and landed **before** any prompt work. Bounds are not lost, only moved — `recipeDraftSchema` applies all of them in `draftFromParsed`, where an out-of-range value becomes `null` plus «уточнить» for that one row instead of failing the whole recipe. `unit` in particular is a **free string**, deliberately: an enum would make the model bucket «зубчик» into «шт» and hand back a confidently wrong quantity, which is the honesty failure VISION §6.4 forbids. `coerceRecipeUnit` maps what it can and routes the rest into the row's `note`.
+
+**`draftFromParsed` is where the honesty is mechanized.** Nothing is clamped (`285.4999` does not become `285.5`, `qty: 0` does not become `MIN_QTY` — an invented digit is invisible on the very screen meant to catch it); nothing is dropped silently (an unmapped measure moves into `note`); and **no Russian string is authored there** — a title the model omitted falls back to the source's own first ingredient or first step, because a placeholder we wrote would be UI copy living in `dishes.title`, outside next-intl. A `name` carrying a digit, a bare unit word or more than 40 characters is treated as a source line the model failed to reduce to a noun: the row falls back to `rawText`, stays unbound and wears the amber chip. The cost is real and accepted — «Молоко 3,2 %» falls back too — because a wrongly-flagged row is a chip someone clears, while a wrongly-*bound* row buys the wrong thing in 5.2 and nobody ever sees why.
+
+**Only a `"catalog"` match binds in the draft.** A `"reference"` hit still has to *create* a product, and products are created on save (DESIGN_BRIEF S8.3), so those rows reach the review form as the honest «новый» state and `resolveIngredientProducts` resolves them again when «Сохранить блюдо» is tapped.
+
+**The draft lives in `ai_jobs.output_json`, and the review screen is a real URL.** No `recipe_drafts` table: the job row and its cost are written anyway, and keeping the draft there means a reload, a Back gesture or an iOS PWA eviction while the user is in Photos cannot destroy a parse the household has already paid for. `dish.create` writes `consumedDishId` into the same document (`jsonb_set` over a `coalesce`d base), so reopening `/dishes/import/<jobId>` after a save redirects to the dish instead of offering a second copy of the same recipe. The form's seed is frozen at mount, keyed by the job id, like every other form in this app.
+
+**`getJob` has a third outcome, `running`.** S8.2's mutation normally answers first, but someone who reloaded that screen mid-parse arrives at the review route with a job in flight; it polls every 2 s. A row still `running` after 90 s is one whose function died before it could close its own ledger entry (`maxDuration` is 60), and it is reported as `aiUnavailable` — whose fallback is «Ещё раз» — rather than as a spinner that never stops.
+
+**Client-side compression.** `pickCompressionPlan` is pure and tested (`src/lib/images/compress-plan.ts`): longest side ≤ 1600 px, quality ladder `0.82 → 0.7 → 0.6 → 0.5`, at most four attempts, never below 0.5 — past that JPEG artefacts start eating the small digits the whole feature depends on, and a 400 KB readable file beats a 200 KB unreadable one. `compress.ts` is the thin canvas wrapper around it and is deliberately not unit-tested (there is no jsdom here, and a simulated canvas would prove nothing about Safari). **No `capture` attribute on the input**: the main path is a screenshot already in the gallery, and `capture` forces the camera on iOS.
+
+**HEIC is the long tail, and it degrades rather than fails.** `createImageBitmap` decodes HEIC through the system decoder on Safari and simply fails on desktop Chrome. On any compression failure the original file is uploaded when the route would take it (4 MB), and only a file that is *both* undecodable and oversized becomes an error the user sees. Screenshots — the actual main path — are PNG or JPEG.
+
+**Imports are never offline-queued and never budget-gated.** `installOfflineQueue` registers mutation defaults for `cart.*` only, so nothing extra was needed — but the reason matters: an import costs money and a create is not idempotent, so replaying either out of IndexedDB hours later is exactly wrong. `fromPhoto`, `discardPhoto` and the dish save all declare `networkMode: "always"` so they fail fast and honestly instead of pausing forever. `AI_MONTHLY_BUDGET_USD` caps the assistant only (see above).
+
+**Orphan blobs are hygiene, not correctness.** An abandoned import leaves an UploadThing file with no `dishes.photo_key` pointing at it. `discardPhoto` is wired to «Другое фото» and to the review screen's «Отмена», and `DishForm` discards the keys it displaced *after* a save commits (never before — until the write lands, the old photo is still the one the dish has). At ~300 KB a file, the free tier absorbs several thousand orphans, so a sweep job (list UT files, delete those whose key is absent from `dishes.photo_key`) is a recorded post-MVP chore. **Do not** create draft dish rows to solve it — that trades a harmless blob for a real half-created-dish state the whole library would have to filter around.
+
+**`?src=photo` focuses the picker; it does not click it.** Browsers only open a file dialog under transient user activation, and a tap that caused a navigation does not carry activation into the new page — an auto-click would be silently ignored while the user stared at an unchanged screen. S6's empty state and the source sheet's «📷 С фото» row both route here.
+
 ### AI budget does not gate this
 
 `AI_MONTHLY_BUDGET_USD` caps **the assistant only** (task 6.1). Recipe import (4.3/4.4), the batched product enrichment inside a save (4.2) and the recipe adaptation (4.6) keep working at the cap: every one of them is a thing the user started and is waiting on, and losing a reviewed recipe to a quota is the wrong trade. They are still rate-limited per user like every other AI endpoint, and every call still writes its `ai_jobs` row with `costUsd`.
