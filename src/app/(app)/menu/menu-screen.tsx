@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/bottom-sheet";
 import { useSheetOpener } from "@/components/use-sheet-opener";
+import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
 import { cx } from "@/lib/cx";
 import { cardPortionsMessage } from "@/lib/menu/card-portions";
 import { formatWeekRange, isBuiltInWeek } from "@/lib/menu/week-label";
@@ -17,7 +18,7 @@ import {
 } from "@/lib/pantry/optimistic-remove";
 import { portionsRange } from "@/lib/recipes/rescale";
 import { menuSyncQueryOptions } from "@/lib/sync/menu-sync-presets";
-import { useChangedRows } from "@/lib/sync/use-changed-rows";
+import { HIGHLIGHT_MS, useChangedRows } from "@/lib/sync/use-changed-rows";
 import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
 import { trpcErrorCode } from "@/lib/trpc-errors";
@@ -107,6 +108,17 @@ export function MenuScreen() {
    * a failed write falls back to whatever the rolled-back row shows.
    */
   const askedPortionsRef = useRef(new Map<string, number>());
+  /**
+   * Ids this client wrote a moment ago, so the soft highlight keeps meaning
+   * «партнёр что-то поменял».
+   *
+   * Every write here ends with the server stamping `updated_at` and the
+   * screen invalidating, and `useChangedRows` only diffs that column — so
+   * without this the card would light up at you for your own ± tap. The
+   * helpers are the cart's, reused rather than copied: they are generic over
+   * an id set and a mark map, and the problem is identical.
+   */
+  const ownChangesRef = useRef(new Map<string, number>());
   const pickerOpener = useSheetOpener();
   const cardSheetOpener = useSheetOpener();
   const online = useIsOnline();
@@ -128,7 +140,12 @@ export function MenuScreen() {
   // `data.items` is the array the query handed back, not a derived one — the
   // hook's own contract, and a fresh array per render would make it re-diff
   // on every render instead of only on an actual refetch.
-  const { changedIds } = useChangedRows(items);
+  const { changedIds: allChangedIds } = useChangedRows(items);
+  const changedIds = withoutOwnChanges(
+    allChangedIds,
+    ownChangesRef.current,
+    Date.now(),
+  );
 
   const sheetItem = items?.find((row) => row.id === sheetItemId) ?? null;
 
@@ -172,6 +189,23 @@ export function MenuScreen() {
   }
 
   /**
+   * Re-marks the row at the moment the write actually lands.
+   *
+   * `onMutate`'s mark is stamped for `HIGHLIGHT_MS` from the tap, which is
+   * the right window for a round trip measured in milliseconds — but a slow
+   * one would let the refetch this `onSettled` triggers report the row as
+   * changed after the mark expired, and light it up as a partner's edit.
+   * Only on success: a failed write changed nothing on the server, so there
+   * is nothing to suppress, and suppressing anyway would mute a partner's
+   * genuine change to the same row.
+   */
+  function markSettled(error: unknown, id: string) {
+    if (error === null) {
+      markOwnChange(ownChangesRef.current, id, Date.now(), HIGHLIGHT_MS);
+    }
+  }
+
+  /**
    * A `NOT_FOUND` means the card is not there any more — a partner removed
    * it. Retrying would fail identically forever, so the useful answer is to
    * refresh what is on screen and say so (the repo's «a stale answer
@@ -186,6 +220,14 @@ export function MenuScreen() {
       networkMode: "always",
       onMutate: async (variables) => {
         await queryClient.cancelQueries(menuFilter);
+        // Before the write, so the refetch `onSettled` triggers never reports
+        // your own tap as a partner's edit.
+        markOwnChange(
+          ownChangesRef.current,
+          variables.id,
+          Date.now(),
+          HIGHLIGHT_MS,
+        );
 
         const previous = queryClient
           .getQueryData(menuKey)
@@ -204,8 +246,9 @@ export function MenuScreen() {
         }
         announce(isGone(error) ? t("notFound") : t("portionsError"));
       },
-      onSettled: (_data, _error, variables) => {
+      onSettled: (_data, error, variables) => {
         askedPortionsRef.current.delete(variables.id);
+        markSettled(error, variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
@@ -216,6 +259,12 @@ export function MenuScreen() {
       networkMode: "always",
       onMutate: async (variables) => {
         await queryClient.cancelQueries(menuFilter);
+        markOwnChange(
+          ownChangesRef.current,
+          variables.id,
+          Date.now(),
+          HIGHLIGHT_MS,
+        );
 
         const previous = queryClient
           .getQueryData(menuKey)
@@ -235,7 +284,8 @@ export function MenuScreen() {
         }
         announce(isGone(error) ? t("notFound") : t("cookedError"));
       },
-      onSettled: () => {
+      onSettled: (_data, error, variables) => {
+        markSettled(error, variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
