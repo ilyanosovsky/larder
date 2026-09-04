@@ -136,7 +136,7 @@ describe("the ± ledger", () => {
     expect(run.sent).toEqual([5, 9]);
 
     const last = run.settle(9);
-    expect(last).toEqual({ rollbackTo: null, send: null, done: true });
+    expect(last).toEqual({ rollbackTo: null, send: null });
     expect(run.sent).toEqual([5, 9]);
     expect(isEmpty(run.queue)).toBe(true);
   });
@@ -255,10 +255,10 @@ describe("the «приготовлено» ledger", () => {
     expect(untick).toEqual({ patch: false, send: null });
 
     const first = settleWrite(queue, ITEM, true, true);
-    expect(first).toEqual({ rollbackTo: null, send: false, done: false });
+    expect(first).toEqual({ rollbackTo: null, send: false });
 
     const second = settleWrite(queue, ITEM, false, true);
-    expect(second).toEqual({ rollbackTo: null, send: null, done: true });
+    expect(second).toEqual({ rollbackTo: null, send: null });
     expect(isEmpty(queue)).toBe(true);
   });
 
@@ -270,7 +270,6 @@ describe("the «приготовлено» ledger", () => {
     expect(settleWrite(queue, ITEM, true, false)).toEqual({
       rollbackTo: false,
       send: null,
-      done: true,
     });
   });
 });

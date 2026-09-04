@@ -57,6 +57,7 @@ export function DishPickerSheet({
   restoreFocusTo,
   inMenuDishIds,
   onAdded,
+  writeError,
 }: {
   open: boolean;
   onClose: () => void;
@@ -68,6 +69,16 @@ export function DishPickerSheet({
    * highlight for a card this client added itself.
    */
   onAdded?: (menuItemId: string) => void;
+  /**
+   * The screen's last failed ± / «приготовлено» write, to be repeated inside
+   * this sheet.
+   *
+   * While the sheet is up its `aria-modal` panel prunes the screen's own
+   * region from the accessibility tree, and a coalesced write can settle a
+   * round trip after the tap that opened the sheet — so the sentence would
+   * otherwise be lost exactly when it is least expected.
+   */
+  writeError?: { text: string; seq: number } | null;
 }) {
   const t = useTranslations("menu");
   // The portions label goes through S7's own four `dish.portions*` messages,
@@ -377,6 +388,14 @@ export function DishPickerSheet({
             life, with a keyed child so two identical answers announce twice. */}
         <p className={styles.srOnly} role="status">
           <span key={feedback?.seq ?? "empty"}>{feedback?.text ?? ""}</span>
+        </p>
+        {/* The screen's write failures, in their own region rather than
+            through `feedback`: the two have different authors, and a ±
+            failure arriving mid-pick must not overwrite the answer to the tap
+            the user is actually making. Spoken only — what failed is a card
+            behind the scrim, not anything in this sheet. */}
+        <p className={styles.srOnly} role="status">
+          <span key={writeError?.seq ?? "empty"}>{writeError?.text ?? ""}</span>
         </p>
         {/* The `empty` kind is deliberately not shown here: it is already on
             screen as the paragraph above, and rendering it twice would put

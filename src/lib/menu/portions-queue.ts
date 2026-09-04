@@ -61,10 +61,14 @@ export interface QueuedWrite<TValue> {
 export interface SettledWrite<TValue> {
   /** The value to patch back after a failure; `null` when there is nothing to undo. */
   rollbackTo: TValue | null;
-  /** The single follow-up carrying everything tapped during the round trip. */
+  /**
+   * The single follow-up carrying everything tapped during the round trip.
+   *
+   * `null` means the run is over, so the caller invalidates rather than
+   * waiting — the one fact both call sites branch on, which is why there is
+   * no separate `done` flag saying the same thing twice.
+   */
   send: TValue | null;
-  /** Whether the run is over, so the caller invalidates rather than waiting. */
-  done: boolean;
 }
 
 /**
@@ -122,14 +126,14 @@ export function settleWrite<TValue>(
     const asked = queue.asked.get(id);
     if (asked !== undefined && asked !== sent) {
       queue.inFlight.set(id, asked);
-      return { rollbackTo: null, send: asked, done: false };
+      return { rollbackTo: null, send: asked };
     }
   }
 
   const rollbackTo = ok ? null : (queue.baseline.get(id) ?? null);
   forgetWrite(queue, id);
 
-  return { rollbackTo, send: null, done: true };
+  return { rollbackTo, send: null };
 }
 
 /** Drops every ledger entry for a row once its run of taps is over. */

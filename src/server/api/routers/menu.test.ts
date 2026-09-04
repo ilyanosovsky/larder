@@ -207,12 +207,23 @@ describe("menu.current", () => {
       "createdAt",
       "updatedAt",
     ]);
+    // All fifteen, not a sample: a partial list is indistinguishable from no
+    // list for the columns it omits, and the pairs that share a SQL type —
+    // `total_time_min`/`portions_min` and `photo_url`/`yield_unit` — are
+    // exactly the swaps neither tsc nor zod can see.
     expect(compile(fields.id).sql).toContain('"menu_items"."id"');
     expect(compile(fields.dishId).sql).toContain('"dish_id"');
+    expect(compile(fields.title).sql).toContain('"title"');
+    expect(compile(fields.photoUrl).sql).toContain('"photo_url"');
+    expect(compile(fields.tags).sql).toContain('"tags"');
+    expect(compile(fields.totalTimeMin).sql).toContain('"total_time_min"');
     expect(compile(fields.portions).sql).toContain('"menu_items"."portions"');
     expect(compile(fields.portionsBase).sql).toContain('"portions_base"');
+    expect(compile(fields.portionsMin).sql).toContain('"portions_min"');
+    expect(compile(fields.yieldUnit).sql).toContain('"yield_unit"');
     expect(compile(fields.cookedAt).sql).toContain('"cooked_at"');
     expect(compile(fields.archivedAt).sql).toContain('"archived_at"');
+    expect(compile(fields.addedById).sql).toContain('"added_by"');
     expect(compile(fields.createdAt).sql).toContain('"menu_items"."created_at"');
     expect(compile(fields.updatedAt).sql).toContain('"menu_items"."updated_at"');
 

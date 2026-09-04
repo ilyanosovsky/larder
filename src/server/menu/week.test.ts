@@ -215,15 +215,62 @@ describe("weekStartInstant", () => {
 
   it("reads the offset that was actually in force, DST and all", () => {
     // Europe/Madrid is UTC+1 in March and UTC+2 from the 29th, so two
-    // consecutive weeks open at different UTC times. A single fixed offset —
-    // or one read only at the naive UTC-midnight guess — gets one of them
-    // wrong by an hour.
+    // consecutive weeks open at different UTC times. What this pins is that
+    // the offset comes from `Intl` at the instant in question rather than
+    // from a constant: any hard-coded offset gets one of the two wrong by an
+    // hour. Madrid's own transition is at 01:00 UTC on the Sunday, far from
+    // the Monday-midnight guess, so both passes agree here — the case that
+    // separates them is below.
     expect(weekStartInstant("2026-03-23", "Europe/Madrid").toISOString()).toBe(
       "2026-03-22T23:00:00.000Z",
     );
     expect(weekStartInstant("2026-03-30", "Europe/Madrid").toISOString()).toBe(
       "2026-03-29T22:00:00.000Z",
     );
+  });
+
+  it("re-reads the offset at the corrected instant, not at the naive guess", () => {
+    // Why there are two passes at all. Iran moved its clocks forward at
+    // 00:00 local on 22 March 2021 — exactly the midnight this function is
+    // looking for — so the offset read at the naive UTC-midnight guess
+    // (+03:30, still winter time there) is not the one in force at the
+    // instant that guess corrects to (+04:30). One pass answers 19:30 UTC,
+    // which `weekStartOf` then buckets under the *previous* Monday.
+    //
+    // `Asia/Tbilisi` has had no DST since 2005, so this is a guard on the
+    // constant task 7.1 turns into `households.time_zone`, not on today's
+    // behaviour. (It does rely on the host ICU carrying Iran's pre-2022
+    // rules; the invariant below is the version that needs no tzdata luck.)
+    expect(weekStartInstant("2021-03-22", "Asia/Tehran").toISOString()).toBe(
+      "2021-03-21T20:30:00.000Z",
+    );
+  });
+
+  it("round-trips through weekStartOf in every zone shape", () => {
+    // The invariant the second pass exists to preserve: the instant a week
+    // opens must be bucketed back into that same week. A half-hour zone, a
+    // DST zone on both of its transition weeks, a zone that transitions at
+    // local midnight, and the household's own.
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["2026-08-03", "Asia/Tbilisi"],
+      ["2026-08-03", "Asia/Kolkata"],
+      ["2026-03-23", "Europe/Madrid"],
+      ["2026-03-30", "Europe/Madrid"],
+      ["2026-10-26", "Europe/Madrid"],
+      ["2021-03-22", "Asia/Tehran"],
+      ["2026-01-05", "America/Los_Angeles"],
+    ];
+
+    for (const [weekStart, timeZone] of cases) {
+      const opens = weekStartInstant(weekStart, timeZone);
+
+      expect(weekStartOf(opens, timeZone)).toBe(weekStart);
+      // And the millisecond before it belongs to the week before — which is
+      // what makes the line above a boundary rather than a coincidence.
+      expect(weekStartOf(new Date(opens.getTime() - 1), timeZone)).toBe(
+        addDays(weekStart, -7),
+      );
+    }
   });
 
   it("refuses anything that is not a real calendar date", () => {

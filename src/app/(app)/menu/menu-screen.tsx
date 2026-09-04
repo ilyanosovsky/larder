@@ -30,6 +30,7 @@ import { useIsOnline } from "@/lib/sync/use-is-online";
 import { useManualRefresh } from "@/lib/sync/use-manual-refresh";
 import { trpcErrorCode } from "@/lib/trpc-errors";
 import type { MenuItemOutput } from "@/server/api/routers/menu";
+import { MENU_TIME_ZONE } from "@/server/menu/week";
 import { useTRPC } from "@/trpc/client";
 
 import { BuildCartButton } from "./build-cart-button";
@@ -98,6 +99,22 @@ export function MenuScreen() {
    */
   const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
+  /**
+   * The last failed ± / «приготовлено» write, kept so it can be repeated
+   * inside whichever sheet is open.
+   *
+   * A `BottomSheet` is `aria-modal="true"` and renders inline, so while one
+   * is up the screen's own region below is a sibling of the dialog and pruned
+   * from the accessibility tree — the repo's documented «feedback outside the
+   * modal is lost» class, which `dish-picker-sheet.tsx` states for itself.
+   * Coalescing makes the window real rather than theoretical: `settleWrite`
+   * can dispatch the follow-up a whole round trip after the last tap, by
+   * which time «…» or «+ Блюдо» may well be open over it.
+   */
+  const [writeError, setWriteError] = useState<{
+    text: string;
+    seq: number;
+  } | null>(null);
   /**
    * Synchronous mutex for the one destructive action, **keyed by card**.
    * Render state lands a re-render too late for a double tap, and «Убрать»
@@ -207,9 +224,36 @@ export function MenuScreen() {
     addButtonRef.current?.focus();
   }, [items]);
 
+  /**
+   * A sheet opens with no stale failure in it — on the **open** edge, the
+   * same edge and the same reason `DishPickerSheet` resets its own state on:
+   * a region that mounts with its text already in it is not announced, so a
+   * message carried into the next open would be silent clutter rather than
+   * feedback. A failure that lands *while* a sheet is open changes neither
+   * dependency, so it survives.
+   */
+  useEffect(() => {
+    if (!pickerOpen && sheetItemId === null) {
+      return;
+    }
+
+    setWriteError(null);
+  }, [pickerOpen, sheetItemId]);
+
   function announce(text: string) {
     hintSeq.current += 1;
     setHint({ text, seq: hintSeq.current });
+  }
+
+  /**
+   * Announces a failed write twice over: into the screen's region, which is
+   * the only one there when no sheet is open, and into the copy each sheet
+   * renders inside its own `aria-modal` subtree. One `seq` counter for both,
+   * so the two regions never disagree about which message is the newest.
+   */
+  function announceWriteError(text: string) {
+    announce(text);
+    setWriteError({ text, seq: hintSeq.current });
   }
 
   /** Patches one cached row **by id**, if it is still there. */
@@ -279,7 +323,7 @@ export function MenuScreen() {
       // Only the sentence: the ledger decides the rollback, in `onSettled`,
       // so the three maps are read and written in exactly one place.
       onError: (error) => {
-        announce(isGone(error) ? t("notFound") : t("portionsError"));
+        announceWriteError(isGone(error) ? t("notFound") : t("portionsError"));
       },
       onSettled: (_data, error, variables) => {
         markSettled(error, variables.id);
@@ -331,7 +375,7 @@ export function MenuScreen() {
         );
       },
       onError: (error) => {
-        announce(isGone(error) ? t("notFound") : t("cookedError"));
+        announceWriteError(isGone(error) ? t("notFound") : t("cookedError"));
       },
       onSettled: (_data, error, variables) => {
         markSettled(error, variables.id);
@@ -607,9 +651,18 @@ export function MenuScreen() {
               // once and hands the same one to the client — the mismatch
               // `trip-history-section.tsx` warns about. A date rather than a
               // relative time, so SSR and hydration need no shared clock.
+              //
+              // The zone is pinned to `MENU_TIME_ZONE` rather than left to the
+              // deployment's (UTC on Vercel, since nothing configures one):
+              // the gate above decides in the household's zone, and a stamp
+              // from 01:00 Monday in Batumi would otherwise render as the
+              // Sunday — a day the header's own week range does not contain.
+              // Task 7.1's `households.time_zone` replaces the constant, not
+              // this line.
               date: format.dateTime(data.lastBuiltAt, {
                 day: "numeric",
                 month: "long",
+                timeZone: MENU_TIME_ZONE,
               }),
             })}
           </p>
@@ -657,6 +710,7 @@ export function MenuScreen() {
             HIGHLIGHT_MS,
           )
         }
+        writeError={writeError}
       />
 
       <BottomSheet
@@ -667,26 +721,37 @@ export function MenuScreen() {
         restoreFocusTo={cardSheetOpener.restoreFocusTo}
       >
         {sheetItem === null ? null : (
-          <ul className={styles.menu}>
-            <li>
-              {/* No confirmation: removal is idempotent on the server and
-                  re-adding is two taps, so a modal would cost more than the
-                  mistake it prevents. */}
-              <button
-                type="button"
-                className={styles.menuRow}
-                aria-label={t("removeAria", { title: sheetItem.title })}
-                onClick={() => confirmRemove(sheetItem)}
-              >
-                {t("remove")}
-              </button>
-            </li>
-            {online ? null : (
+          <>
+            <ul className={styles.menu}>
               <li>
-                <p className={styles.offline}>{t("offline")}</p>
+                {/* No confirmation: removal is idempotent on the server and
+                    re-adding is two taps, so a modal would cost more than the
+                    mistake it prevents. */}
+                <button
+                  type="button"
+                  className={styles.menuRow}
+                  aria-label={t("removeAria", { title: sheetItem.title })}
+                  onClick={() => confirmRemove(sheetItem)}
+                >
+                  {t("remove")}
+                </button>
               </li>
-            )}
-          </ul>
+              {online ? null : (
+                <li>
+                  <p className={styles.offline}>{t("offline")}</p>
+                </li>
+              )}
+            </ul>
+            {/* Spoken only, and the body above stays the bare action list
+                S10 asks for: a ± failure is already visible behind the scrim
+                as the number rolling back, so what is missing for a screen
+                reader is the sentence, not a second place to read it. */}
+            <p className={styles.srOnly} role="status">
+              <span key={writeError?.seq ?? "empty"}>
+                {writeError?.text ?? ""}
+              </span>
+            </p>
+          </>
         )}
       </BottomSheet>
     </section>
