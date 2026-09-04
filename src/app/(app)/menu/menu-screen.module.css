@@ -161,7 +161,15 @@
   gap: var(--s-2);
 }
 
+/* The pool is a way into S7, so the title is a real target and not just text.
+   17px of serif gives a 26px line box, under the 44px floor; the padding buys
+   the rest and the matching negative margin gives it straight back to the
+   layout, so the card looks identical and only the hit area grows. `.head` is
+   baseline-aligned, so the «в архиве» chip beside it does not move either. */
 .cardTitle {
+  display: inline-block;
+  margin-block: calc(var(--s-3) * -1);
+  padding-block: var(--s-3);
   color: var(--ink);
   font-family: var(--font-serif);
   font-size: var(--t-h3);
@@ -234,19 +242,27 @@
   text-align: center;
 }
 
+/* The tap target is the whole label — a native checkbox cannot be resized
+   past what the platform draws, so the 44px floor is met by the row that
+   wraps it and by the word «приготовлено», not by the box. */
 .cooked {
   display: flex;
   min-height: 44px;
   align-items: center;
   gap: var(--s-2);
+  padding-inline: var(--s-1);
+  margin-inline: calc(var(--s-1) * -1);
   color: var(--mute);
   font-size: var(--t-meta);
   cursor: pointer;
 }
 
+/* 24px, not the browser's ~13px default: WCAG 2.5.8's own floor for a control
+   whose visible box is the affordance, even where the clickable area is
+   larger. */
 .cookedInput {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   accent-color: var(--accent);
 }
 
