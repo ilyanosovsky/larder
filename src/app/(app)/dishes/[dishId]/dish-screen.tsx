@@ -59,10 +59,11 @@ interface AdaptRequest {
  * one dish: photo, title, tags, portions, ingredients and steps.
  *
  * **The actions whose feature has not shipped are `aria-disabled` and say
- * «скоро»:** «В меню недели» is task 5.1, «Ингредиенты в корзину» is 5.2.
+ * «скоро»:** «Ингредиенты в корзину» is task 5.2, and it is the last one.
  * («Редактировать» is a real link since task 4.2; «Готовить» is a real link
- * to the S9 cooking overlay since task 4.7 — gated on the dish actually
- * having steps, its own honest `aria-disabled` case rather than «скоро».)
+ * to the S9 cooking overlay since task 4.7, and «В меню недели» a real write
+ * since 5.1 — both gated on an honest precondition (steps to cook, a dish not
+ * in the archive) rather than on "not built yet".)
  * `main` deploys to production on every merge, so a button that navigated
  * nowhere would be worse than one that is honest.
  * `aria-disabled` rather than `disabled` throughout: a disabled control cannot
@@ -288,6 +289,42 @@ export function DishScreen({ dishId }: { dishId: string }) {
   );
 
   /**
+   * «В меню недели» (task 5.1) — this dish into this week's pool, at the
+   * portions the slider is showing.
+   *
+   * The outcome is a real answer rather than a success/failure pair:
+   * `menu.addDish` reports `alreadyInMenu` for a dish the pool already holds
+   * (a double tap, or a partner who got there first) and leaves that row
+   * untouched, portions and all, so this screen has to say which of the two
+   * happened. Both go through the screen's own hint slot — there is nothing
+   * else on this page that would show for the tap.
+   *
+   * `networkMode: "always"` for the reason the two writes above declare it:
+   * `menu.*` is not in the IndexedDB offline queue, so a paused mutation
+   * would never settle and would hold `pendingRef` for the whole outage.
+   *
+   * Only `menu.current` is invalidated. The dish itself did not change, and
+   * the pool is the one list that gained a row.
+   */
+  const addToMenu = useMutation(
+    trpc.menu.addDish.mutationOptions({
+      networkMode: "always",
+      onSuccess: (result) => {
+        announceVisible(
+          result.outcome === "added" ? t("toMenuAdded") : t("toMenuAlready"),
+        );
+        void queryClient.invalidateQueries(trpc.menu.current.queryFilter());
+      },
+      onError: () => {
+        announceVisible(t("toMenuError"));
+      },
+      onSettled: () => {
+        pendingRef.current = false;
+      },
+    }),
+  );
+
+  /**
    * Claims focus when the sheet swaps its menu for the confirmation.
    *
    * `BottomSheet` claims focus once, in an effect keyed on `open` and the
@@ -418,6 +455,20 @@ export function DishScreen({ dishId }: { dishId: string }) {
     pendingRef.current = true;
     setBannerError(null);
     unarchive.mutate({ id: dishId, expectedVersion: version });
+  }
+
+  /**
+   * `portions` is the screen's **clamped** binding, not the raw
+   * `portionsOverride`: it is the number the person has been reading the
+   * ingredient list at, and it is already inside `portionsRange(base)` even
+   * after a background refetch moved the recipe's own yield underneath it.
+   */
+  function addDishToMenu(portionsToCook: number) {
+    if (pendingRef.current) {
+      return;
+    }
+    pendingRef.current = true;
+    addToMenu.mutate({ dishId, portions: portionsToCook });
   }
 
   if (dish.isPending) {
@@ -689,11 +740,23 @@ export function DishScreen({ dishId }: { dishId: string }) {
 
       <div className={styles.actions}>
         <div className={styles.actionRow}>
+          {/* Task 5.1 shipped the week menu, so this one is a real write now
+              — gated on the dish not being archived, which is the server's
+              own predicate (`menu.addDish` refuses an archived dish, exactly
+              as `dish.list` hides one from the picker). `aria-disabled` and a
+              sentence saying why, so the button never lies about what the
+              server would accept, and a keyboard user still finds it. */}
           <button
             type="button"
             className={styles.secondaryAction}
-            aria-disabled="true"
-            onClick={() => announceSoon(t("toMenu"))}
+            aria-disabled={
+              detail.archivedAt !== null || addToMenu.isPending || undefined
+            }
+            onClick={() =>
+              detail.archivedAt !== null
+                ? announceVisible(t("toMenuArchived"))
+                : addDishToMenu(portions)
+            }
           >
             {t("toMenu")}
           </button>
@@ -764,10 +827,16 @@ export function DishScreen({ dishId }: { dishId: string }) {
               >
                 {common("cancel")}
               </button>
+              {/* The screen has one `pendingRef`, and since task 5.1 «В меню
+                  недели» can hold it — so the confirmation has to show the
+                  shared lock rather than only its own mutation's, or the tap
+                  would be swallowed with nothing on screen explaining why. */}
               <button
                 type="button"
                 className={styles.confirmButton}
-                aria-disabled={archive.isPending || undefined}
+                aria-disabled={
+                  archive.isPending || addToMenu.isPending || undefined
+                }
                 onClick={() => confirmArchive(detail.version)}
               >
                 {archive.isPending

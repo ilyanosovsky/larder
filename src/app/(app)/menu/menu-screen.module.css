@@ -1,0 +1,465 @@
+/* S10 «Меню на неделю» — Paper Ledger. Toolbar (title, week, count,
+   «Обновить») → a ruled pool of dish cards → the actions row → the collapsed
+   past-weeks block. Same toolbar vocabulary as S3/S5/S6; the pool is a ruled
+   list rather than S6's grid, because each row carries three controls. */
+
+.screen {
+  padding-bottom: var(--s-6);
+}
+
+/* ── Offline ── */
+
+.offline {
+  margin-bottom: var(--s-3);
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* ── Toolbar ── */
+
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding-bottom: var(--s-3);
+}
+
+.title {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.week {
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+}
+
+.count {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.refreshButton {
+  display: flex;
+  min-width: 44px;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: calc(-1 * var(--s-3));
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.refreshButton[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.refreshIcon {
+  display: inline-block;
+  font-size: var(--t-val-lg);
+  line-height: 1;
+}
+
+.refreshIconBusy {
+  animation: refresh-spin 1s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshIconBusy {
+    animation: none;
+  }
+}
+
+/* ── Pool ── */
+
+.pool {
+  margin-top: var(--s-4);
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-3) 0;
+}
+
+.card:nth-child(even) {
+  background: var(--zebra);
+}
+
+/* A cooked card is quieter but stays exactly where it was: the list never
+   reorders under the finger that just ticked it (DESIGN_BRIEF §6). */
+.cardCooked {
+  opacity: 0.6;
+}
+
+/* The soft highlight a partner's edit gets after a refetch (VISION §6.3) —
+   the same cue `cart.list` rows get through `useChangedRows`.
+
+   Written as `.card.cardChanged` on purpose: `:nth-child(even)` above scores
+   (0,1,1), so a single class would lose to the zebra stripe and the highlight
+   would silently never appear on every second row. */
+.card.cardChanged {
+  background: var(--accent-soft);
+}
+
+.frame {
+  position: relative;
+  display: flex;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--paper);
+}
+
+.photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  font-size: 24px;
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+/* The pool is a way into S7, so the title is a real target and not just text.
+   17px of serif gives a 26px line box, under the 44px floor; the padding buys
+   the rest and the matching negative margin gives it straight back to the
+   layout, so the card looks identical and only the hit area grows. `.head` is
+   baseline-aligned, so the «в архиве» chip beside it does not move either. */
+.cardTitle {
+  display: inline-block;
+  margin-block: calc(var(--s-3) * -1);
+  padding-block: var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  text-decoration: none;
+}
+
+.cardTitle:hover {
+  text-decoration: underline;
+}
+
+.archived {
+  border: var(--bd-hair) solid var(--rule-2);
+  padding: 0 var(--s-1);
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-badge);
+  text-transform: uppercase;
+}
+
+.meta {
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+/* ── Card controls ── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.stepButton {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Bounded rather than removed: `aria-disabled` keeps the control focusable so
+   a keyboard user can still find the end of the range. */
+.stepButton[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.portions {
+  min-width: 5.5rem;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-val);
+  text-align: center;
+}
+
+/* The tap target is the whole label — a native checkbox cannot be resized
+   past what the platform draws, so the 44px floor is met by the row that
+   wraps it and by the word «приготовлено», not by the box. */
+.cooked {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-2);
+  padding-inline: var(--s-1);
+  margin-inline: calc(var(--s-1) * -1);
+  color: var(--mute);
+  font-size: var(--t-meta);
+  cursor: pointer;
+}
+
+/* 24px, not the browser's ~13px default: WCAG 2.5.8's own floor for a control
+   whose visible box is the affordance, even where the clickable area is
+   larger. */
+.cookedInput {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--accent);
+}
+
+.moreButton {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font-size: var(--t-val-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ── Actions ── */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-5);
+}
+
+.builtAt {
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.addButton {
+  display: flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+}
+
+/* ── States ── */
+
+.error {
+  margin-top: var(--s-4);
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.retryButton {
+  min-height: 44px;
+  margin-top: var(--s-2);
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  cursor: pointer;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-4);
+  padding: var(--s-8) var(--s-4);
+  text-align: center;
+}
+
+.emptyMark {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd-hair) dashed var(--rule-2);
+  font-size: 40px;
+}
+
+.emptyText {
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+.emptyAssistant {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-4);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* ── Card «…» sheet ── */
+
+.menu {
+  list-style: none;
+}
+
+.menuRow {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-val);
+  text-align: left;
+  cursor: pointer;
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── First-load skeleton (DESIGN_BRIEF §6: rows, never a full-screen spinner) ── */
+
+.skeletonCard {
+  display: flex;
+  gap: var(--s-3);
+  border-bottom: var(--bd-hair) solid var(--rule);
+  padding: var(--s-3) 0;
+}
+
+.skeletonFrame {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--rule);
+  opacity: 0.5;
+}
+
+.skeletonBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-top: var(--s-1);
+}
+
+.skeletonTitle {
+  width: 60%;
+  height: 14px;
+  background: var(--rule);
+  opacity: 0.6;
+}
+
+.skeletonMeta {
+  width: 40%;
+  height: 10px;
+  background: var(--rule);
+  opacity: 0.4;
+}
+
+.addButton:focus-visible,
+.refreshButton:focus-visible,
+.retryButton:focus-visible,
+.stepButton:focus-visible,
+.moreButton:focus-visible,
+.menuRow:focus-visible,
+.emptyAssistant:focus-visible,
+.cardTitle:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
