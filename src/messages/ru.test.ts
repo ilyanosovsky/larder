@@ -778,8 +778,13 @@ describe("cart / autocomplete namespaces (task Б4)", () => {
    * through `formatQtyNumber`) showed "0,5". Pinned here rather than in
    * `qty-step.test.ts`, because the defect lives in how `cart-screen.tsx`
    * (a client component vitest cannot render) calls `t(...)`, not in
-   * `formatQtyNumber` itself — this renders the exact same messages through
-   * the exact same formatter the screen now calls at both sites.
+   * `formatQtyNumber` itself.
+   *
+   * This alone does **not** pin the fix (S2, PR #36 round 2 review): it
+   * formats the number itself and passes the resulting *string* into the
+   * translator, so it only proves the ICU messages interpolate a string
+   * verbatim — true before and after the fix. The next test below reads
+   * `cart-screen.tsx`'s own source and checks the call sites themselves.
    */
   it("formats a fractional cart qty with a comma, not a dot — qtyValue and rowCheckboxAria", () => {
     const t = translator("cart");
@@ -794,5 +799,37 @@ describe("cart / autocomplete namespaces (task Б4)", () => {
         unit: "кг",
       }),
     ).toBe("Рис, 0,5 кг");
+  });
+
+  /**
+   * S2 (PR #36 round 2 review): the test above renders the same ICU
+   * messages the screen uses, but never opens `cart-screen.tsx` — reverting
+   * both call sites there back to a bare `qty: item.qty` (reintroducing the
+   * Latin-dot bug Q1 fixed) left that test, `eslint`, `tsc --noEmit` and the
+   * rest of the suite green. This reads the screen's own source, the same
+   * approach `copyCallSites`/`keysAskedFor` above already use, and checks
+   * that every call to `qtyValue`/`rowCheckboxAria` there actually passes
+   * `qty: formatQtyNumber(...)` — so a call site that regresses to the raw
+   * number, or a third one added without the formatter, fails here too.
+   */
+  it("passes qty through formatQtyNumber at every qtyValue/rowCheckboxAria call site in cart-screen.tsx", () => {
+    const source = readFileSync(
+      join("src", "app", "(app)", "cart-screen.tsx"),
+      "utf8",
+    );
+    const callSites = [
+      ...source.matchAll(/t\(\s*"(?:qtyValue|rowCheckboxAria)"/g),
+    ];
+
+    // A guard on the guard, like the sweeps above: if the scan ever stops
+    // finding these two call sites it must fail loudly rather than pass
+    // vacuously.
+    expect(callSites).toHaveLength(2);
+
+    for (const callSite of callSites) {
+      const start = callSite.index;
+      const nearby = source.slice(start, start + 200);
+      expect(nearby).toContain("qty: formatQtyNumber(");
+    }
   });
 });

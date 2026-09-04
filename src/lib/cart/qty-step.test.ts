@@ -4,10 +4,12 @@ import {
   canStepQty,
   defaultQtyFor,
   formatQtyNumber,
+  nextQtyFromDraft,
   parseTypedQty,
   qtyForUnitChange,
   QTY_STEP_BY_UNIT,
   qtyStepFor,
+  resolveDraft,
   STEPPER_MAX_QTY,
   stepQty,
 } from "@/lib/cart/qty-step";
@@ -209,6 +211,121 @@ describe("parseTypedQty", () => {
       const parsed = parseTypedQty("2,5", unit);
       expect(Number.isInteger(parsed)).toBe(qtyStepFor(unit) === 1);
     }
+  });
+});
+
+describe("resolveDraft", () => {
+  it("resolves a parseable draft, reformatted through formatQtyNumber", () => {
+    expect(resolveDraft("250", 1, "г")).toEqual({
+      value: 250,
+      display: "250",
+      invalid: false,
+    });
+  });
+
+  it("reformats even when the parsed value equals qty unchanged", () => {
+    // Round-2 case (S6): «2,4» on an already-2 «шт» line rounds back to 2,
+    // and «0.5» typed with a dot on an already-0,5 «кг» line is mere
+    // reformatting — both must still normalize the displayed text.
+    expect(resolveDraft("2,4", 2, "шт")).toEqual({
+      value: 2,
+      display: "2",
+      invalid: false,
+    });
+    expect(resolveDraft("0.5", 0.5, "кг")).toEqual({
+      value: 0.5,
+      display: "0,5",
+      invalid: false,
+    });
+  });
+
+  it("falls back to the last committed qty on an unparseable draft, marked invalid", () => {
+    expect(resolveDraft("abc", 100, "г")).toEqual({
+      value: 100,
+      display: "100",
+      invalid: true,
+    });
+  });
+});
+
+describe("nextQtyFromDraft", () => {
+  it("steps from the typed draft, not the stale qty prop", () => {
+    // The premise this whole function exists for (Q4/S1): a shopper types
+    // «250» while the committed `qty` is still 1 — the tap must step from
+    // 250, not from 1.
+    const next = nextQtyFromDraft("250", 1, 1, "г");
+    expect(next.qty).toBe(300);
+    expect(next.text).toBe("300");
+    expect(next.invalid).toBe(false);
+    expect(next.changed).toBe(true);
+  });
+
+  it("collision case: «1 шт» committed, «2» typed, «−» steps to 1 — the field must still redraw even though qty does not change", () => {
+    // S1: stepping the draft (2) down lands on 1, the value already sitting
+    // in `qty` — a caller that only calls `onQtyChange` when told to would
+    // see no state change and, relying on a `qty`-keyed effect alone, never
+    // redraw the field away from the stale «2». `text`/`invalid` here are
+    // what let the caller redraw regardless of `changed`.
+    const next = nextQtyFromDraft("2", 1, -1, "шт");
+    expect(next.qty).toBe(1);
+    expect(next.text).toBe("1");
+    expect(next.invalid).toBe(false);
+    expect(next.changed).toBe(false);
+  });
+
+  it("collision case: «100 г» committed, «50» typed, «+» steps to 100 — same redraw-without-a-state-change shape", () => {
+    const next = nextQtyFromDraft("50", 100, 1, "г");
+    expect(next.qty).toBe(100);
+    expect(next.text).toBe("100");
+    expect(next.invalid).toBe(false);
+    expect(next.changed).toBe(false);
+  });
+
+  it("does not step an unparseable draft — the tap reverts the field and keeps the rejection visible", () => {
+    // S4: the old behaviour stepped from `qty` (resolveDraft's fallback)
+    // whenever `canStepQty(qty, ...)` happened to be true, silently clearing
+    // the hint the same tap was supposed to leave in place.
+    const next = nextQtyFromDraft("abc", 100, 1, "г");
+    expect(next.qty).toBe(100);
+    expect(next.text).toBe("100");
+    expect(next.invalid).toBe(true);
+    expect(next.changed).toBe(false);
+  });
+
+  it("does not step an unparseable draft even where the committed qty itself could still step", () => {
+    // Same rule as above, pinned at a starting point where `canStepQty(qty,
+    // ...)` is true — the old bug's exact trigger condition.
+    const next = nextQtyFromDraft("не число", 2, 1, "шт");
+    expect(next.invalid).toBe(true);
+    expect(next.qty).toBe(2);
+    expect(next.changed).toBe(false);
+  });
+
+  it("still commits a valid draft even when the step itself is blocked at the floor", () => {
+    // A tap on a guarded/greyed button is not silently ignored — the typed
+    // value still flushes, exactly as `resolveDraft` would commit it alone.
+    const next = nextQtyFromDraft("0.5", 1, -1, "кг");
+    expect(canStepQty(0.5, -1, "кг")).toBe(false);
+    expect(next.qty).toBe(0.5);
+    expect(next.text).toBe("0,5");
+    expect(next.invalid).toBe(false);
+    expect(next.changed).toBe(true);
+  });
+
+  it("still commits a valid draft even when the step itself is blocked at the ceiling", () => {
+    const next = nextQtyFromDraft(String(STEPPER_MAX_QTY), 1, 1, "шт");
+    expect(canStepQty(STEPPER_MAX_QTY, 1, "шт")).toBe(false);
+    expect(next.qty).toBe(STEPPER_MAX_QTY);
+    expect(next.changed).toBe(true);
+  });
+
+  it("leaves a below-floor typed draft unchanged on «−», same as stepQty alone", () => {
+    // 30 g is below the 50 g floor — «−» has nowhere lower to go (Q5's rule,
+    // now reached via a typed draft instead of the committed qty).
+    const next = nextQtyFromDraft("30", 100, -1, "г");
+    expect(next.qty).toBe(30);
+    expect(next.text).toBe("30");
+    expect(next.changed).toBe(true);
   });
 });
 

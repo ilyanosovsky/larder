@@ -11,8 +11,9 @@ import {
 import {
   canStepQty,
   formatQtyNumber,
+  nextQtyFromDraft,
   parseTypedQty,
-  stepQty,
+  resolveDraft,
 } from "@/lib/cart/qty-step";
 import { UNITS, type Unit } from "@/lib/units";
 
@@ -74,10 +75,12 @@ export interface QtyStepperHandle {
  * forcing every keystroke through `onQtyChange` would either reject it or
  * round it out from under the shopper's fingers. The draft commits (calls
  * `onQtyChange`) on blur, on Enter, and — via the imperative handle — right
- * before a caller's own primary action. It resyncs to `formatQtyNumber(qty)`
- * whenever `qty` changes from *outside* typing (a «+»/«−» tap, or a caller
- * resetting the field on open), which is exactly what the `useEffect` below
- * depending only on `qty` catches.
+ * before a caller's own primary action. A «+»/«−» tap (`stepFromDraft`)
+ * writes `text`/`invalid` itself rather than leaning on a resync effect (a
+ * round-2 review fix, S1 — see that function's own comment for why), so the
+ * `useEffect` below depending only on `qty` only has to catch a caller
+ * resetting the field from *outside* the stepper entirely: a new line/row
+ * opening, or a unit change (`qtyForUnitChange`, run by the caller).
  *
  * Deliberately takes its aria-label strings as props rather than calling
  * `useTranslations` itself: S4 and the row sheet read from different
@@ -116,44 +119,73 @@ export function QtyStepper({
   const [invalid, setInvalid] = useState(false);
 
   // Resyncs the draft to the committed value whenever `qty` changes from
-  // outside a keystroke — a «+»/«−» tap (which calls `onQtyChange` directly,
-  // bypassing the draft entirely) or a caller resetting the field when a new
-  // line/row opens. A successful in-field commit also lands here: it calls
-  // `onQtyChange`, the caller's `qty` state updates, and this effect reformats
-  // the draft from the number that was actually stored (so «0.5» typed with a
-  // dot redraws as «0,5»). It deliberately does *not* depend on `unit`:
-  // `qtyForUnitChange` (the callers' own unit-switch rule) may leave the
-  // number itself unchanged, and reformatting mid-typing whenever the select
-  // fires would fight the shopper's fingers for no reason.
+  // outside the stepper's own handlers — a caller resetting the field when a
+  // new line/row opens, or its own unit-change rule (`qtyForUnitChange`)
+  // moving the number. `stepFromDraft` and `resolveAndCommit` (the ± taps,
+  // blur, Enter and `commitPending`) write `text`/`invalid` themselves and
+  // deliberately do **not** rely on this effect to redraw — see
+  // `stepFromDraft`'s own comment for why a `qty`-keyed effect alone cannot
+  // be trusted for that. This still fires after a successful in-field commit
+  // too (the caller's `qty` state updates, and `qty` here reflects it one
+  // render later), which is harmless: it just reformats the draft from the
+  // very number `resolveAndCommit`/`stepFromDraft` already wrote. It
+  // deliberately does *not* depend on `unit`: reformatting mid-typing
+  // whenever the select fires would fight the shopper's fingers for no
+  // reason.
   useEffect(() => {
     setText(formatQtyNumber(qty));
     setInvalid(false);
   }, [qty]);
 
   function resolveAndCommit(): number {
-    const parsed = parseTypedQty(text, unit);
-    if (parsed === null) {
-      setInvalid(true);
-      setText(formatQtyNumber(qty));
-      return qty;
+    // `resolveDraft` is the same decision the ± handlers make (via
+    // `nextQtyFromDraft`) before stepping — kept as one function so blur,
+    // Enter and a caller's `commitPending()` can never quietly disagree with
+    // a tap about what the draft resolves to.
+    const resolved = resolveDraft(text, qty, unit);
+    setInvalid(resolved.invalid);
+    // Always reformats the draft from the resolved number — not only when it
+    // differs from `qty` — because a `qty`-keyed effect would fire on
+    // neither of two cases this leaves otherwise stale: a typed value that
+    // rounds back to the current `qty` (a discrete unit's «2,4» → 2 on an
+    // already-2 line) and mere reformatting («0.5» on an already-0,5 line).
+    // Both leave the raw typed characters on screen, indefinitely in
+    // `CartItemSheet` (the sheet does not remount the stepper after
+    // «Сохранить»), until a stray «+»/«−» tap or a reopen happens to trigger
+    // a resync.
+    setText(resolved.display);
+    if (!resolved.invalid && resolved.value !== qty) {
+      onQtyChange(resolved.value);
     }
-    setInvalid(false);
-    // Always reformats the draft from the parsed number — not only when it
-    // differs from `qty` — because the `[qty]` effect below fires on neither
-    // of two cases this leaves otherwise stale: a typed value that rounds
-    // back to the current `qty` (a discrete unit's «2,4» → 2 on an already-2
-    // line) and mere reformatting («0.5» on an already-0,5 line). Both leave
-    // the raw typed characters on screen, indefinitely in `CartItemSheet`
-    // (the sheet does not remount the stepper after «Сохранить»), until a
-    // stray «+»/«−» tap or a reopen happens to trigger a resync.
-    setText(formatQtyNumber(parsed));
-    if (parsed !== qty) {
-      onQtyChange(parsed);
-    }
-    return parsed;
+    return resolved.value;
   }
 
   useImperativeHandle(ref, () => ({ commitPending: resolveAndCommit }));
+
+  /**
+   * The single decision both ± buttons act on — see `nextQtyFromDraft`'s own
+   * doc comment for the "collision" case this exists to fix (S1): the
+   * stepped result can equal the already-committed `qty`, in which case
+   * `onQtyChange` would be a no-op and must **not** be the thing that
+   * redraws the field. `text`/`invalid` are therefore always written here
+   * directly, never left to a `qty`-keyed effect to pick up.
+   */
+  function stepFromDraft(delta: number) {
+    const next = nextQtyFromDraft(text, qty, delta, unit);
+    setText(next.text);
+    setInvalid(next.invalid);
+    if (next.changed) {
+      onQtyChange(next.qty);
+    }
+  }
+
+  // Feeds both the click guard (inside `stepFromDraft`, via `stepQty`
+  // itself) and the `aria-disabled` attribute below from the *same* resolved
+  // value (S3) — the parsed draft when there is one, `qty` otherwise.
+  // Computing `aria-disabled` from the committed `qty` prop alone would let
+  // it describe a different number than the one a tap actually acts on
+  // whenever an uncommitted draft's stepability differs from `qty`'s own.
+  const draftQty = parseTypedQty(text, unit) ?? qty;
 
   return (
     <>
@@ -162,26 +194,16 @@ export function QtyStepper({
           <button
             type="button"
             className={styles.stepperButton}
-            onClick={() => {
-              // Steps from the *draft*, not the stale `qty` prop: on WebKit
-              // (and macOS Firefox) a `<button>` tap does not blur the
-              // focused input first, so a typed-but-uncommitted value would
-              // otherwise be silently replaced by a step taken from the
-              // number that was there before typing started.
-              // `resolveAndCommit` also covers the ordinary case (nothing
-              // pending) by returning `qty` unchanged.
-              const base = resolveAndCommit();
-              if (canStepQty(base, -1, unit)) {
-                onQtyChange(stepQty(base, -1, unit));
-              }
-            }}
+            onClick={() => stepFromDraft(-1)}
             // `aria-disabled`, never the `disabled` attribute: this button
             // sits inside `BottomSheet`'s focus trap, whose focusable
             // selector excludes `[disabled]` — disabling the button that
             // currently holds focus would drop focus to `<body>`, outside
-            // the dialog, in a single keyboard press. The guard above (not
-            // the attribute) is what actually enforces the floor.
-            aria-disabled={!canStepQty(qty, -1, unit) || undefined}
+            // the dialog, in a single keyboard press. The click guard inside
+            // `stepFromDraft` (not this attribute) is what actually enforces
+            // the floor; this only has to describe the same value that guard
+            // uses — `draftQty`, not the possibly-stale `qty` prop.
+            aria-disabled={!canStepQty(draftQty, -1, unit) || undefined}
             aria-label={decreaseAria}
           >
             −
@@ -239,13 +261,8 @@ export function QtyStepper({
           <button
             type="button"
             className={styles.stepperButton}
-            onClick={() => {
-              const base = resolveAndCommit();
-              if (canStepQty(base, 1, unit)) {
-                onQtyChange(stepQty(base, 1, unit));
-              }
-            }}
-            aria-disabled={!canStepQty(qty, 1, unit) || undefined}
+            onClick={() => stepFromDraft(1)}
+            aria-disabled={!canStepQty(draftQty, 1, unit) || undefined}
             aria-label={increaseAria}
           >
             +

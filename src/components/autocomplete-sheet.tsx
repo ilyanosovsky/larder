@@ -143,6 +143,12 @@ export function AutocompleteSheet({
    * comment for why `submit` cannot just read the `qty` state instead.
    */
   const qtyStepperRef = useRef<QtyStepperHandle>(null);
+  /**
+   * «Изменить» — the control the focus-rescue effect below returns focus to
+   * once the "editing" phase (`ProductEditForm`) unmounts and takes its own
+   * focused control (Cancel/Save) with it (S5, PR #36 round 2 review).
+   */
+  const editButtonRef = useRef<HTMLButtonElement>(null);
 
   const create = useMutation(trpc.product.create.mutationOptions());
 
@@ -165,6 +171,24 @@ export function AutocompleteSheet({
     const timer = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
+
+  // Rescues focus back onto «Изменить» when the "editing" phase
+  // (`ProductEditForm`) hands the quantity phase back — that phase switch
+  // unmounts the form's own focused control (Cancel/Save) along with
+  // everything else in it, and nothing else in the sheet claims focus
+  // afterwards (S5, PR #36 round 2 review). Same `activeElement` guard as
+  // `ProductEditForm`'s own mount-time rescue: only when focus has actually
+  // been lost, never when something already legitimately holds it — a
+  // future `autoFocus` inside the quantity phase, say.
+  useEffect(() => {
+    if (phase.kind !== "quantity") {
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      editButtonRef.current?.focus();
+    }
+  }, [phase.kind]);
 
   const trimmedQuery = debouncedQuery.trim();
   const searching = phase.kind === "search" && trimmedQuery.length > 0;
@@ -501,6 +525,7 @@ export function AutocompleteSheet({
             </span>
             <span className={styles.resultName}>{phase.product.name}</span>
             <button
+              ref={editButtonRef}
               type="button"
               className={styles.inlineButton}
               onClick={() => {

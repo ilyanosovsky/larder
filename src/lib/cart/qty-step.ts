@@ -153,7 +153,13 @@ export function stepQty(current: number, delta: number, unit: Unit): number {
   return roundQty(Math.max(flooredUnits / GRID_SCALE, floor));
 }
 
-/** Whether «−» / «+» would actually change the value, for `disabled`. */
+/**
+ * Whether «−» / «+» would actually change the value — drives the buttons'
+ * `aria-disabled` and their click-handler guard, **never** the `disabled`
+ * attribute (see `qty-stepper.tsx`: inside `BottomSheet`'s focus trap,
+ * disabling the button that currently holds focus would drop focus to
+ * `<body>`, outside the dialog).
+ */
 export function canStepQty(
   current: number,
   delta: number,
@@ -210,6 +216,88 @@ export function parseTypedQty(text: string, unit: Unit): number | null {
   }
 
   return Math.min(Math.max(rounded, MIN_QTY), MAX_QTY);
+}
+
+/**
+ * What the qty field's draft text resolves to right now — the one decision
+ * `QtyStepper` used to make inline (S1/S4/S6, PR #36 round 2 review), pulled
+ * out here so it can be driven from a single value instead of computed twice
+ * (once for the click guard, once for `aria-disabled`) and drifting.
+ *
+ * A parse failure reverts to the last committed `qty` and reports `invalid:
+ * true` — the caller shows the hint and does **not** treat this as "nothing
+ * typed", because a rejected entry still has to communicate the rejection
+ * (see `nextQtyFromDraft`, which refuses to step on it). A parse success
+ * always reformats through `formatQtyNumber`, even when the parsed value
+ * equals `qty` already — a typed «2,4» that rounds back to an already-2 line,
+ * or mere reformatting like «0.5» → «0,5», both leave stale raw characters on
+ * screen otherwise.
+ */
+export function resolveDraft(
+  text: string,
+  qty: number,
+  unit: Unit,
+): { value: number; display: string; invalid: boolean } {
+  const parsed = parseTypedQty(text, unit);
+  if (parsed === null) {
+    return { value: qty, display: formatQtyNumber(qty), invalid: true };
+  }
+  return { value: parsed, display: formatQtyNumber(parsed), invalid: false };
+}
+
+/**
+ * One «−»/«+» tap, all the way from whatever the field's draft text says
+ * right now to the number and the text the field should show next.
+ *
+ * Resolves the draft first (`resolveDraft`) and steps **from that**, not
+ * from the stale `qty` prop — on WebKit and macOS Firefox a `<button>` tap
+ * does not blur the focused input first, so a typed-but-uncommitted value
+ * would otherwise be silently discarded in favour of a step taken from the
+ * number that was there before typing started.
+ *
+ * An invalid draft does **not** step (S4): stepping through it would step
+ * from `qty` (the value `resolveDraft` falls back to) and, whenever that
+ * step happened to be available, clear the rejection the same tap was
+ * supposed to communicate. The tap reverts the field and leaves `invalid`
+ * true instead — identical to what a blur does with the same bad input.
+ *
+ * A valid draft steps with `stepQty`, or — if the step is unavailable at the
+ * floor/ceiling — is still committed as typed, exactly as `resolveDraft`
+ * would commit it on its own (a tap on a blocked button is not silently
+ * ignored; it still flushes the draft, the same way `commitPending` does).
+ *
+ * `changed` is whether the caller's committed `qty` state actually needs
+ * updating — **not** merely whether stepping moved the number away from the
+ * draft. This is the fix for the "collision" case (S1): starting from a
+ * committed «1 шт» with «2» typed but not yet committed, «−» steps the draft
+ * (2) down to 1 — the same number already sitting in `qty` — so calling
+ * `onQtyChange(1)` again would be a no-op React bails on, and nothing would
+ * ever redraw the field away from the stale «2». The caller must therefore
+ * always write `text`/`invalid` from this result directly, and use `changed`
+ * only to decide whether `onQtyChange` needs calling at all — never rely on
+ * a `qty`-keyed effect to pick up the redraw.
+ */
+export function nextQtyFromDraft(
+  text: string,
+  qty: number,
+  delta: number,
+  unit: Unit,
+): { qty: number; text: string; invalid: boolean; changed: boolean } {
+  const draft = resolveDraft(text, qty, unit);
+  if (draft.invalid) {
+    return { qty: draft.value, text: draft.display, invalid: true, changed: false };
+  }
+
+  const next = canStepQty(draft.value, delta, unit)
+    ? stepQty(draft.value, delta, unit)
+    : draft.value;
+
+  return {
+    qty: next,
+    text: formatQtyNumber(next),
+    invalid: false,
+    changed: next !== qty,
+  };
 }
 
 /**
