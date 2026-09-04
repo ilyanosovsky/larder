@@ -202,27 +202,16 @@ export async function ensureWeekMenu(
 }
 
 /**
- * The joined pool read (`menu_items ⋈ dishes ⋈ recipes`), scoped on the table
- * **and on both joins** — the shape `readDishDetail` already uses: a
- * statement has to read as scoped on its own rather than by an argument about
- * another table (VISION §6.7).
+ * The pool read, minus the predicate that separates its two callers —
+ * `menu.current`'s whole week and `addDish`'s single row.
  *
- * Ascending by `created_at`, not descending like `dish.list`: S6 is a grid you
- * keep importing into, so the newest tile belongs top-left; S10 is a pool you
- * assemble, and a card that appears at the bottom next to «+ Блюдо» is where
- * the eye already is. `id` breaks a tie between two rows added in the same
- * millisecond.
- *
- * **Archived dishes are returned, not filtered.** `menu_items.dish_id` is
- * `RESTRICT` precisely so a stored week keeps naming the dish it named, and
- * `dish.archiveHint` promises out loud that an archived dish «останется в
- * меню недели». The card wears a quiet «в архиве» chip instead.
+ * One builder rather than two copies of a fifteen-column projection and two
+ * joins, the shape `dishListQuery` already uses on the dish side. Both joins
+ * repeat `household_id`: `recipes.dish_id` only ever points at this
+ * household's dishes, but a statement has to read as scoped on its own rather
+ * than by an argument about another table (VISION §6.7).
  */
-export function readMenuItems(
-  db: Database,
-  householdId: string,
-  weekMenuId: string,
-): Promise<MenuItemOutput[]> {
+function menuItemQuery(db: Database | Transaction, householdId: string) {
   return db
     .select({
       id: menuItems.id,
@@ -249,7 +238,29 @@ export function readMenuItems(
     .innerJoin(
       recipes,
       and(eq(recipes.dishId, dishes.id), eq(recipes.householdId, householdId)),
-    )
+    );
+}
+
+/**
+ * One week's whole pool, in the order S10 renders it.
+ *
+ * Ascending by `created_at`, not descending like `dish.list`: S6 is a grid you
+ * keep importing into, so the newest tile belongs top-left; S10 is a pool you
+ * assemble, and a card that appears at the bottom next to «+ Блюдо» is where
+ * the eye already is. `id` breaks a tie between two rows added in the same
+ * millisecond.
+ *
+ * **Archived dishes are returned, not filtered.** `menu_items.dish_id` is
+ * `RESTRICT` precisely so a stored week keeps naming the dish it named, and
+ * `dish.archiveHint` promises out loud that an archived dish «останется в
+ * меню недели». The card wears a quiet «в архиве» chip instead.
+ */
+export function readMenuItems(
+  db: Database | Transaction,
+  householdId: string,
+  weekMenuId: string,
+): Promise<MenuItemOutput[]> {
+  return menuItemQuery(db, householdId)
     .where(
       and(
         eq(menuItems.householdId, householdId),
@@ -395,39 +406,7 @@ export const menuRouter = createTRPCRouter({
           })
           .returning({ id: menuItems.id });
 
-        const [item] = await tx
-          .select({
-            id: menuItems.id,
-            dishId: menuItems.dishId,
-            title: dishes.title,
-            photoUrl: dishes.photoUrl,
-            tags: dishes.tags,
-            totalTimeMin: recipes.totalTimeMin,
-            portions: menuItems.portions,
-            portionsBase: recipes.portionsBase,
-            portionsMin: recipes.portionsMin,
-            yieldUnit: recipes.yieldUnit,
-            cookedAt: menuItems.cookedAt,
-            archivedAt: dishes.archivedAt,
-            addedById: menuItems.addedBy,
-            createdAt: menuItems.createdAt,
-            updatedAt: menuItems.updatedAt,
-          })
-          .from(menuItems)
-          .innerJoin(
-            dishes,
-            and(
-              eq(dishes.id, menuItems.dishId),
-              eq(dishes.householdId, householdId),
-            ),
-          )
-          .innerJoin(
-            recipes,
-            and(
-              eq(recipes.dishId, dishes.id),
-              eq(recipes.householdId, householdId),
-            ),
-          )
+        const [item] = await menuItemQuery(tx, householdId)
           .where(
             and(
               eq(menuItems.householdId, householdId),
