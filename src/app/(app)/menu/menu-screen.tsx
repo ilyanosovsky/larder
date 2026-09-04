@@ -94,6 +94,19 @@ export function MenuScreen() {
    * one write per tap is the contract, and the server is last-write-wins.
    */
   const removePendingRef = useRef(false);
+  /**
+   * The portions value each card's last tap *asked for*, by item id.
+   *
+   * The ± control has no mutex — one write per tap is the contract — so the
+   * only thing a second tap needs is the number the first one sent, and the
+   * render cannot supply it: `onMutate` opens with an awaited `cancelQueries`,
+   * so the optimistic patch (and the re-render that carries it) lands a few
+   * milliseconds after `mutate()` returns. Two taps inside that window would
+   * both read 4 off the rendered row and both send 5. A synchronous ref is the
+   * repo's own answer to exactly this class; entries are dropped on settle, so
+   * a failed write falls back to whatever the rolled-back row shows.
+   */
+  const askedPortionsRef = useRef(new Map<string, number>());
   const pickerOpener = useSheetOpener();
   const cardSheetOpener = useSheetOpener();
   const online = useIsOnline();
@@ -191,7 +204,8 @@ export function MenuScreen() {
         }
         announce(isGone(error) ? t("notFound") : t("portionsError"));
       },
-      onSettled: () => {
+      onSettled: (_data, _error, variables) => {
+        askedPortionsRef.current.delete(variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
@@ -277,15 +291,17 @@ export function MenuScreen() {
 
   function changePortions(item: MenuItemOutput, delta: number) {
     const bounds = portionsRange(item.portionsBase);
-    const next = Math.min(bounds.max, Math.max(bounds.min, item.portions + delta));
+    const from = askedPortionsRef.current.get(item.id) ?? item.portions;
+    const next = Math.min(bounds.max, Math.max(bounds.min, from + delta));
 
-    if (next === item.portions) {
+    if (next === from) {
       return;
     }
 
-    // One write per tap, no debounce: the server is last-write-wins, so a
-    // run of taps is a run of writes and none of them can be lost by a timer
-    // that never fired.
+    askedPortionsRef.current.set(item.id, next);
+    // One write per tap, no debounce: the server is last-write-wins, so a run
+    // of taps is a run of writes and none of them can be lost by a timer that
+    // never fired.
     setPortions.mutate({ id: item.id, portions: next });
   }
 
@@ -464,11 +480,7 @@ export function MenuScreen() {
       <BottomSheet
         open={sheetItem !== null}
         onClose={() => setSheetItemId(null)}
-        title={
-          sheetItem === null
-            ? t("moreAria", { title: "" })
-            : t("moreAria", { title: sheetItem.title })
-        }
+        title={t("moreAria", { title: sheetItem?.title ?? "" })}
         closeLabel={common("close")}
         restoreFocusTo={cardSheetOpener.restoreFocusTo}
       >
