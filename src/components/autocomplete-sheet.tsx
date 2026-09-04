@@ -503,14 +503,21 @@ export function AutocompleteSheet({
             <button
               type="button"
               className={styles.inlineButton}
-              onClick={() =>
+              onClick={() => {
+                // «Изменить» unmounts `QtyStepper` (the "editing" phase
+                // renders `ProductEditForm` instead) — commit whatever is
+                // still sitting in the qty field's own draft text first, or
+                // a typed-but-uncommitted value is lost outright rather than
+                // merely stepped from stale, the way the ± buttons guard
+                // against.
+                qtyStepperRef.current?.commitPending();
                 setPhase({
                   kind: "editing",
                   product: phase.product,
                   created: phase.created,
                   aiFailed: phase.aiFailed,
-                })
-              }
+                });
+              }}
             >
               {t("edit")}
             </button>

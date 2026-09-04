@@ -33,7 +33,11 @@
   cursor: pointer;
 }
 
-.stepperButton:disabled {
+/* `aria-disabled`, never `disabled` (see `qty-stepper.tsx`) — the floor/
+   ceiling state is styled off the ARIA attribute rather than off `:disabled`,
+   the same convention `cart-screen.module.css`'s `.closeTripButton` and
+   `bottom-sheet.module.css`'s `.close` already use. */
+.stepperButton[aria-disabled="true"] {
   color: var(--mute-2);
   cursor: not-allowed;
 }

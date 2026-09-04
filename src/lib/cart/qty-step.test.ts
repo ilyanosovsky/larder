@@ -77,10 +77,25 @@ describe("stepQty", () => {
     expect(stepQty(130, -1, "г")).toBe(100);
   });
 
-  it("snaps «−» on a below-floor typed value up to the floor, not down further", () => {
+  it("leaves a below-floor typed value unchanged on «−», rather than raising it", () => {
     // 30 g is already below one whole step (50 g) — there is nowhere lower
-    // on the grid to go, so «−» lands on the floor itself.
-    expect(stepQty(30, -1, "г")).toBe(50);
+    // on the grid to go. Snapping it *up* to the floor would make «−»,
+    // labelled «Уменьшить количество», increase the value to the same
+    // number «+» would reach — this is the bug Q5 fixes.
+    expect(stepQty(30, -1, "г")).toBe(30);
+  });
+
+  it("never raises the value on «−», for any unit and any starting point on or off the grid", () => {
+    for (const unit of UNITS satisfies readonly Unit[]) {
+      const step = qtyStepFor(unit);
+      // Halves and quotients of powers of two, so every start point is
+      // exactly representable in binary floating point — a test that used
+      // `step / 3` would fail on its own rounding, not on the code under
+      // test.
+      for (const start of [step / 2, step, step * 2.5, defaultQtyFor(unit)]) {
+        expect(stepQty(start, -1, unit)).toBeLessThanOrEqual(start);
+      }
+    }
   });
 
   it("floors at one whole step of the unit, never at the storage minimum", () => {
@@ -111,8 +126,11 @@ describe("canStepQty", () => {
     expect(canStepQty(0.5, -1, "кг")).toBe(false);
   });
 
-  it("does not disable «−» on a below-floor value — it still has somewhere to go (the floor)", () => {
-    expect(canStepQty(30, -1, "г")).toBe(true);
+  it("disables «−» on a below-floor value too — raising it is not «somewhere to go»", () => {
+    // Q5: `stepQty` no longer snaps a below-floor value up to the floor (that
+    // made «Уменьшить количество» increase the number), so `canStepQty` must
+    // agree that «−» has nothing left to do here.
+    expect(canStepQty(30, -1, "г")).toBe(false);
   });
 
   it("disables at the ceiling", () => {
@@ -178,6 +196,19 @@ describe("parseTypedQty", () => {
 
   it("clamps to the router's own bounds", () => {
     expect(parseTypedQty(String(MAX_QTY + 1), "г")).toBe(MAX_QTY);
+  });
+
+  it("rounds typed values to whole items exactly for the units that step by one", () => {
+    // `DISCRETE_UNITS` (the hand-maintained set that decides whether a typed
+    // «2,5» rounds to 2 or 3, vs stays 2.5) is not itself exported or tested
+    // directly — this pins the partition it actually implements against the
+    // one table the compiler already keeps complete (`QTY_STEP_BY_UNIT`), so
+    // a unit accidentally dropped from `DISCRETE_UNITS` fails here instead of
+    // shipping green.
+    for (const unit of UNITS satisfies readonly Unit[]) {
+      const parsed = parseTypedQty("2,5", unit);
+      expect(Number.isInteger(parsed)).toBe(qtyStepFor(unit) === 1);
+    }
   });
 });
 

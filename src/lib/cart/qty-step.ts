@@ -120,11 +120,13 @@ function toGridUnits(value: number): number {
  *   is the grid line it was already short of (30 → 50, not 30 → 80).
  * - «−» moves to the nearest grid point **below** `current`, floored at one
  *   whole step (never 0 — see `canStepQty` for when this makes «−» a no-op
- *   and therefore disabled). An off-grid value *below* the floor already
- *   (30 г, whose floor is 50 г) has nowhere lower to go, so «−» there snaps
- *   **up** to the floor rather than doing nothing — the same floor «+»
- *   would have reached anyway, and the only value that is both "not below
- *   the floor" and "as small as the grid allows".
+ *   and therefore disabled). A value *already below* the floor (30 г, whose
+ *   floor is 50 г) is returned **unchanged** — there is nowhere lower on the
+ *   grid to go, and snapping it *up* to the floor would make «−», labelled
+ *   «Уменьшить количество», raise the value: the same number «+» would have
+ *   reached, with no way back to the sub-floor value except retyping it.
+ *   Leaving it unchanged is what lets `canStepQty` report "nothing to do"
+ *   here and disable the control instead.
  *
  * The result is always rounded with `roundQty`, so it is a number
  * `cart_items.qty` can actually hold.
@@ -140,6 +142,10 @@ export function stepQty(current: number, delta: number, unit: Unit): number {
   if (delta > 0) {
     const nextUnits = (Math.floor(currentUnits / stepUnits) + 1) * stepUnits;
     return roundQty(Math.min(nextUnits / GRID_SCALE, MAX_QTY));
+  }
+
+  if (currentUnits < stepUnits) {
+    return roundQty(safeCurrent);
   }
 
   const prevUnits = (Math.ceil(currentUnits / stepUnits) - 1) * stepUnits;

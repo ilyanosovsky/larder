@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import { formatQtyNumber } from "@/lib/cart/qty-step";
 import { ingredientsForMessage } from "@/lib/recipes/portions";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 
@@ -94,7 +95,9 @@ function translator(
     | "dishPortions"
     | "dishAdapt"
     | "cooking"
-    | "inviteLink",
+    | "inviteLink"
+    | "cart"
+    | "autocomplete",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -704,5 +707,92 @@ describe("the equipment banner's missing-appliances sentence", () => {
     expect(portions("equipmentMissing", { list: "Миксер, Аэрогриль" })).toBe(
       "Не хватает: Миксер, Аэрогриль",
     );
+  });
+});
+
+describe("cart / autocomplete namespaces (task Б4)", () => {
+  /**
+   * The two keys each of `QtyStepper`'s callers added for the typeable qty
+   * field — resolved individually rather than swept off
+   * `Object.keys(messages.cart)` / `messages.autocomplete`, because
+   * `cart.orderedService` is a nested object (`{wolt, carrefour, other}`),
+   * not a message, and would break a flat existence sweep the way
+   * `dishForm`/`dishImport`/`dishAdapt`'s own flat namespaces do not need to
+   * worry about.
+   */
+  const CART_QTY_KEYS = ["editQtyInputAria", "editQtyInvalid"] as const;
+  const AUTOCOMPLETE_QTY_KEYS = ["qtyInputAria", "qtyInvalid"] as const;
+
+  it.each(CART_QTY_KEYS)("cart.%s resolves to real copy", (key) => {
+    const rendered = translator("cart")(key);
+
+    expect(rendered).not.toBe(`cart.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(AUTOCOMPLETE_QTY_KEYS)(
+    "autocomplete.%s resolves to real copy",
+    (key) => {
+      const rendered = translator("autocomplete")(key);
+
+      expect(rendered).not.toBe(`autocomplete.${key}`);
+      expect(rendered.trim().length).toBeGreaterThan(0);
+    },
+  );
+
+  it("has every cart key the screens actually ask for", () => {
+    // The deletion-catching direction, same as `dishImport`/`settings`/
+    // `inviteLink`/`dishAdapt` above: `cart-screen.tsx` and
+    // `cart-item-sheet.tsx` both bind `useTranslations("cart")`, and this
+    // reads every literal key either one passes to it, rather than trusting
+    // a hand-kept list to notice a deletion.
+    const dictionary = messages.cart as Record<string, unknown>;
+    const asked = keysAskedFor("cart");
+
+    // A guard on the guard, like the `dishImport`/`settings` sweeps: if the
+    // scan ever stops finding call sites it must fail loudly rather than
+    // pass vacuously. 51 keys are asked for today.
+    expect(asked.size).toBeGreaterThan(40);
+
+    const missing = [...asked].filter(([key]) => !(key in dictionary));
+    expect(missing).toEqual([]);
+  });
+
+  it("has every autocomplete key the sheet actually asks for", () => {
+    const dictionary = messages.autocomplete as Record<string, unknown>;
+    const asked = keysAskedFor("autocomplete");
+
+    // 21 keys are asked for today.
+    expect(asked.size).toBeGreaterThan(15);
+
+    const missing = [...asked].filter(([key]) => !(key in dictionary));
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * Q1 (PR #36 review): the cart row's qty text and its checkbox
+   * `aria-label` interpolate a bare `{qty}` ICU argument — `intl-
+   * messageformat` stringifies that with plain `String()`, never through
+   * `formatQtyNumber`, so a fractional quantity rendered a Latin-dot
+   * "0.5 кг" in both places while the row editor's own field (which does go
+   * through `formatQtyNumber`) showed "0,5". Pinned here rather than in
+   * `qty-step.test.ts`, because the defect lives in how `cart-screen.tsx`
+   * (a client component vitest cannot render) calls `t(...)`, not in
+   * `formatQtyNumber` itself — this renders the exact same messages through
+   * the exact same formatter the screen now calls at both sites.
+   */
+  it("formats a fractional cart qty with a comma, not a dot — qtyValue and rowCheckboxAria", () => {
+    const t = translator("cart");
+
+    expect(t("qtyValue", { qty: formatQtyNumber(0.5), unit: "кг" })).toBe(
+      "0,5 кг",
+    );
+    expect(
+      t("rowCheckboxAria", {
+        name: "Рис",
+        qty: formatQtyNumber(0.5),
+        unit: "кг",
+      }),
+    ).toBe("Рис, 0,5 кг");
   });
 });

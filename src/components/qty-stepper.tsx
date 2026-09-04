@@ -19,6 +19,21 @@ import { UNITS, type Unit } from "@/lib/units";
 import styles from "./qty-stepper.module.css";
 
 /**
+ * Whether the current pointer is touch-shaped — checked at the moment Enter
+ * is pressed, not once at mount, matching `pantry-screen.tsx`'s own
+ * `prefersReducedMotion` helper (same guard, same reasoning: this only ever
+ * runs from a keyboard event in the browser, but the defensive check costs
+ * nothing).
+ */
+function isCoarsePointer(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches
+  );
+}
+
+/**
  * A caller-side handle for flushing whatever the shopper is mid-typing,
  * synchronously, before an action that needs the number *right now* rather
  * than on the component's next render.
@@ -95,6 +110,8 @@ export function QtyStepper({
   invalidHint: string;
 }) {
   const unitFieldId = useId();
+  const fieldId = useId();
+  const hintId = `${fieldId}-qty-error`;
   const [text, setText] = useState(() => formatQtyNumber(qty));
   const [invalid, setInvalid] = useState(false);
 
@@ -121,6 +138,15 @@ export function QtyStepper({
       return qty;
     }
     setInvalid(false);
+    // Always reformats the draft from the parsed number — not only when it
+    // differs from `qty` — because the `[qty]` effect below fires on neither
+    // of two cases this leaves otherwise stale: a typed value that rounds
+    // back to the current `qty` (a discrete unit's «2,4» → 2 on an already-2
+    // line) and mere reformatting («0.5» on an already-0,5 line). Both leave
+    // the raw typed characters on screen, indefinitely in `CartItemSheet`
+    // (the sheet does not remount the stepper after «Сохранить»), until a
+    // stray «+»/«−» tap or a reopen happens to trigger a resync.
+    setText(formatQtyNumber(parsed));
     if (parsed !== qty) {
       onQtyChange(parsed);
     }
@@ -136,8 +162,26 @@ export function QtyStepper({
           <button
             type="button"
             className={styles.stepperButton}
-            onClick={() => onQtyChange(stepQty(qty, -1, unit))}
-            disabled={!canStepQty(qty, -1, unit)}
+            onClick={() => {
+              // Steps from the *draft*, not the stale `qty` prop: on WebKit
+              // (and macOS Firefox) a `<button>` tap does not blur the
+              // focused input first, so a typed-but-uncommitted value would
+              // otherwise be silently replaced by a step taken from the
+              // number that was there before typing started.
+              // `resolveAndCommit` also covers the ordinary case (nothing
+              // pending) by returning `qty` unchanged.
+              const base = resolveAndCommit();
+              if (canStepQty(base, -1, unit)) {
+                onQtyChange(stepQty(base, -1, unit));
+              }
+            }}
+            // `aria-disabled`, never the `disabled` attribute: this button
+            // sits inside `BottomSheet`'s focus trap, whose focusable
+            // selector excludes `[disabled]` — disabling the button that
+            // currently holds focus would drop focus to `<body>`, outside
+            // the dialog, in a single keyboard press. The guard above (not
+            // the attribute) is what actually enforces the floor.
+            aria-disabled={!canStepQty(qty, -1, unit) || undefined}
             aria-label={decreaseAria}
           >
             −
@@ -149,6 +193,8 @@ export function QtyStepper({
             inputMode="decimal"
             enterKeyHint="done"
             aria-label={qtyInputAria}
+            aria-invalid={invalid ? "true" : undefined}
+            aria-describedby={hintId}
             value={text}
             onChange={(event) => {
               setText(event.target.value);
@@ -161,12 +207,20 @@ export function QtyStepper({
               if (event.key === "Enter") {
                 // No `<form>` wraps this field, so nothing would otherwise
                 // submit on Enter — the `preventDefault` guards a caller
-                // that adds one later, and the `blur()` closes the
-                // on-screen keyboard the way `enterKeyHint="done"` promises
-                // it will.
+                // that adds one later.
                 event.preventDefault();
                 resolveAndCommit();
-                event.currentTarget.blur();
+                // Blurring closes the on-screen keyboard `enterKeyHint="done"`
+                // promises — worth it on a touch device, where there is no
+                // Tab order to lose. On a keyboard/mouse session it would
+                // blur to `<body>`, outside the sheet's `aria-modal` panel,
+                // recoverable only by the next Tab (which the trap then
+                // sends to the header ✕ rather than back here) — so there
+                // Enter commits and leaves focus exactly where it was,
+                // matching what Tab would do anyway.
+                if (isCoarsePointer()) {
+                  event.currentTarget.blur();
+                }
               }
             }}
           />
@@ -185,8 +239,13 @@ export function QtyStepper({
           <button
             type="button"
             className={styles.stepperButton}
-            onClick={() => onQtyChange(stepQty(qty, 1, unit))}
-            disabled={!canStepQty(qty, 1, unit)}
+            onClick={() => {
+              const base = resolveAndCommit();
+              if (canStepQty(base, 1, unit)) {
+                onQtyChange(stepQty(base, 1, unit));
+              }
+            }}
+            aria-disabled={!canStepQty(qty, 1, unit) || undefined}
             aria-label={increaseAria}
           >
             +
@@ -210,11 +269,20 @@ export function QtyStepper({
         </select>
       </div>
 
-      {invalid ? (
-        <p className={styles.hint} role="status">
-          {invalidHint}
-        </p>
-      ) : null}
+      {/* Mounted for the field's whole life, not only while invalid — a
+          `role="status"` node that appears together with its content is not
+          reliably announced, since assistive tech has to already be
+          watching the region before the text arrives (same pattern as
+          `import-screen.tsx`'s own hint/error pair). Sr-only when there is
+          nothing to say, so sighted users see nothing change but
+          `aria-describedby` always resolves to a real node. */}
+      <p
+        id={hintId}
+        className={invalid ? styles.hint : styles.srOnly}
+        role="status"
+      >
+        {invalid ? invalidHint : ""}
+      </p>
     </>
   );
 }
