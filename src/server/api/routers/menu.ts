@@ -417,12 +417,21 @@ export const menuRouter = createTRPCRouter({
           .limit(1);
 
         if (!item) {
-          // Unreachable: either this transaction inserted the row or the
-          // conflict proved somebody else's is there, and both are visible to
-          // this snapshot. A throw rather than a silent second attempt —
-          // there is no state a retry could reach that this read did not see.
+          // Nearly unreachable, and worth naming the interleaving that does
+          // reach it: this transaction runs at READ COMMITTED (nothing here
+          // sets an isolation level), where `ON CONFLICT DO NOTHING` takes no
+          // lock on the conflicting row and each statement takes a fresh
+          // snapshot. So a partner's `removeDish` — an unlocked autocommit
+          // DELETE — landing in the one round trip between the insert and
+          // this re-read empties it legitimately.
+          //
+          // `CONFLICT`, not `INTERNAL_SERVER_ERROR`: nothing is broken, the
+          // window is ~one round trip wide and the action succeeds on a
+          // retry. A throw rather than a silent second attempt inside the
+          // same transaction, which could lose the same race again —
+          // `insertProduct` answers the identical situation the same way.
           throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
+            code: "CONFLICT",
             message: "Menu item vanished between its insert and its read",
           });
         }
@@ -440,10 +449,14 @@ export const menuRouter = createTRPCRouter({
    * `cart.setStatus` states: a ± tap has to work instantly, so the write must
    * never depend on having read the row first. Two partners nudging the same
    * card end on whichever value landed last, which is the honest answer for a
-   * shared pool. Written on every tap with no debounce: a trailing timer
-   * reintroduces the repo's documented lost-write class (navigate away,
-   * background the PWA, drop the connection inside the window and the tap is
-   * gone with no pending state on screen).
+   * shared pool.
+   *
+   * That is the whole of the server's contract, and it is *why* the client
+   * serialises: two requests for one card can be served out of order, and a
+   * LWW `UPDATE` would then persist the earlier number. How the taps are
+   * dispatched — first one immediately, at most one outstanding per card, one
+   * `onSettled` follow-up carrying the final number — is documented where it
+   * lives, in `src/lib/menu/portions-queue.ts` and `menu-screen.tsx`.
    *
    * No rows updated → `NOT_FOUND`. The card is on screen, so the useful
    * response is a refresh, not a retry.

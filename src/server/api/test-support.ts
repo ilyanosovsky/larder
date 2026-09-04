@@ -177,13 +177,24 @@ export interface RecordedStatement {
   /**
    * Whether the insert ended in `.onConflictDoNothing()`.
    *
-   * A boolean rather than a config object because the call takes no arguments
-   * on the only path that uses it — the UploadThing callback, where a
-   * redelivered notification for a key already recorded must be a no-op
-   * rather than a 23505. Recorded so that dropping the link is a test
-   * failure and not a production surprise.
+   * Recorded so that dropping the clause is a test failure and not a
+   * production surprise: the UploadThing callback needs it so a redelivered
+   * notification for a key already recorded is a no-op rather than a 23505,
+   * and `menu.addDish` needs it so two partners tapping the same dish at the
+   * same second settle as `alreadyInMenu`.
    */
   onConflictDoNothing: boolean;
+  /**
+   * The config handed to `.onConflictDoNothing({ target, where })`, or `null`
+   * when the clause was never used **or was used bare**.
+   *
+   * Separate from the boolean above because the call takes no arguments on
+   * the UploadThing path and a targeted one on `menu.addDish`'s, and the
+   * difference is exactly what needs asserting: a bare `DO NOTHING` swallows
+   * any unique violation the table ever grows, while the targeted one
+   * swallows only the (week, dish) pair the pool's invariant is about.
+   */
+  onConflictNothing: { target: unknown; where: unknown } | null;
   /**
    * How many `transaction()` callbacks the statement was issued inside: `0`
    * for a bare statement, `1` inside a transaction, `2` inside a nested one.
@@ -249,6 +260,7 @@ export function createDbStub(results: StubResult[] = []): DbStub {
       lock: null,
       onConflict: null,
       onConflictDoNothing: false,
+      onConflictNothing: null,
       txDepth,
     };
     statements.push(statement);
@@ -294,8 +306,14 @@ export function createDbStub(results: StubResult[] = []): DbStub {
         statement.lock = { strength, config };
         return chain;
       },
-      onConflictDoNothing() {
+      onConflictDoNothing(config?: { target?: unknown; where?: unknown }) {
         statement.onConflictDoNothing = true;
+        // Optional so the bare UploadThing call site still typechecks, and
+        // recorded even when bare so a test can tell the two apart.
+        statement.onConflictNothing =
+          config === undefined
+            ? null
+            : { target: config.target, where: config.where };
         return chain;
       },
       onConflictDoUpdate(config: {

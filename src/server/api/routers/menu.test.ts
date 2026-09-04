@@ -3,7 +3,7 @@ import { isSQLWrapper, type SQLWrapper } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
-import { weekMenus } from "@/db/schema";
+import { menuItems, weekMenus } from "@/db/schema";
 import { createCaller } from "@/server/api/root";
 import { ensureWeekMenu } from "@/server/api/routers/menu";
 import {
@@ -173,8 +173,48 @@ describe("menu.current", () => {
 
     const pool = stub.statements[2];
     expect(pool).toMatchObject({ kind: "select", table: "menu_items" });
-    expectScopedByHousehold(pool);
     expect(pool?.lock).toBeNull();
+
+    // Both predicates, and both bound values: `expectScopedByHousehold`
+    // alone survives the week predicate being deleted or pointed at the
+    // wrong column, and the pool would then be every week at once.
+    const poolWhere = compile(pool?.wheres[0]);
+    expect(poolWhere.sql).toContain('"household_id"');
+    expect(poolWhere.sql).toContain('"week_menu_id"');
+    expect(poolWhere.params).toEqual([HOUSEHOLD_ID, WEEK_MENU_ID]);
+
+    // The projection, because every content assertion in this file reads the
+    // row the stub was handed rather than the column the router selected —
+    // and `MenuItemOutput` types each field, so a swap between two columns
+    // of the same type ships green through lint, typecheck and the suite.
+    // `dishes.archived_at → dishes.created_at` would put a permanent «в
+    // архиве» chip on every card.
+    const fields = pool?.fields as Record<string, unknown>;
+    expect(Object.keys(fields)).toEqual([
+      "id",
+      "dishId",
+      "title",
+      "photoUrl",
+      "tags",
+      "totalTimeMin",
+      "portions",
+      "portionsBase",
+      "portionsMin",
+      "yieldUnit",
+      "cookedAt",
+      "archivedAt",
+      "addedById",
+      "createdAt",
+      "updatedAt",
+    ]);
+    expect(compile(fields.id).sql).toContain('"menu_items"."id"');
+    expect(compile(fields.dishId).sql).toContain('"dish_id"');
+    expect(compile(fields.portions).sql).toContain('"menu_items"."portions"');
+    expect(compile(fields.portionsBase).sql).toContain('"portions_base"');
+    expect(compile(fields.cookedAt).sql).toContain('"cooked_at"');
+    expect(compile(fields.archivedAt).sql).toContain('"archived_at"');
+    expect(compile(fields.createdAt).sql).toContain('"menu_items"."created_at"');
+    expect(compile(fields.updatedAt).sql).toContain('"menu_items"."updated_at"');
 
     // A join condition is exactly where a household predicate goes missing
     // without any `where` noticing (VISION §6.7).
@@ -323,6 +363,14 @@ describe("menu.addDish", () => {
         addedBy: "user_1",
       },
     });
+    // Targeted, not bare. A bare `DO NOTHING` behaves identically today —
+    // `menu_items` has exactly one unique index — but it would silently
+    // absorb any unique constraint the table ever grows, and `addDish` would
+    // then answer `alreadyInMenu` for a row it never wrote.
+    expect(insert?.onConflictNothing?.target).toEqual([
+      menuItems.weekMenuId,
+      menuItems.dishId,
+    ]);
   });
 
   it("re-reads the joined row and reports «added» when the insert won", async () => {
@@ -379,13 +427,17 @@ describe("menu.addDish", () => {
     }
   });
 
-  it("throws rather than guessing if the re-read finds nothing", async () => {
+  it("answers CONFLICT rather than guessing if the re-read finds nothing", async () => {
+    // Reachable under READ COMMITTED: `DO NOTHING` takes no lock on the
+    // conflicting row, and a partner's unlocked `removeDish` can land in the
+    // round trip between the insert and the re-read. Nothing is broken and
+    // the retry succeeds, so it is a conflict, not a server fault.
     const { caller } = callerWith(
       addPreamble([{ id: DISH_ID }], [{ id: WEEK_MENU_ID }], [{ id: ITEM_ID }], []),
     );
 
     await expect(caller.menu.addDish(input)).rejects.toSatisfy(
-      hasCode("INTERNAL_SERVER_ERROR"),
+      hasCode("CONFLICT"),
     );
   });
 });
