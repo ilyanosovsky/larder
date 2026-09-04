@@ -33,8 +33,11 @@ export interface BoundProduct {
  * - «опционально», a checkbox, because it is the one flag the recipe itself
  *   states rather than something we inferred.
  *
- * The quantity is a plain text input, not `QtyStepper`: that component's floor
- * is one whole unit (`STEPPER_MIN_QTY`), and «¾ ч.л.» is typed, not stepped.
+ * The quantity is a plain text input, not `QtyStepper`: that component's unit
+ * picker is the purchase canon (`UNITS`) and cannot express `RECIPE_ONLY_UNITS`
+ * such as «ч.л.»/«щепотка», and its «+»/«−» floor is one whole step of the
+ * unit (`qtyStepFor`) rather than any fixed minimum — «¾ ч.л.» is typed, not
+ * stepped.
  */
 export function IngredientEditRow({
   value,

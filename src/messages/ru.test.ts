@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import { formatQtyNumber } from "@/lib/cart/qty-step";
 import { cardPortionsMessage } from "@/lib/menu/card-portions";
 import { ingredientsForMessage } from "@/lib/recipes/portions";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
@@ -96,6 +97,8 @@ function translator(
     | "dishAdapt"
     | "cooking"
     | "inviteLink"
+    | "cart"
+    | "autocomplete"
     | "menu"
     | "menuBuild"
     | "menuHistory",
@@ -715,6 +718,130 @@ describe("the equipment banner's missing-appliances sentence", () => {
   });
 });
 
+describe("cart / autocomplete namespaces (task Б4)", () => {
+  /**
+   * The two keys each of `QtyStepper`'s callers added for the typeable qty
+   * field — resolved individually rather than swept off
+   * `Object.keys(messages.cart)` / `messages.autocomplete`, because
+   * `cart.orderedService` is a nested object (`{wolt, carrefour, other}`),
+   * not a message, and would break a flat existence sweep the way
+   * `dishForm`/`dishImport`/`dishAdapt`'s own flat namespaces do not need to
+   * worry about.
+   */
+  const CART_QTY_KEYS = ["editQtyInputAria", "editQtyInvalid"] as const;
+  const AUTOCOMPLETE_QTY_KEYS = ["qtyInputAria", "qtyInvalid"] as const;
+
+  it.each(CART_QTY_KEYS)("cart.%s resolves to real copy", (key) => {
+    const rendered = translator("cart")(key);
+
+    expect(rendered).not.toBe(`cart.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(AUTOCOMPLETE_QTY_KEYS)(
+    "autocomplete.%s resolves to real copy",
+    (key) => {
+      const rendered = translator("autocomplete")(key);
+
+      expect(rendered).not.toBe(`autocomplete.${key}`);
+      expect(rendered.trim().length).toBeGreaterThan(0);
+    },
+  );
+
+  it("has every cart key the screens actually ask for", () => {
+    // The deletion-catching direction, same as `dishImport`/`settings`/
+    // `inviteLink`/`dishAdapt` above: `cart-screen.tsx` and
+    // `cart-item-sheet.tsx` both bind `useTranslations("cart")`, and this
+    // reads every literal key either one passes to it, rather than trusting
+    // a hand-kept list to notice a deletion.
+    const dictionary = messages.cart as Record<string, unknown>;
+    const asked = keysAskedFor("cart");
+
+    // A guard on the guard, like the `dishImport`/`settings` sweeps: if the
+    // scan ever stops finding call sites it must fail loudly rather than
+    // pass vacuously. 51 keys are asked for today.
+    expect(asked.size).toBeGreaterThan(40);
+
+    const missing = [...asked].filter(([key]) => !(key in dictionary));
+    expect(missing).toEqual([]);
+  });
+
+  it("has every autocomplete key the sheet actually asks for", () => {
+    const dictionary = messages.autocomplete as Record<string, unknown>;
+    const asked = keysAskedFor("autocomplete");
+
+    // 21 keys are asked for today.
+    expect(asked.size).toBeGreaterThan(15);
+
+    const missing = [...asked].filter(([key]) => !(key in dictionary));
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * Q1 (PR #36 review): the cart row's qty text and its checkbox
+   * `aria-label` interpolate a bare `{qty}` ICU argument — `intl-
+   * messageformat` stringifies that with plain `String()`, never through
+   * `formatQtyNumber`, so a fractional quantity rendered a Latin-dot
+   * "0.5 кг" in both places while the row editor's own field (which does go
+   * through `formatQtyNumber`) showed "0,5". Pinned here rather than in
+   * `qty-step.test.ts`, because the defect lives in how `cart-screen.tsx`
+   * (a client component vitest cannot render) calls `t(...)`, not in
+   * `formatQtyNumber` itself.
+   *
+   * This alone does **not** pin the fix (S2, PR #36 round 2 review): it
+   * formats the number itself and passes the resulting *string* into the
+   * translator, so it only proves the ICU messages interpolate a string
+   * verbatim — true before and after the fix. The next test below reads
+   * `cart-screen.tsx`'s own source and checks the call sites themselves.
+   */
+  it("formats a fractional cart qty with a comma, not a dot — qtyValue and rowCheckboxAria", () => {
+    const t = translator("cart");
+
+    expect(t("qtyValue", { qty: formatQtyNumber(0.5), unit: "кг" })).toBe(
+      "0,5 кг",
+    );
+    expect(
+      t("rowCheckboxAria", {
+        name: "Рис",
+        qty: formatQtyNumber(0.5),
+        unit: "кг",
+      }),
+    ).toBe("Рис, 0,5 кг");
+  });
+
+  /**
+   * S2 (PR #36 round 2 review): the test above renders the same ICU
+   * messages the screen uses, but never opens `cart-screen.tsx` — reverting
+   * both call sites there back to a bare `qty: item.qty` (reintroducing the
+   * Latin-dot bug Q1 fixed) left that test, `eslint`, `tsc --noEmit` and the
+   * rest of the suite green. This reads the screen's own source, the same
+   * approach `copyCallSites`/`keysAskedFor` above already use, and checks
+   * that every call to `qtyValue`/`rowCheckboxAria` there actually passes
+   * `qty: formatQtyNumber(...)` — so a call site that regresses to the raw
+   * number, or a third one added without the formatter, fails here too.
+   */
+  it("passes qty through formatQtyNumber at every qtyValue/rowCheckboxAria call site in cart-screen.tsx", () => {
+    const source = readFileSync(
+      join("src", "app", "(app)", "cart-screen.tsx"),
+      "utf8",
+    );
+    const callSites = [
+      ...source.matchAll(/t\(\s*"(?:qtyValue|rowCheckboxAria)"/g),
+    ];
+
+    // A guard on the guard, like the sweeps above: if the scan ever stops
+    // finding these two call sites it must fail loudly rather than pass
+    // vacuously.
+    expect(callSites).toHaveLength(2);
+
+    for (const callSite of callSites) {
+      const start = callSite.index;
+      const nearby = source.slice(start, start + 200);
+      expect(nearby).toContain("qty: formatQtyNumber(");
+    }
+  });
+});
+
 describe("menu (task 5.1)", () => {
   /**
    * Swept off the dictionary itself, like `dishForm`/`dishImport`: S10
@@ -726,7 +853,9 @@ describe("menu (task 5.1)", () => {
    * literal `{title}` in it rather than failing, which the emptiness check
    * below would not catch on its own.
    */
-  const MENU_KEYS = Object.keys(messages.menu) as (keyof typeof messages.menu)[];
+  const MENU_KEYS = Object.keys(
+    messages.menu,
+  ) as (keyof typeof messages.menu)[];
 
   const VALUES = {
     count: 1,
@@ -823,9 +952,9 @@ describe("menu (task 5.1)", () => {
   });
 
   it("words S10's «скоро» exactly as S7 words its own", () => {
-    expect(
-      translator("menu")("soonHint", { action: "Собрать корзину" }),
-    ).toBe("«Собрать корзину» — скоро");
+    expect(translator("menu")("soonHint", { action: "Собрать корзину" })).toBe(
+      "«Собрать корзину» — скоро",
+    );
   });
 });
 

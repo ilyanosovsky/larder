@@ -9,6 +9,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
+import { defaultQtyFor, qtyForUnitChange } from "@/lib/cart/qty-step";
 import { isRateLimitedError } from "@/lib/trpc-errors";
 import type { Unit } from "@/lib/units";
 import type { ProductSearchHitOutput } from "@/server/api/routers/product";
@@ -18,7 +19,7 @@ import { useTRPC } from "@/trpc/client";
 import styles from "./autocomplete-sheet.module.css";
 import { BottomSheet } from "./bottom-sheet";
 import { ProductEditForm, type EditableProduct } from "./product-edit-form";
-import { QtyStepper } from "./qty-stepper";
+import { QtyStepper, type QtyStepperHandle } from "./qty-stepper";
 
 /**
  * Long enough that a fast typist makes one request instead of six, short
@@ -137,6 +138,17 @@ export function AutocompleteSheet({
   const [qty, setQty] = useState(1);
   const [unit, setUnit] = useState<Unit>("шт");
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Flushed right before `onAdded` — see `QtyStepperHandle`'s own doc
+   * comment for why `submit` cannot just read the `qty` state instead.
+   */
+  const qtyStepperRef = useRef<QtyStepperHandle>(null);
+  /**
+   * «Изменить» — the control the focus-rescue effect below returns focus to
+   * once the "editing" phase (`ProductEditForm`) unmounts and takes its own
+   * focused control (Cancel/Save) with it (S5, PR #36 round 2 review).
+   */
+  const editButtonRef = useRef<HTMLButtonElement>(null);
 
   const create = useMutation(trpc.product.create.mutationOptions());
 
@@ -159,6 +171,24 @@ export function AutocompleteSheet({
     const timer = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
+
+  // Rescues focus back onto «Изменить» when the "editing" phase
+  // (`ProductEditForm`) hands the quantity phase back — that phase switch
+  // unmounts the form's own focused control (Cancel/Save) along with
+  // everything else in it, and nothing else in the sheet claims focus
+  // afterwards (S5, PR #36 round 2 review). Same `activeElement` guard as
+  // `ProductEditForm`'s own mount-time rescue: only when focus has actually
+  // been lost, never when something already legitimately holds it — a
+  // future `autoFocus` inside the quantity phase, say.
+  useEffect(() => {
+    if (phase.kind !== "quantity") {
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      editButtonRef.current?.focus();
+    }
+  }, [phase.kind]);
 
   const trimmedQuery = debouncedQuery.trim();
   const searching = phase.kind === "search" && trimmedQuery.length > 0;
@@ -243,9 +273,22 @@ export function AutocompleteSheet({
     { created, aiFailed }: { created: boolean; aiFailed: boolean },
   ) {
     setError(null);
-    setQty(1);
+    // The default for the product's own unit (task Б4) — not a flat 1,
+    // which for «г»/«мл» would open the line looking like someone already
+    // tapped «+» twice for no reason.
+    setQty(defaultQtyFor(product.defaultUnit));
     setUnit(product.defaultUnit);
     setPhase({ kind: "quantity", product, created, aiFailed });
+  }
+
+  /**
+   * S4's unit select: `qtyForUnitChange` keeps a shopper-set number as-is
+   * and only swaps in the new unit's own default for a line nobody has
+   * touched yet — see that function's own doc comment for why.
+   */
+  function changeUnit(newUnit: Unit) {
+    setQty((current) => qtyForUnitChange(current, unit, newUnit));
+    setUnit(newUnit);
   }
 
   /**
@@ -365,7 +408,12 @@ export function AutocompleteSheet({
     busyRef.current = true;
     setSubmitting(true);
     try {
-      await onAdded({ product, qty, unit });
+      // Flushes whatever is still sitting in the qty field's own draft text
+      // — a tap on «В корзину» usually blurs the field first, but a fast
+      // touch tap is not guaranteed to, and `qty` state read here would
+      // still be the *previous* render's number even if it had.
+      const finalQty = qtyStepperRef.current?.commitPending() ?? qty;
+      await onAdded({ product, qty: finalQty, unit });
     } catch {
       setError(t("error"));
     } finally {
@@ -477,16 +525,24 @@ export function AutocompleteSheet({
             </span>
             <span className={styles.resultName}>{phase.product.name}</span>
             <button
+              ref={editButtonRef}
               type="button"
               className={styles.inlineButton}
-              onClick={() =>
+              onClick={() => {
+                // «Изменить» unmounts `QtyStepper` (the "editing" phase
+                // renders `ProductEditForm` instead) — commit whatever is
+                // still sitting in the qty field's own draft text first, or
+                // a typed-but-uncommitted value is lost outright rather than
+                // merely stepped from stale, the way the ± buttons guard
+                // against.
+                qtyStepperRef.current?.commitPending();
                 setPhase({
                   kind: "editing",
                   product: phase.product,
                   created: phase.created,
                   aiFailed: phase.aiFailed,
-                })
-              }
+                });
+              }}
             >
               {t("edit")}
             </button>
@@ -507,13 +563,16 @@ export function AutocompleteSheet({
           )}
 
           <QtyStepper
+            ref={qtyStepperRef}
             qty={qty}
             unit={unit}
             onQtyChange={setQty}
-            onUnitChange={setUnit}
+            onUnitChange={changeUnit}
             decreaseAria={t("qtyDecreaseAria")}
             increaseAria={t("qtyIncreaseAria")}
             unitLabel={t("unitLabel")}
+            qtyInputAria={t("qtyInputAria")}
+            invalidHint={t("qtyInvalid")}
           />
 
           <button
@@ -532,9 +591,14 @@ export function AutocompleteSheet({
           product={phase.product}
           onSaved={(saved) => {
             staleCatalogQueries();
-            // The quantity already dialled in survives — only the product
-            // changed. The unit follows the product's new default, which is
-            // usually the very thing the shopper came here to correct.
+            // The unit follows the product's new default, which is usually
+            // the very thing the shopper came here to correct — same
+            // `qtyForUnitChange` rule as the stepper's own unit select: an
+            // untouched default swaps to the new unit's default, anything
+            // the shopper actually set survives unchanged.
+            setQty((current) =>
+              qtyForUnitChange(current, unit, saved.defaultUnit),
+            );
             setUnit(saved.defaultUnit);
             setPhase({
               kind: "quantity",

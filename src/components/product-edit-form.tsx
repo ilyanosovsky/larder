@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { isConflictError } from "@/lib/trpc-errors";
 import { UNITS, type Unit } from "@/lib/units";
@@ -26,6 +26,13 @@ export type EditableProduct = Pick<
  * department are a *suggestion*, and everything is editable. Whatever the
  * model got wrong has to be one tap away from fixed, or the suggestion stops
  * being a help and becomes something to fight.
+ *
+ * `AutocompleteSheet`'s «Изменить» unmounts to render this form in its place
+ * (S4's "quantity" → "editing" phase switch) — including the button that
+ * held focus a moment ago. Nothing else in the sheet claims it, so it would
+ * otherwise land on `<body>`, outside `BottomSheet`'s `aria-modal` panel
+ * (S5, PR #36 round 2 review). The mount effect below rescues it onto
+ * «Название», guarded so it never steals focus a caller placed on purpose.
  */
 export function ProductEditForm({
   product,
@@ -42,6 +49,7 @@ export function ProductEditForm({
   const nameFieldId = useId();
   const categoryFieldId = useId();
   const unitFieldId = useId();
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const [icon, setIcon] = useState(product.icon);
   const [name, setName] = useState(product.name);
@@ -51,6 +59,19 @@ export function ProductEditForm({
 
   const categories = useQuery(trpc.category.list.queryOptions());
   const update = useMutation(trpc.product.update.mutationOptions());
+
+  // Rescues focus onto «Название» on mount. Same `activeElement` guard as
+  // `adaptation-sheet.tsx`'s own rescue and `pickImportFocusTarget`'s
+  // "rescue, never steal" rule (`src/lib/recipes/import-focus.ts`): only
+  // when focus has actually been lost (the caller's own control was just
+  // unmounted to make room for this form), never when something already
+  // legitimately holds it.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      nameRef.current?.focus();
+    }
+  }, []);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -104,6 +125,7 @@ export function ProductEditForm({
             {t("nameLabel")}
           </label>
           <input
+            ref={nameRef}
             id={nameFieldId}
             className={styles.input}
             type="text"

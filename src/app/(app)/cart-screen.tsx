@@ -23,6 +23,7 @@ import {
   describeCartAddOutcome,
   type CartAddToastKey,
 } from "@/lib/cart/add-outcome";
+import { formatQtyNumber } from "@/lib/cart/qty-step";
 import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
 import {
   applyReceiveOrder,
@@ -927,7 +928,7 @@ export function CartScreen() {
                         data-pending={pending || undefined}
                         aria-label={t("rowCheckboxAria", {
                           name: item.productName,
-                          qty: item.qty,
+                          qty: formatQtyNumber(item.qty),
                           unit: item.unit,
                         })}
                         onChange={() => toggleStatus(item)}
@@ -992,7 +993,10 @@ export function CartScreen() {
                           ordered && styles.rowQtyPushed,
                         )}
                       >
-                        {t("qtyValue", { qty: item.qty, unit: item.unit })}
+                        {t("qtyValue", {
+                          qty: formatQtyNumber(item.qty),
+                          unit: item.unit,
+                        })}
                       </span>
                       {item.buyerId === null ||
                       item.buyerName === null ? null : (
