@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { weekEndOf, weekStartOf } from "@/server/menu/week";
 
-import { formatWeekRange } from "./week-label";
+import { formatWeekRange, isBuiltInWeek } from "./week-label";
 
 describe("formatWeekRange", () => {
   it("renders DESIGN_BRIEF's own week label, month named once", () => {
@@ -53,5 +53,31 @@ describe("formatWeekRange", () => {
 
       expect(formatWeekRange("2026-08-04", "2026-08-10")).toBe("4–10 августа");
     });
+  });
+});
+
+describe("isBuiltInWeek", () => {
+  it("is false while nothing has been built", () => {
+    expect(isBuiltInWeek(null, "2026-08-03")).toBe(false);
+  });
+
+  it("accepts the very first instant of the week", () => {
+    expect(
+      isBuiltInWeek(new Date("2026-08-03T00:00:00.000Z"), "2026-08-03"),
+    ).toBe(true);
+  });
+
+  it("accepts a stamp from inside the week", () => {
+    expect(
+      isBuiltInWeek(new Date("2026-08-06T18:00:00.000Z"), "2026-08-03"),
+    ).toBe(true);
+  });
+
+  it("rejects last week's stamp", () => {
+    // The whole reason the line is gated: «Корзина собрана · 28 июля» over
+    // this week's pool says the opposite of what it looks like.
+    expect(
+      isBuiltInWeek(new Date("2026-08-02T23:59:59.999Z"), "2026-08-03"),
+    ).toBe(false);
   });
 });

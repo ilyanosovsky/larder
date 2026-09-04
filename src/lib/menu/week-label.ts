@@ -58,3 +58,30 @@ export function formatWeekRange(weekStart: string, weekEnd: string): string {
     utcMidnight(weekEnd),
   );
 }
+
+/**
+ * Whether a «Корзина собрана» stamp belongs to the week on screen.
+ *
+ * S10's quiet line exists so the second partner does not rebuild out of
+ * habit; a stamp from *last* week says the opposite of what it looks like, so
+ * the line has to be gated rather than merely rendered when non-null.
+ *
+ * The comparison is instant-against-instant: `weekStart` is a calendar label,
+ * and the moment it opens is its UTC midnight — the same reading
+ * `weekStartOf` produced it under. A string comparison against a formatted
+ * `lastBuiltAt` would be the same answer computed twice, in two zones.
+ *
+ * Here rather than inline in the screen for the reason every branch in this
+ * app is: vitest runs in `node` with no DOM, so a ternary in a `.tsx` is
+ * unreachable from the suite.
+ */
+export function isBuiltInWeek(
+  lastBuiltAt: Date | null,
+  weekStart: string,
+): boolean {
+  if (lastBuiltAt === null) {
+    return false;
+  }
+
+  return lastBuiltAt.getTime() >= utcMidnight(weekStart).getTime();
+}

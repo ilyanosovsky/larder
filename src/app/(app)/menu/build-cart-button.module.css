@@ -1,0 +1,31 @@
+/* S10's primary action. Its own stylesheet from day one so task 5.2 replaces
+   this file and this one, and never touches `menu-screen.module.css`. */
+
+.build {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  padding: 0 var(--s-4);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  font-weight: var(--w-medium);
+  text-align: center;
+}
+
+/* Focusable and quieter, never `disabled` — a keyboard user has to be able to
+   reach it and hear why it is unavailable. */
+.build[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.build:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}
