@@ -1,0 +1,40 @@
+/* «Прошлые недели» — the collapsed block at the bottom of S10. Its own
+   stylesheet from day one so task 5.3 replaces this file and this one, and
+   never touches `menu-screen.module.css`. */
+
+.section {
+  margin-top: var(--s-6);
+  border-top: var(--bd-hair) solid var(--rule);
+  padding-top: var(--s-3);
+}
+
+.toggle {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--s-2);
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-align: left;
+}
+
+/* Focusable and quieter, never `disabled`: the disclosure is honest about
+   being closed until task 5.3 gives it something to open onto. */
+.toggle[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.marker {
+  color: var(--mute-2);
+  font-size: var(--t-meta);
+}
+
+.toggle:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}

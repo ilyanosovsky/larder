@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import { cardPortionsMessage } from "@/lib/menu/card-portions";
 import { ingredientsForMessage } from "@/lib/recipes/portions";
 import { timerDisplay, timerMessage } from "@/lib/recipes/timer";
 
@@ -94,7 +95,10 @@ function translator(
     | "dishPortions"
     | "dishAdapt"
     | "cooking"
-    | "inviteLink",
+    | "inviteLink"
+    | "menu"
+    | "menuBuild"
+    | "menuHistory",
 ) {
   return createTranslator({ locale: "ru", messages, namespace });
 }
@@ -243,6 +247,10 @@ describe("the keys the dish screens call by name", () => {
     "stepsTitle",
     "stepsEmpty",
     "toMenu",
+    "toMenuAdded",
+    "toMenuAlready",
+    "toMenuArchived",
+    "toMenuError",
     "toCart",
     "cook",
     "cookNoSteps",
@@ -704,5 +712,170 @@ describe("the equipment banner's missing-appliances sentence", () => {
     expect(portions("equipmentMissing", { list: "Миксер, Аэрогриль" })).toBe(
       "Не хватает: Миксер, Аэрогриль",
     );
+  });
+});
+
+describe("menu (task 5.1)", () => {
+  /**
+   * Swept off the dictionary itself, like `dishForm`/`dishImport`: S10
+   * renders more than forty strings across four files, and a hand-kept list
+   * is a list that silently stops covering the newest one.
+   *
+   * The values bag carries every placeholder any `menu` message uses, so one
+   * sweep can render all of them — a missing entry would come back with the
+   * literal `{title}` in it rather than failing, which the emptiness check
+   * below would not catch on its own.
+   */
+  const MENU_KEYS = Object.keys(messages.menu) as (keyof typeof messages.menu)[];
+
+  const VALUES = {
+    count: 1,
+    title: "Лазанья болоньезе",
+    action: "Собрать корзину",
+    minutes: 75,
+    unit: "печений",
+    date: "4 августа",
+  };
+
+  it.each(MENU_KEYS)("menu.%s resolves to real copy", (key) => {
+    const rendered = translator("menu")(key, VALUES);
+
+    expect(rendered).not.toBe(`menu.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+    // A placeholder left unfilled renders as the literal braces, which is
+    // exactly what a renamed parameter would ship.
+    expect(rendered).not.toContain("{");
+  });
+
+  it("has every menu key the four S10 files actually ask for", () => {
+    // The opposite question to the sweep above, and the one that catches a
+    // *deletion*: every literal key `menu-screen.tsx`, `dish-picker-sheet.tsx`,
+    // `build-cart-button.tsx` and `past-weeks-section.tsx` pass to their
+    // translator must resolve.
+    const dictionary = messages.menu as Record<string, unknown>;
+    const asked = keysAskedFor("menu");
+
+    // A guard on the guard: if the scan stops finding call sites it must fail
+    // loudly rather than pass vacuously.
+    expect(asked.size).toBeGreaterThan(25);
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
+  });
+
+  it("declines «блюдо» across every Russian plural category", () => {
+    // The sweep above renders with `count: 1`, so it can only ever exercise
+    // the `one` arm — and ICU falls back to `other` silently, so a deleted
+    // `many` branch would ship «5 блюда» green.
+    const t = translator("menu");
+
+    expect(t("count", { count: 1 })).toBe("1 блюдо");
+    expect(t("count", { count: 2 })).toBe("2 блюда");
+    expect(t("count", { count: 5 })).toBe("5 блюд");
+    // 21 is the category `few`/`many` most often get wrong: it takes `one`.
+    expect(t("count", { count: 21 })).toBe("21 блюдо");
+  });
+
+  it("renders every plural menu message through all three categories", () => {
+    const t = translator("menu");
+    const plurals = Object.entries(messages.menu).filter(([, value]) =>
+      value.includes(", plural,"),
+    );
+
+    expect(plurals.length).toBeGreaterThan(0);
+    for (const [key] of plurals) {
+      const rendered = [1, 2, 5].map((count) =>
+        t(key as keyof typeof messages.menu, { ...VALUES, count }),
+      );
+      for (const line of rendered) {
+        expect(line.trim().length).toBeGreaterThan(0);
+      }
+      // Three different words, not the `other` fallback wearing three numbers.
+      expect(
+        new Set(rendered.map((line) => line.replace(/\d+/g, "#"))).size,
+      ).toBe(3);
+    }
+  });
+
+  it("renders the card's portion line through the real module", () => {
+    // Exactly what `MenuCard` does — the branch lives in
+    // `src/lib/menu/card-portions.ts`, because vitest has no DOM harness and
+    // a ternary inside the `.tsx` would be unreachable from here.
+    const t = translator("menu");
+    const line = (item: {
+      portions: number;
+      portionsBase: number;
+      yieldUnit: string | null;
+    }) => {
+      const message = cardPortionsMessage(item);
+      return t(message.key, message.values);
+    };
+
+    expect(line({ portions: 4, portionsBase: 4, yieldUnit: null })).toBe(
+      "4 порции",
+    );
+    expect(line({ portions: 8, portionsBase: 8, yieldUnit: "печений" })).toBe(
+      "8 печений",
+    );
+    // The noun is dropped once the household cooks a different count: «3
+    // печений» is not Russian, and «3 порции» is honest.
+    expect(line({ portions: 3, portionsBase: 8, yieldUnit: "печений" })).toBe(
+      "3 порции",
+    );
+  });
+
+  it("words S10's «скоро» exactly as S7 words its own", () => {
+    expect(
+      translator("menu")("soonHint", { action: "Собрать корзину" }),
+    ).toBe("«Собрать корзину» — скоро");
+  });
+});
+
+describe("the namespaces task 5.1 seeds for 5.2 and 5.3", () => {
+  /**
+   * `menuBuild` and `menuHistory` are created here, populated by their own
+   * tasks. Seeding them in their final position is what lets those two PRs
+   * edit an interior region of `ru.json` instead of both appending to its
+   * tail — and the sweeps below are what stop a seed key from being renamed
+   * out from under the placeholder that already renders it.
+   */
+  const MENU_BUILD_KEYS = Object.keys(
+    messages.menuBuild,
+  ) as (keyof typeof messages.menuBuild)[];
+
+  it.each(MENU_BUILD_KEYS)("menuBuild.%s resolves to real copy", (key) => {
+    const rendered = translator("menuBuild")(key);
+
+    expect(rendered).not.toBe(`menuBuild.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  const MENU_HISTORY_KEYS = Object.keys(
+    messages.menuHistory,
+  ) as (keyof typeof messages.menuHistory)[];
+
+  it.each(MENU_HISTORY_KEYS)("menuHistory.%s resolves to real copy", (key) => {
+    const rendered = translator("menuHistory")(key);
+
+    expect(rendered).not.toBe(`menuHistory.${key}`);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("has every menuBuild key its call sites ask for", () => {
+    const dictionary = messages.menuBuild as Record<string, unknown>;
+    const asked = keysAskedFor("menuBuild");
+
+    // No guard-on-the-guard here: nothing binds `menuBuild` until task 5.2,
+    // so an empty scan is the honest answer today. The assertion that
+    // matters is that whatever *is* asked for resolves.
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
+  });
+
+  it("has every menuHistory key its call sites ask for", () => {
+    // `past-weeks-section.tsx` already renders `menuHistory.title`, so this
+    // one is not vacuous even before 5.3 lands.
+    const dictionary = messages.menuHistory as Record<string, unknown>;
+    const asked = keysAskedFor("menuHistory");
+
+    expect(asked.size).toBeGreaterThan(0);
+    expect([...asked].filter(([key]) => !(key in dictionary))).toEqual([]);
   });
 });

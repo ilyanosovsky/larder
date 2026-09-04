@@ -1,0 +1,191 @@
+/* The «+ Блюдо» picker — Paper Ledger inside a `BottomSheet`. Search field →
+   ruled rows of dishes → the «скоро» assistant row → the sheet's own feedback
+   line. Its own stylesheet rather than the screen's, because the sheet is a
+   self-contained component the screen only mounts. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* Visible to assistive tech only: the placeholder carries the same words on
+   screen, and a second line of chrome inside a sheet costs more than it
+   explains. Same treatment S6's search label gets. */
+.searchLabel {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.search {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: var(--bd-hair) solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 0 var(--s-3);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+}
+
+.search::placeholder {
+  color: var(--mute-2);
+}
+
+/* ── Rows ── */
+
+.list {
+  max-height: 50vh;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: var(--s-3);
+  border: 0;
+  border-bottom: var(--bd-hair) solid var(--rule);
+  background: transparent;
+  padding: var(--s-2) 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* A picked row stays in place, focusable and readable — it just stops being
+   an action (`aria-disabled`, never `disabled`). */
+.rowInMenu {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.thumb {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: var(--bd-hair) solid var(--rule);
+  background: var(--paper);
+  font-size: 18px;
+}
+
+.thumbPhoto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rowBody {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  color: var(--mute);
+  font-size: var(--t-meta);
+}
+
+.rowMark {
+  flex: none;
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+/* ── States ── */
+
+.state {
+  color: var(--mute);
+  font-size: var(--t-field);
+  line-height: var(--lead-body);
+}
+
+.error {
+  border-left: var(--bd-ink) solid var(--neg);
+  padding-left: var(--s-3);
+  color: var(--neg);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-4) 0;
+}
+
+.emptyLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-decoration: underline;
+}
+
+.assistantRow {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  border: var(--bd-hair) dashed var(--rule-2);
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 var(--s-3);
+  color: var(--mute);
+  font-family: var(--font-sans);
+  font-size: var(--t-field);
+  text-align: left;
+  cursor: default;
+  opacity: 0.75;
+}
+
+.offline,
+.feedback {
+  color: var(--mute);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
+}
+
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.row:focus-visible,
+.search:focus-visible,
+.emptyLink:focus-visible,
+.assistantRow:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: 1px;
+}

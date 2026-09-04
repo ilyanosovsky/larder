@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -897,4 +898,209 @@ export const photoUploads = pgTable(
       .defaultNow(),
   },
   (table) => [index("photo_uploads_householdId_idx").on(table.householdId)],
+);
+
+/**
+ * One week of the household's menu (VISION §3.4, §5; DESIGN_BRIEF S10).
+ *
+ * Deliberately almost empty: a week is an *identity*, not a document, and
+ * everything a week is actually about lives in `menu_items`.
+ *
+ * **`week_start` is a `date` in `string` mode, and it is always a Monday.**
+ * Three decisions in one column. `date`, not `timestamptz`: a week is a
+ * calendar label, not an instant — «4–10 августа» has no time and no zone,
+ * and storing one would only invite the question of whose. `mode: "string"`
+ * («2026-08-04») for the same reason `numeric(…, { mode: "number" })` is
+ * spelled out: a `Date` here would be an instant again, superjson would hand
+ * the browser a value that renders as the previous day west of UTC, and
+ * `menu.current`'s answer would differ between the SSR render and hydration.
+ * Monday, computed server-side by `weekStartOf` (`src/server/menu/week.ts`)
+ * and never sent by a client — see that module for the timezone and for why
+ * two partners must not each compute their own week.
+ *
+ * **The row is created lazily, by the first write, never by a read.**
+ * `menu.current` for a week nobody has touched returns an empty menu and
+ * writes nothing — the same shape `shopping_trips` uses (there is no "open
+ * trip" row), and for the same reason: a query that wrote would mint an empty
+ * row every Monday for every household that merely opened the tab, «Прошлые
+ * недели» would fill with weeks nobody planned, and a read would stop being
+ * repeatable.
+ *
+ * **A week becomes history by standing still**: 5.3's `menu.history` is
+ * `week_start < weekStartOf(now)`. No status column, no cron, no "close the
+ * week" action — the calendar already decides, and a stored flag would be a
+ * second source of truth needing a job to stay true.
+ *
+ * `last_build_request_id` / `last_built_at` are task 5.2's idempotency stamp
+ * and S10's «Корзина собрана · {дата}» line. They ship here, a PR before
+ * their first write, for the reason `dishes.photo_key` shipped early:
+ * `migrate.yml` and the Vercel deploy of one commit run in parallel, so a
+ * column that arrives ahead of its writer has no window where the code is
+ * ahead of the schema — and it keeps 5.2 free of a migration of its own.
+ */
+export const weekMenus = pgTable(
+  "week_menus",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    /** Monday, «YYYY-MM-DD», from `weekStartOf`. */
+    weekStart: date("week_start", { mode: "string" }).notNull(),
+    /**
+     * The server-minted id of the last `menu.previewCart` whose apply was
+     * answered (task 5.2). Re-sending it is answered `alreadyApplied` instead
+     * of summing every quantity into the cart a second time — which is what
+     * one retried request on a flaky connection would otherwise do, silently,
+     * to eight lines at once. Written whenever an apply is *answered*, even
+     * when it wrote nothing: the key is spent either way, and a refused apply
+     * replayed must not suddenly succeed.
+     */
+    lastBuildRequestId: uuid("last_build_request_id"),
+    /**
+     * When a build actually landed — S10's «Корзина собрана · {дата}».
+     * Moved only when an apply wrote at least one line, so the line never
+     * claims a cart was assembled by an apply that added nothing.
+     */
+    lastBuiltAt: timestamp("last_built_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /**
+     * One menu per household per week — the invariant the lazy creation races
+     * against. `ensureWeekMenu` inserts with `ON CONFLICT … DO UPDATE`, so two
+     * partners adding their first dish of the week at the same instant end
+     * with one week row rather than two competing pools, decided by Postgres
+     * rather than by a read.
+     *
+     * It doubles as 5.3's history index: `WHERE household_id = $1 AND
+     * week_start < $2 ORDER BY week_start DESC` is a plain backwards scan of
+     * this btree, which is why there is no second index on the same pair.
+     */
+    uniqueIndex("week_menus_householdId_weekStart_uidx").on(
+      table.householdId,
+      table.weekStart,
+    ),
+  ],
+);
+
+/**
+ * One dish in one week's pool (VISION §3.4: «пул блюд на неделю без привязки
+ * к дням»; DESIGN_BRIEF S10).
+ *
+ * **The invariant this table exists for: one row per (week, dish).** The pool
+ * answers «что мы готовим на этой неделе»; the same dish twice is a portion
+ * count, not a second card. Two partners tapping «В меню недели» on the same
+ * dish at the same second is the `cart_items` story again — «помидоры и
+ * вверху, и внизу» — and it is settled the same way: the unique index is the
+ * authority, `menu.addDish` inserts with `ON CONFLICT DO NOTHING` and reads
+ * back the winner. The index carries no `household_id`, exactly as
+ * `cart_items`' and `pantry_items`' do not: a `week_menus` row belongs to
+ * exactly one household, so uniqueness per (week, dish) is already at least
+ * as strict as uniqueness per (household, week, dish) — never weaker. That is
+ * a statement about `week_menus`, not a licence for a statement here to skip
+ * its own household predicate.
+ *
+ * **Adding a dish already in the pool bumps nothing.** The outcome is
+ * `alreadyInMenu` and the row comes back untouched, portions and all. Raising
+ * `portions` instead would mean a double tap — or a partner who got there
+ * first — silently buys twice the groceries with nothing on screen saying so,
+ * and an S7 re-add with an unmoved slider would reset a number the partner
+ * deliberately set on the card. It is also what makes the mutation
+ * replay-safe: sent twice, the second call is a no-op that reports the
+ * existing row, exactly as `pantry.ranOut` answers `alreadyInCart`.
+ *
+ * `portions` is required with **no column default**: the two entry points
+ * know two different right answers (S10's picker sends the recipe's own
+ * `portions_base`, S7 sends the slider's live value), and a default would
+ * quietly stand in for whichever one forgot to send it.
+ *
+ * `cooked_at` is a timestamp, not a boolean — «приготовлено» wants a *when*
+ * for 5.3's history and phase 6's assistant, and a boolean would have grown a
+ * `cooked_at` beside it anyway. Deliberately **not** a status enum: a new
+ * enum value can never be written in the deploy batch that adds it
+ * (AGENTS.md), and this column has no reason to pay that tax.
+ *
+ * `day_of_week` is the column VISION §5 asks for and **nothing writes it in
+ * MVP**: no input accepts it, `menu.current` does not return it, no index
+ * covers it. It is here because adding it later would be a migration for a
+ * column whose absence changes nothing, and because its presence is what
+ * makes «пул без дней» a product decision rather than a schema limitation.
+ * ISO 1…7 when product phase 2 gives it a UI; no CHECK constraint, consistent
+ * with `cart_items` — bounds live in Zod, constraints are reserved for
+ * invariants that must survive a race.
+ *
+ * `dish_id` is `ON DELETE restrict`, like `cart_items.product_id`,
+ * `pantry_items.product_id` and `recipe_ingredients.product_id`: a stored week
+ * must keep naming the dish it named, and «Повторить неделю» must still be
+ * able to read it. **This is why dishes archive rather than delete** — the
+ * `dishes` doc comment says so out loud, naming these rows. `menu.current`
+ * therefore does *not* filter on `dishes.archived_at`; it returns it, and the
+ * card wears a quiet «в архиве» marker. The picker reads `dish.list`, which
+ * excludes archived dishes, so a new one can never be added — only an old row
+ * can still point at one.
+ *
+ * `week_menu_id` cascades: an item has no meaning apart from its week, and
+ * nothing deletes weeks, so it is a safety net rather than a path.
+ * `added_by` is `set null` — the menu belongs to the household, not to
+ * whoever tapped.
+ *
+ * `household_id` is repeated on this child table for the tenancy rule
+ * (VISION §6.7): a predicate expressible only through a join to `week_menus`
+ * is one refactor away from vanishing.
+ *
+ * **No `(week_menu_id, created_at)` index.** `menu.current` reads one week's
+ * pool and sorts it in Postgres; a week holds a handful of rows, so the sort
+ * is free and the unique index already covers the lookup. Written down so
+ * nobody adds one later without a reason.
+ */
+export const menuItems = pgTable(
+  "menu_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    weekMenuId: uuid("week_menu_id")
+      .notNull()
+      .references(() => weekMenus.id, { onDelete: "cascade" }),
+    dishId: uuid("dish_id")
+      .notNull()
+      .references(() => dishes.id, { onDelete: "restrict" }),
+    /** How many portions this household is cooking — 1…`MAX_PORTIONS`. */
+    portions: integer("portions").notNull(),
+    /** ISO 1…7. Nothing writes it in MVP; see the note above. */
+    dayOfWeek: integer("day_of_week"),
+    /** «приготовлено» — set and cleared by `menu.setCooked`, last write wins. */
+    cookedAt: timestamp("cooked_at", { withTimezone: true }),
+    addedBy: text("added_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** On the wire for `useChangedRows` — the same job it does on `cart.list`. */
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("menu_items_weekMenuId_dishId_uidx").on(
+      table.weekMenuId,
+      table.dishId,
+    ),
+    /** The tenancy predicate every statement here repeats. */
+    index("menu_items_householdId_idx").on(table.householdId),
+    /**
+     * The reverse lookup dish → weeks: 5.3's history read, phase 6.1's
+     * assistant, and the pre-check any future dish-delete owes this table —
+     * the same job `recipe_ingredients_productId_idx` does for products.
+     */
+    index("menu_items_dishId_idx").on(table.dishId),
+  ],
 );
