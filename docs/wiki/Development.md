@@ -1179,6 +1179,152 @@ What follows is the real pass, run after that fix, at `http://localhost:3107` ag
 
 **Not verified in this pass** (limitations of the sandbox, or genuinely deferred): a real ~9-minute wait for the timer to actually reach zero and fire the audible ping + live-region announcement (the finish path itself is exercised by `timer.test.ts`'s fake-clock suite and by the code inspection in K7/K8's fixes, but not watched live); whether the chime is actually audible (no audio output in this environment); the Tab focus trap's full forward/backward cycling through every control; a drag deliberately held down while Esc fires (K9's fix — `cancelActiveDrag()` mirrors `revision-mode.tsx`'s own, already-shipped `cancelActiveDrag`, by inspection); and genuine iOS 18.4+ standalone-PWA Wake Lock acquisition on a physical device (the code path is identical to the desktop-Chrome-verified one, gated purely on `"wakeLock" in navigator`).
 
+## Week menu
+
+A **pool, not a calendar** (VISION §3.4): «что мы готовим на этой неделе», with portions and a «приготовлено» mark, and deliberately no days. Two tables — `week_menus` (a week's identity) and `menu_items` (a dish in it) — and three tasks: 5.1 the model, the router and S10; 5.2 «Собрать корзину»; 5.3 history and «Повторить неделю».
+
+**What phase 6 reads from here.** `menu.current` and `menu.addDishes` (5.3) are the assistant's read and write of the pool; `menu.previewCart` / `menu.applyCart` (5.2) take a scope and no client state, so 6.1's tool calls the same pair the screens do.
+
+### The week is a date, and the server computes it
+
+`week_menus.week_start` is a `date` in **`string` mode** («2026-08-04»), and it is always a Monday. Not a `timestamptz`: a week is a calendar label, not an instant — «4–10 августа» has no time and no zone, and storing one would only invite the question of whose. Not a `Date` on the wire either: superjson would hand the browser a value that renders as the previous day west of UTC, so `menu.current` would disagree with itself across hydration.
+
+**The server decides which week is current, never the browser** (`src/server/menu/week.ts`). The menu and the cart are *shared*, so two partners in two zones computing their own Monday would plan different weeks and «Собрать корзину» would build two different carts — and a week discovered in a `useEffect` would make `/menu` un-prefetchable, so the phase's main screen would always paint a skeleton first.
+
+`MENU_TIME_ZONE = "UTC"`, and the cost is stated rather than hidden: a household three hours east sees the new week begin at 03:00 local on Monday. Nothing is lost — the menu they built on Sunday stays current a few hours longer — and both partners always agree. UTC rather than a guess because nothing in this repo names a zone and [S12 «История закупок»](#s12-история-закупок) already says pinning the household's own is a settings question for task 7.1. **Every function takes the zone as an argument**, so that task changes one constant and no call site's logic.
+
+**`weekStartOf` is TypeScript, not `date_trunc('week', now())`.** Two reasons, both hard. The router tests stub the database and pin *literal bound values* (`PgDialect`-compiled clauses), which an in-SQL expression makes impossible. And `date_trunc` over a `timestamptz` truncates in the session's `TimeZone` — a Postgres setting nothing in this repo sets. The civil date is formatted in the zone (`Intl.DateTimeFormat("en-CA")` yields «YYYY-MM-DD» directly), then rebuilt as a UTC instant purely to ask `getUTCDay()` and shift whole days, so no duration is ever measured and a DST Sunday inside the week cannot move the answer.
+
+Week labels come from `formatWeekRange` (`src/lib/menu/week-label.ts`): `Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" }).formatRange(…)`, which produces DESIGN_BRIEF's own «4–10 августа» and «28 июля – 3 августа» — the genitive month a bare format gets wrong, and a same-month range collapsed to one month name. **A formatted date is data, not copy**, the same treatment `formatRecipeQty` gets, so there is no ICU message for a week range anywhere. It is a raw `Intl` call rather than next-intl's `useFormatter`, which is a narrow, deliberate exception to S12's standing rule: that rule's hazard is a call whose zone is the server's during SSR and the browser's after hydration, and **both** the locale and `timeZone: "UTC"` are pinned here. Being pure is also what makes it testable — vitest runs in `node` with no DOM.
+
+### The week row is created lazily
+
+There is no "open week", the same way there is no open trip. `menu.current` for a week nobody has touched returns `{ id: null, items: [], lastBuiltAt: null }` after **one** statement and writes nothing: a query that created its row would mint an empty week every Monday for every household that merely opened the tab, 5.3's «Прошлые недели» would fill with weeks nobody planned, and a read would stop being repeatable.
+
+`ensureWeekMenu(tx, householdId, weekStart)` is the one place the row is created, and it upserts with `ON CONFLICT (household_id, week_start) DO UPDATE SET updated_at = now()` rather than `DO NOTHING`. `DO UPDATE` returns the conflicting row, so the caller needs no second read — and it takes that row's lock, which serializes two partners adding their first dish of the week at the same instant. `setWhere` repeats the household predicate, the same defence in depth `trip.close`'s pantry upsert applies; **that is why the `RETURNING` is guarded**: a `setWhere` that matches nothing updates nothing and returns nothing, so the helper answers `NOT_FOUND` instead of asserting a row that is not there.
+
+**A week becomes history by standing still.** 5.3's `menu.history` is `week_start < weekStartOf(now)` — no status column, no cron, no "close the week" action. The calendar already decides, and a stored flag would be a second source of truth needing a job to stay true. A *future* week is unreachable by construction: nothing accepts a `weekStart` from a client.
+
+### One row per (week, dish)
+
+`menu_items_weekMenuId_dishId_uidx` is the authority, and `menu.addDish` inserts with `ON CONFLICT (week_menu_id, dish_id) DO NOTHING RETURNING id` and then always re-reads the joined row. Two partners tapping «В меню недели» on the same dish at the same second is the `cart_items` story again — «помидоры и вверху, и внизу» — settled the same way.
+
+**Adding a dish already in the pool bumps nothing**: the outcome is `alreadyInMenu` and the row comes back untouched, portions and all. Raising `portions` instead would mean a double tap — or a partner who got there first — silently buys twice the groceries with nothing on screen saying so, and an S7 re-add with an unmoved slider would reset a number the partner deliberately set on the card. It is also what makes the mutation replay-safe: sent twice it is `added`, then `alreadyInMenu`, exactly as `pantry.ranOut` answers `alreadyInCart`.
+
+`DO NOTHING` rather than `cart.add`'s savepoint dance: the cart has to catch its 23505 because it needs the winner's row *to merge into*, and the violation would otherwise abort the enclosing transaction. Here there is nothing to merge — a no-op followed by one read is the whole answer, and the outcome is decided by whether the insert returned a row.
+
+The index carries no `household_id`, exactly as `cart_items`' and `pantry_items`' do not: a `week_menus` row belongs to one household, so uniqueness per (week, dish) is already at least as strict. That is a statement about `week_menus`, not a licence for a statement to skip its own household predicate.
+
+**`portions` is `NOT NULL` with no column default.** The two entry points know two different right answers — S10's picker sends the recipe's own `portions_base`, S7 sends the slider's live (already clamped) value — and a default would quietly stand in for whichever one forgot. The input is bounded `1…MAX_PORTIONS` rather than by `portionsRange(base)`: a stored value must survive a partner editing the recipe's yield downward, and a server that re-clamped would reject a number it accepted last week.
+
+### Archived dishes stay in the menu — and why `dish_id` is RESTRICT
+
+`menu_items.dish_id` is `ON DELETE restrict`, like `cart_items.product_id` and `recipe_ingredients.product_id`: a stored week must keep naming the dish it named, and «Повторить неделю» must still be able to read it. **This is why dishes archive rather than delete** — the `dishes` doc comment says so out loud.
+
+So `menu.current` does *not* filter on `dishes.archived_at`; it returns it, and the S10 card wears a quiet «в архиве» chip and stays fully usable — `dish.archiveHint`'s standing promise that an archived dish «останется в меню недели». `menu.addDish` **does** filter on it, because the picker reads `dish.list`, which excludes archived dishes: client and server agree on what is addable, so a new archived row can never be created and only an old one can still point at one. S7's «В меню недели» is `aria-disabled` on an archived dish for the same reason, with copy saying why rather than a silent refusal.
+
+### `day_of_week` exists and nothing writes it
+
+The column VISION §5 asks for, in the schema from day one and written by nothing in MVP: no input accepts it, `menu.current` does not return it, no index covers it. It is here because adding it later would be a migration for a column whose absence changes nothing, and because its presence is what makes «пул без дней» a product decision rather than a schema limitation. ISO 1…7 when product phase 2 gives it a UI. A field that is always `null` would be noise on the wire and in the type, which is why the output omits it — product phase 2 adds it in the PR that adds a screen for it.
+
+`cooked_at` is a timestamp rather than a boolean for a related reason: «приготовлено» wants a *when* for 5.3's history and phase 6's assistant, and a boolean would have grown a `cooked_at` beside it anyway. Deliberately not a status enum — a new enum value can never be written in the deploy batch that adds it.
+
+### `menu` router
+
+| Procedure          | Boundary             | Notes                                                                                                                        |
+| ------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `menu.current`     | `householdProcedure` | No input — the week is the server's answer. One statement for an untouched week; otherwise + the joined pool read            |
+| `menu.addDish`     | `householdProcedure` | `{ dishId, portions }` → `added` \| `alreadyInMenu`, both carrying the row. Ownership read first, outside the transaction    |
+| `menu.setPortions` | `householdProcedure` | `{ id, portions }` → the row's own state. One LWW `UPDATE`, `NOT_FOUND` when nothing matched                                 |
+| `menu.setCooked`   | `householdProcedure` | `{ id, cooked }` → the same state shape. `cooked_at = now()` or `NULL`                                                       |
+| `menu.removeDish`  | `householdProcedure` | `{ id }` → void. One `DELETE`, **deliberately idempotent — no `NOT_FOUND`**                                                  |
+
+**The two setters are last-write-wins with no read-modify-write.** A ± tap has to work instantly, so the write must never depend on having read the row first; two partners nudging the same card end on whichever value landed last, which is the honest answer for a shared pool. Both answer `NOT_FOUND` when nothing matched, and the screen turns that into a refresh rather than a retry (the repo's «a stale answer refreshes, it does not re-send» rule).
+
+**`removeDish` is idempotent and the setters are not, and the asymmetry is the rule**: removal-shaped mutations must be idempotent — both partners clearing the same card is ordinary, and the desired state is reached either way, exactly `cart.remove` — while state-shaped ones must be honest about a row that is gone.
+
+**No advisory lock anywhere in this router.** `src/server/household-lock.ts` exists for the `trip.close` ↔ `pantry.ranOut` cycle; these procedures touch `week_menus` and `menu_items` and nothing else, so there is no cycle to break and taking it would serialize every «+ Блюдо» behind every shopping action. The same reasoning [the dish save path](#the-save-path-and-how-42-extends-it) states for itself. Task 5.2's `menu.applyCart`, which writes `cart_items` in bulk, is the one that will take it.
+
+`ensureWeekMenu`, `currentWeekStartFor` and `readMenuItems` are exported from the router: 5.3's `repeatWeek` needs all three, and a second copy of any of them would be a second place for the lazy-creation race or a tenancy predicate to go wrong. `buildCartScope` (5.2's discriminated `week` / `dish` input) is declared here in 5.1 for the same reason — it is the contract between two screens and the router.
+
+### Menu screen (S10, task 5.1)
+
+`src/app/(app)/menu/` — `page.tsx` (two prefetches), `loading.tsx`, `menu-screen.tsx`, `dish-picker-sheet.tsx`, `build-cart-button.tsx`, `past-weeks-section.tsx`, one CSS module each for the last four.
+
+`page.tsx` prefetches **two** queries: `menu.current` (the screen) and `dish.list` (the picker — one cache entry, already warmed by `/dishes`, and it is what makes «+ Блюдо» open with its list in it). Because the route prefetches it has its own [`loading.tsx`](#loadingtsx-the-pending-state-of-a-prefetching-route).
+
+**The card is local to `menu-screen.tsx`, not `DishCard`.** That component is a `Link` wrapping its whole tile and this card holds three controls; bending it polymorphic would be a drive-by refactor of a component two shipped screens depend on. What is reused is the meta composition and the photo fallback. The title is its own `<Link>`, so the pool is a way into S7.
+
+**The ± control writes on every tap, with no debounce.** `menu.setPortions` is a plain LWW `UPDATE`, so racing taps are safe, while a 400 ms trailing timer would reintroduce the repo's documented lost-write class: navigate away, background the PWA or drop the connection inside the window and the tap is gone with no pending state on screen. The saving would be two requests on a control pressed twice a week. `onMutate` calls `cancelQueries` before patching, so a focus refetch landing between two taps cannot snap the number back, and the patch is **by id** — `menu.current` rows carry `Date`s, superjson mints new ones on every refetch and structural sharing is defeated, so object identity is never a handle on a row. Rollbacks are per row, not whole-list snapshots, for the same reason [the cart checkbox's](#cart-screen-s3-task-23) are.
+
+**The cooked checkbox is a real `<input type="checkbox">`, and ticking it does not reorder the list.** Unlike S3's `sortBoughtLast`, a pool has no sections, and a card sliding out from under the finger that just ticked it is exactly what DESIGN_BRIEF §6 asks not to do. The card dims and stays put.
+
+**«Убрать из меню» has no confirmation** — removal is idempotent on the server and re-adding is two taps, so a modal would cost more than the mistake. It is the one action here behind a synchronous ref mutex (render state lands a re-render too late for a double tap, and there is no dialog to absorb the second one), and the one that unmounts the element holding focus, so it rescues focus to «+ Блюдо» — guarded on `document.activeElement` being `body`, so it rescues and never steals. The optimistic removal and its rollback reuse `removePantryRow`/`restorePantryRow`: they are generic over `{ id }`, and the rollback's idempotence (do nothing if a refetch already put the row back) is exactly the property this needs too.
+
+**The empty state replaces the pool only.** The actions row («+ Блюдо» and the build button) and the past-weeks block always render — «+ Блюдо» is the way out of the empty state, and a fresh Monday is precisely when repeating last week is the useful move. The «🤖 Предложи меню» chip lives inside the empty block, `aria-disabled` and announcing «скоро»; task 6.1 makes it real.
+
+**The picker stays open after every pick** (VISION §4 scenario А is «вечером выбираем в пул 4–5 блюд» — closing per pick would cost five open/close cycles and five focus restorations). The picked row flips to «✓ в меню» and goes `aria-disabled` **in place**, never `disabled` and never removed, so the focus sitting on it survives; the sheet keeps its own set of what it has just added, so the flip does not wait for a round trip. Search runs through `filterDishes`, S6's own pure function, over the prefetched `dish.list` — no keystroke costs a request. No tag chips: a second filter axis inside a sheet is chrome. All feedback renders **inside** the sheet's `aria-modal` subtree, in a region mounted for the sheet's life with a `seq`-keyed child — a fixed page-level region is behind the scrim and pruned from the accessibility tree.
+
+**`menuSyncQueryOptions` (`src/lib/sync/menu-sync-presets.ts`) is focus + reconnect, and no interval.** The pool is shared and both partners edit it, so a stale one is a real error and `"always"` is needed to bypass `query-client.ts`'s `staleTime: 30_000`. But `cartSyncQueryOptions`' 45-second poll is justified by two people in a shop, one ticking lines the other is looking at; nobody stands in a menu screen waiting for their partner, and a weekly plan is edited in bursts minutes apart. No `gcTime` override either — the offline cache dehydrates `cart.list` alone. A partner's edit still gets the same soft highlight cart rows get, through `useChangedRows` over `menuItemOutput.updatedAt`.
+
+**Nothing here is queued offline.** Every `menu.*` mutation declares `networkMode: "always"`: the IndexedDB queue persists `cart.*` only, so with the default `"online"` mode a menu write tapped offline would *pause* before its `mutationFn` ran — `onSettled` would never fire, a mutex would stay locked for the whole outage and the write would die with the tab. The screen shows the dish pattern's «Нет связи» line instead.
+
+**Controls whose feature has not shipped are `aria-disabled` and announce «скоро», never `disabled`** — «Собрать корзину» (5.2), the past-weeks toggle (5.3), «🤖 Предложи меню» and «🤖 Спросить ассистента» (6.1). `main` deploys to production on every merge. The build button already knows its two *real* refusals from `menu.current` alone (`menu.buildEmpty` for an empty pool, `menu.buildAllCooked` when everything is ticked), which is what will keep 5.2's sheet from ever opening on a preview that could only be empty.
+
+`build-cart-button.tsx` and `past-weeks-section.tsx` are separate files **with their own stylesheets from day one**, so tasks 5.2 and 5.3 each replace one file they own and neither touches `menu-screen.tsx` or its CSS module.
+
+The «Корзина собрана · {дата}» line above the button reads `week_menus.last_built_at` and renders it with next-intl's `useFormatter` (a date, not a relative time — no clock has to agree across SSR and hydration). It is gated on the stamp falling inside the week on screen (`isBuiltInWeek`): a stamp from last week over this week's pool says the opposite of what it looks like. Task 5.2 writes the column; until then the branch renders nothing.
+
+Both branches that would otherwise hide inside the `.tsx` live in pure modules with their own tests — `cardPortionsMessage` (`src/lib/menu/card-portions.ts`) and `isBuiltInWeek` — for the reason [`ingredientsForMessage` does](#screens): vitest runs in `node` with no DOM harness, so a ternary in a component is unreachable from the suite. `cardPortionsMessage` also carries the rule that the recipe's own yield noun survives only at the recipe's own count — «7 печений» cooked at 3 portions is not «3 печений» — which is the same rule S7 applies, so the two screens cannot disagree about one dish.
+
+### S7 «В меню недели»
+
+`dish-screen.tsx`'s first real write from the action row: `menu.addDish({ dishId, portions })` where `portions` is the screen's **already-clamped** slider binding — the number the person has been reading the ingredient list at, not the raw override, which can sit outside `portionsRange(base)` after a background refetch moved the recipe's yield.
+
+The outcome is a real answer rather than a success/failure pair, so the screen says which happened: `dish.toMenuAdded` or `dish.toMenuAlready`, through the screen's existing announcement slot (there is nothing else on the page that would show for the tap). An archived dish keeps the button `aria-disabled` and announces `dish.toMenuArchived`, so the button never lies about what the server will accept. It shares the screen's `pendingRef`, declares `networkMode: "always"` like the other two writes there, and invalidates `menu.current` and nothing else — the dish itself did not change.
+
+«Ингредиенты в корзину» stays the «скоро» button it is; task 5.2 lands it.
+
+### Building the cart from the menu
+
+_Task 5.2 lands this._
+
+### One preview line per product
+
+_Task 5.2 lands this._
+
+### Units at build time
+
+_Task 5.2 lands this._
+
+### The preview never promises what the cart would refuse
+
+_Task 5.2 lands this._
+
+### Preview → apply: what is re-decided and what is not
+
+_Task 5.2 lands this._
+
+### Locking in `menu.applyCart`
+
+_Task 5.2 lands this._
+
+### Idempotency: the client guards and the `requestId` stamp
+
+_Task 5.2 lands this._
+
+### Why this lives on the `menu` router, not on `cart`
+
+_Task 5.2 lands this._
+
+### MergePreview sheet (S10 + S7, and phase 6)
+
+_Task 5.2 lands this._
+
+### History and «Повторить неделю»
+
+_Task 5.3 lands this._
+
 ## API (tRPC)
 
 tRPC v11 + TanStack Query v5, superjson on the wire, Zod at every boundary. The client side uses the current `@trpc/tanstack-react-query` integration (option builders such as `trpc.cart.list.queryOptions()`), not the legacy `@trpc/react-query` hook proxy.
@@ -1264,20 +1410,21 @@ The price is that a `HydrateClient` subtree does not render before its data: **i
 
 ### `loading.tsx` (the pending state of a prefetching route)
 
-Since `HydrateClient` awaits, a route that prefetches has nothing to show until its data is there — and on a client-side navigation the tab tap would otherwise sit on the old screen with no feedback at all. Every one of the five prefetching routes therefore has its own `loading.tsx`, and each renders the **same skeleton component the screen itself renders** while a query is pending, under the same static chrome that sits above it in the real tree (toolbar, segment control, search field), so nothing shifts when the data lands:
+Since `HydrateClient` awaits, a route that prefetches has nothing to show until its data is there — and on a client-side navigation the tab tap would otherwise sit on the old screen with no feedback at all. Every prefetching route therefore has its own `loading.tsx`, and each renders the **same skeleton component the screen itself renders** while a query is pending, under the same static chrome that sits above it in the real tree (toolbar, segment control, search field), so nothing shifts when the data lands:
 
 | Route file                                       | Fallback                                                                                 |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | `src/app/(app)/(purchases)/loading.tsx`          | segment control + cart toolbar + `CartSkeleton` — S3, the tab `PurchasesScreen` opens on |
 | `src/app/(app)/dishes/loading.tsx`               | toolbar + search + tag row + `LibrarySkeleton` — S6's grid of tiles                      |
+| `src/app/(app)/menu/loading.tsx`                 | toolbar + `MenuSkeleton` — S10's pool of dish rows (task 5.1)                            |
 | `src/app/(app)/dishes/[dishId]/loading.tsx`      | `DishSkeleton` — S7's card, which is the whole screen                                    |
 | `src/app/(app)/dishes/[dishId]/edit/loading.tsx` | S8.3's heading + a form-shaped shell                                                     |
 | `src/app/(app)/settings/loading.tsx`             | S12's shell with each section's own «Загружаем …» line                                   |
 | `src/app/(app)/dishes/new/loading.tsx`           | the same S8.3 shell — this route prefetches nothing, see below                           |
 
-The skeletons are exported from their screens for this (`cart-screen.tsx`, `dish-library-screen.tsx`, `dish-screen.tsx`) rather than copied. Nothing inside a fallback is focusable: buttons and inputs become spans and empty boxes in the same CSS-module classes, because a control that does nothing has no business taking a tab stop.
+The skeletons are exported from their screens for this (`cart-screen.tsx`, `dish-library-screen.tsx`, `dish-screen.tsx`, `menu-screen.tsx`) rather than copied. Nothing inside a fallback is focusable: buttons and inputs become spans and empty boxes in the same CSS-module classes, because a control that does nothing has no business taking a tab stop.
 
-**A `loading.tsx` covers its whole segment, so scope it.** The fallback belongs to every child slot of the segment it sits in — a file directly under `(app)` would be what `/menu` and `/assistant` show on a tab tap, and the cart chunk would be listed in their client-reference manifests. Hence the `(purchases)` route group: it gives `/` a boundary of its own without changing the URL, and the two placeholder tabs keep their pre-existing behaviour (no data to wait for, no fallback, the previous screen stays through the transition). For the same reason `/dishes/new` has a `loading.tsx` although it prefetches nothing — without one it would inherit S6's tile grid for the length of the RSC round trip. When adding a route under an existing segment, check what it inherits.
+**A `loading.tsx` covers its whole segment, so scope it.** The fallback belongs to every child slot of the segment it sits in — a file directly under `(app)` would be what `/assistant` shows on a tab tap, and the cart chunk would be listed in their client-reference manifests. Hence the `(purchases)` route group: it gives `/` a boundary of its own without changing the URL, and the remaining placeholder tab keeps its pre-existing behaviour (no data to wait for, no fallback, the previous screen stays through the transition). `/menu` earned its own fallback the moment task 5.1 gave it two prefetches. For the same reason `/dishes/new` has a `loading.tsx` although it prefetches nothing — without one it would inherit S6's tile grid for the length of the RSC round trip. When adding a route under an existing segment, check what it inherits.
 
 ### Errors
 

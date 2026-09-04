@@ -52,8 +52,8 @@ export const caller = createCaller(createTRPCContext);
  * and `household.current` before any page renders, so this is one extra
  * parallel round trip rather than a new blocking phase. Every route that
  * prefetches — `/`, `/dishes`, `/dishes/[dishId]`, `/dishes/[dishId]/edit`,
- * `/dishes/new` (only for `?from=`), `/dishes/import/[jobId]`, `/settings` —
- * has its own `loading.tsx` so the wait is that screen's own skeleton rather
+ * `/dishes/new` (only for `?from=`), `/dishes/import/[jobId]`, `/menu`,
+ * `/settings` — has its own `loading.tsx` so the wait is that screen's own skeleton rather
  * than a blank tab; add one for any new route that prefetches.
  */
 export async function HydrateClient({ children }: { children: ReactNode }) {
