@@ -96,18 +96,30 @@ export function MenuScreen() {
    */
   const removePendingRef = useRef(false);
   /**
-   * The portions value each card's last tap *asked for*, by item id.
+   * The ± control's three synchronous ledgers, all keyed by menu-item id.
    *
-   * The ± control has no mutex — one write per tap is the contract — so the
-   * only thing a second tap needs is the number the first one sent, and the
-   * render cannot supply it: `onMutate` opens with an awaited `cancelQueries`,
-   * so the optimistic patch (and the re-render that carries it) lands a few
-   * milliseconds after `mutate()` returns. Two taps inside that window would
-   * both read 4 off the rendered row and both send 5. A synchronous ref is the
-   * repo's own answer to exactly this class; entries are dropped on settle, so
-   * a failed write falls back to whatever the rolled-back row shows.
+   * `asked` is the number that card's last tap wanted, `inFlight` the number
+   * currently on the wire for it, and `baseline` the number it showed before
+   * the run of taps began.
+   *
+   * They exist because the render cannot answer either question in time.
+   * `onMutate` opens with an awaited `cancelQueries`, so the optimistic patch
+   * — and the re-render carrying it — lands milliseconds after `mutate()`
+   * returns: two taps inside that window would both read the rendered row and
+   * both send the same next value. And two *separate* requests for one card
+   * can be served out of order, so a last-write-wins `UPDATE` could persist
+   * the earlier one — the number on screen would then snap backwards on the
+   * next refetch.
+   *
+   * **At most one write per card is ever outstanding.** The first tap writes
+   * immediately (no debounce, no timer — D18's whole point), and every tap
+   * made while it is in flight only moves `asked`; `onSettled` then sends one
+   * follow-up carrying the final number. Coalescing, not debouncing: nothing
+   * waits on a clock, and nothing can be lost by a timer that never fired.
    */
   const askedPortionsRef = useRef(new Map<string, number>());
+  const inFlightPortionsRef = useRef(new Map<string, number>());
+  const baselinePortionsRef = useRef(new Map<string, number>());
   /**
    * Ids this client wrote a moment ago, so the soft highlight keeps meaning
    * «партнёр что-то поменял».
@@ -229,26 +241,41 @@ export function MenuScreen() {
           HIGHLIGHT_MS,
         );
 
-        const previous = queryClient
-          .getQueryData(menuKey)
-          ?.items.find((row) => row.id === variables.id)?.portions;
-
-        patchItem(variables.id, { portions: variables.portions });
-
-        return { previous };
+        // Re-assert the *freshest* intent rather than the value on the wire:
+        // a tap made while `cancelQueries` was awaited has already moved
+        // `asked` on, and the cancelled refetch may have restored the
+        // server's older number underneath it.
+        patchItem(variables.id, {
+          portions:
+            askedPortionsRef.current.get(variables.id) ?? variables.portions,
+        });
       },
-      onError: (error, variables, context) => {
-        // Per row, not a whole-list snapshot: nudging two cards in the same
-        // second is ordinary, and a snapshot taken before the first tap knows
-        // nothing about the second.
-        if (context?.previous !== undefined) {
-          patchItem(variables.id, { portions: context.previous });
+      onError: (error, variables) => {
+        // Back to where this card stood before the run of taps began — per
+        // row, never a whole-list snapshot, because nudging two cards in the
+        // same second is ordinary and a snapshot taken before the first tap
+        // knows nothing about the second.
+        const baseline = baselinePortionsRef.current.get(variables.id);
+        if (baseline !== undefined) {
+          patchItem(variables.id, { portions: baseline });
         }
+        forgetPortionsRun(variables.id);
         announce(isGone(error) ? t("notFound") : t("portionsError"));
       },
       onSettled: (_data, error, variables) => {
-        askedPortionsRef.current.delete(variables.id);
+        inFlightPortionsRef.current.delete(variables.id);
         markSettled(error, variables.id);
+
+        const asked = askedPortionsRef.current.get(variables.id);
+        if (error === null && asked !== undefined && asked !== variables.portions) {
+          // Taps landed while this one was on the wire. One follow-up carries
+          // all of them, and because it is dispatched only now, two requests
+          // for this card can never race each other into the wrong order.
+          sendPortions(variables.id, asked);
+          return;
+        }
+
+        forgetPortionsRun(variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
@@ -339,6 +366,18 @@ export function MenuScreen() {
     }),
   );
 
+  /** Drops every ledger entry for a card once its run of taps is over. */
+  function forgetPortionsRun(id: string) {
+    askedPortionsRef.current.delete(id);
+    inFlightPortionsRef.current.delete(id);
+    baselinePortionsRef.current.delete(id);
+  }
+
+  function sendPortions(id: string, portions: number) {
+    inFlightPortionsRef.current.set(id, portions);
+    setPortions.mutate({ id, portions });
+  }
+
   function changePortions(item: MenuItemOutput, delta: number) {
     const bounds = portionsRange(item.portionsBase);
     const from = askedPortionsRef.current.get(item.id) ?? item.portions;
@@ -348,11 +387,20 @@ export function MenuScreen() {
       return;
     }
 
+    if (!baselinePortionsRef.current.has(item.id)) {
+      baselinePortionsRef.current.set(item.id, item.portions);
+    }
     askedPortionsRef.current.set(item.id, next);
-    // One write per tap, no debounce: the server is last-write-wins, so a run
-    // of taps is a run of writes and none of them can be lost by a timer that
-    // never fired.
-    setPortions.mutate({ id: item.id, portions: next });
+    // Patched here, synchronously, rather than only in `onMutate`: a tap that
+    // is coalesced into the outstanding write dispatches nothing of its own,
+    // and the number still has to move under the finger.
+    patchItem(item.id, { portions: next });
+
+    if (inFlightPortionsRef.current.has(item.id)) {
+      return;
+    }
+
+    sendPortions(item.id, next);
   }
 
   function confirmRemove(item: MenuItemOutput) {
@@ -382,10 +430,17 @@ export function MenuScreen() {
 
       <div className={styles.toolbar}>
         <h1 className={styles.title}>{t("title")}</h1>
+        {/* A `<span>`, not a `<time dateTime="…/…">`. HTML's `datetime`
+            microsyntax has no interval form — a slash-joined pair is simply
+            invalid, which leaves the element with no machine-readable value
+            at all rather than a wrong one, and the spec's own answer (two
+            `<time>` elements) cannot be applied to a range `formatRange`
+            renders as one indivisible string («4–10 августа» names its month
+            once). */}
         {hasMenu ? (
-          <time className={styles.week} dateTime={`${data.weekStart}/${data.weekEnd}`}>
+          <span className={styles.week}>
             {formatWeekRange(data.weekStart, data.weekEnd)}
-          </time>
+          </span>
         ) : null}
         {hasMenu ? (
           <span className={styles.count}>

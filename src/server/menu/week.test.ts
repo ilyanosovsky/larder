@@ -178,6 +178,18 @@ describe("addDays", () => {
     expect(() => addDays("2026-08", 1)).toThrow();
     expect(() => addDays("2026-08-04T00:00:00.000Z", 1)).toThrow();
   });
+
+  it("refuses a well-shaped date that is not on the calendar", () => {
+    // `Date.UTC` rolls these over instead of refusing them — «2026-02-30» is
+    // 2 March — so a wrong week would be indistinguishable from a right one.
+    expect(() => addDays("2026-02-30", 1)).toThrow();
+    expect(() => addDays("2026-13-01", 1)).toThrow();
+    expect(() => addDays("2026-00-10", 1)).toThrow();
+    expect(() => addDays("2026-04-31", 1)).toThrow();
+    // 2026 is not a leap year; 2028 is.
+    expect(() => addDays("2026-02-29", 1)).toThrow();
+    expect(addDays("2028-02-29", 1)).toBe("2028-03-01");
+  });
 });
 
 describe("the history constants", () => {

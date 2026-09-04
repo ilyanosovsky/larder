@@ -38,6 +38,14 @@ describe("formatWeekRange", () => {
     expect(() => formatWeekRange("2026-08", "2026-08-10")).toThrow();
   });
 
+  it("refuses a well-shaped date that is not on the calendar", () => {
+    // `Date.parse` rolls «2026-02-30» over to 2 March, and a label formatted
+    // from the wrong day looks exactly like one formatted from the right day.
+    expect(() => formatWeekRange("2026-02-30", "2026-03-08")).toThrow();
+    expect(() => formatWeekRange("2026-02-23", "2026-02-31")).toThrow();
+    expect(() => formatWeekRange("2026-13-01", "2026-13-07")).toThrow();
+  });
+
   describe("independence from the process's own zone", () => {
     const original = process.env.TZ;
 

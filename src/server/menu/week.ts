@@ -83,7 +83,17 @@ function utcMidnight(isoDate: string): Date {
     number,
   ];
 
-  return new Date(Date.UTC(year, month - 1, day));
+  const instant = new Date(Date.UTC(year, month - 1, day));
+
+  // `Date.UTC` *rolls over* an impossible date rather than refusing it —
+  // «2026-02-30» silently becomes 2 March — so the only way to tell a real
+  // date from a rolled-over one is to format it back and compare. Left
+  // unchecked, a wrong week label would look exactly like a right one.
+  if (isoOf(instant) !== isoDate) {
+    throw new Error(`Not a calendar date: ${isoDate}`);
+  }
+
+  return instant;
 }
 
 /** «YYYY-MM-DD» of a UTC-midnight handle. */

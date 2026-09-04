@@ -45,6 +45,14 @@ function utcMidnight(isoDate: string): Date {
     throw new Error(`Not a YYYY-MM-DD date: ${isoDate}`);
   }
 
+  // `Date.parse` rolls an impossible date over instead of refusing it —
+  // «2026-02-30» parses as 2 March — and a week label formatted from the
+  // wrong day looks exactly like one formatted from the right day. The
+  // round-trip is the only thing that separates them.
+  if (parsed.toISOString().slice(0, 10) !== isoDate) {
+    throw new Error(`Not a calendar date: ${isoDate}`);
+  }
+
   return parsed;
 }
 

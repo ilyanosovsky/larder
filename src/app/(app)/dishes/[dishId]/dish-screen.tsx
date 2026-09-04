@@ -827,10 +827,16 @@ export function DishScreen({ dishId }: { dishId: string }) {
               >
                 {common("cancel")}
               </button>
+              {/* The screen has one `pendingRef`, and since task 5.1 «В меню
+                  недели» can hold it — so the confirmation has to show the
+                  shared lock rather than only its own mutation's, or the tap
+                  would be swallowed with nothing on screen explaining why. */}
               <button
                 type="button"
                 className={styles.confirmButton}
-                aria-disabled={archive.isPending || undefined}
+                aria-disabled={
+                  archive.isPending || addToMenu.isPending || undefined
+                }
                 onClick={() => confirmArchive(detail.version)}
               >
                 {archive.isPending
