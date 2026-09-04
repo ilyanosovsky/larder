@@ -10,6 +10,13 @@ import { useSheetOpener } from "@/components/use-sheet-opener";
 import { markOwnChange, withoutOwnChanges } from "@/lib/cart/own-changes";
 import { cx } from "@/lib/cx";
 import { cardPortionsMessage } from "@/lib/menu/card-portions";
+import {
+  createWriteQueue,
+  queueWrite,
+  settleWrite,
+  tapPortions,
+  type PortionsBounds,
+} from "@/lib/menu/portions-queue";
 import { formatWeekRange, isBuiltInWeek } from "@/lib/menu/week-label";
 import {
   removePantryRow,
@@ -51,13 +58,16 @@ const SKELETON_CARDS = 3;
  *
  * **Every write is optimistic, patched by id, and never debounced (D18).**
  * `menu.setPortions` and `menu.setCooked` are plain last-write-wins updates
- * on the server, so racing taps are safe and a trailing timer would only
- * reintroduce the repo's documented lost-write class. `onMutate` cancels
- * in-flight refetches before patching — otherwise one already on the wire
- * would land on top and visibly snap the number back — and patches the cached
- * item **by id**: `menu.current` rows carry `Date`s, superjson mints new ones
- * on every refetch, and structural sharing is defeated, so object identity is
- * never a handle on a row.
+ * on the server, so a trailing timer would only reintroduce the repo's
+ * documented lost-write class. What racing taps *do* need is ordering, not a
+ * clock: both rows' writes go through `src/lib/menu/portions-queue.ts`, which
+ * keeps at most one write per row outstanding and coalesces everything tapped
+ * during it into one follow-up. `onMutate` cancels in-flight refetches before
+ * patching — otherwise one already on the wire would land on top and visibly
+ * snap the number back — and patches the cached item **by id**:
+ * `menu.current` rows carry `Date`s, superjson mints new ones on every
+ * refetch, and structural sharing is defeated, so object identity is never a
+ * handle on a row.
  *
  * **Every mutation declares `networkMode: "always"`.** The IndexedDB offline
  * queue persists `cart.*` only, so with the default `"online"` mode a menu
@@ -89,37 +99,33 @@ export function MenuScreen() {
   const [hint, setHint] = useState<{ text: string; seq: number } | null>(null);
   const hintSeq = useRef(0);
   /**
-   * Synchronous mutex for the one destructive action. Render state lands a
-   * re-render too late for a double tap, and «Убрать» has no confirmation to
-   * absorb the second one. The ± and the checkbox deliberately take no mutex:
-   * one write per tap is the contract, and the server is last-write-wins.
+   * Synchronous mutex for the one destructive action, **keyed by card**.
+   * Render state lands a re-render too late for a double tap, and «Убрать»
+   * has no confirmation to absorb the second one — but a screen-wide flag
+   * would also swallow «Убрать» on a *second* card while the first request is
+   * still in flight, with no affordance saying why.
    */
-  const removePendingRef = useRef(false);
+  const removePendingRef = useRef(new Set<string>());
   /**
-   * The ± control's three synchronous ledgers, all keyed by menu-item id.
+   * The two write ledgers, one per mutation, each keyed by menu-item id.
    *
-   * `asked` is the number that card's last tap wanted, `inFlight` the number
-   * currently on the wire for it, and `baseline` the number it showed before
-   * the run of taps began.
+   * The rules live in `src/lib/menu/portions-queue.ts` — a pure module,
+   * because vitest runs in `node` with no DOM and a state machine inside a
+   * component is unreachable from the suite. Held in refs because the render
+   * cannot answer «what did the last tap want» in time: `onMutate` opens with
+   * an awaited `cancelQueries`, so the optimistic patch — and the re-render
+   * carrying it — lands milliseconds after `mutate()` returns, and two taps
+   * inside that window would both read the rendered row.
    *
-   * They exist because the render cannot answer either question in time.
-   * `onMutate` opens with an awaited `cancelQueries`, so the optimistic patch
-   * — and the re-render carrying it — lands milliseconds after `mutate()`
-   * returns: two taps inside that window would both read the rendered row and
-   * both send the same next value. And two *separate* requests for one card
-   * can be served out of order, so a last-write-wins `UPDATE` could persist
-   * the earlier one — the number on screen would then snap backwards on the
-   * next refetch.
-   *
-   * **At most one write per card is ever outstanding.** The first tap writes
-   * immediately (no debounce, no timer — D18's whole point), and every tap
-   * made while it is in flight only moves `asked`; `onSettled` then sends one
-   * follow-up carrying the final number. Coalescing, not debouncing: nothing
-   * waits on a clock, and nothing can be lost by a timer that never fired.
+   * **At most one write per row is ever outstanding**, for the ± and for the
+   * checkbox alike: two separate requests for one row can be served out of
+   * order, and both procedures are last-write-wins `UPDATE`s with no
+   * expected-state predicate, so the earlier intent could be the one that
+   * persists and the invalidating refetch would then re-render the state the
+   * user just undid.
    */
-  const askedPortionsRef = useRef(new Map<string, number>());
-  const inFlightPortionsRef = useRef(new Map<string, number>());
-  const baselinePortionsRef = useRef(new Map<string, number>());
+  const portionsQueue = useRef(createWriteQueue<number>());
+  const cookedQueue = useRef(createWriteQueue<boolean>());
   /**
    * Ids this client wrote a moment ago, so the soft highlight keeps meaning
    * «партнёр что-то поменял».
@@ -160,6 +166,26 @@ export function MenuScreen() {
   );
 
   const sheetItem = items?.find((row) => row.id === sheetItemId) ?? null;
+
+  /**
+   * Arms the rescue when the open «…» sheet's card vanished on its own — a
+   * partner removed it and the focus refetch brought that back, or the query
+   * errored to `undefined`.
+   *
+   * The sheet and the card unmount in the same commit, and `BottomSheet`
+   * cannot restore focus to a «…» button that is already detached, so focus
+   * would be left on `<body>`. Declared **above** the rescue below so both
+   * run in this commit, in that order; it also clears the stale `sheetItemId`
+   * that would otherwise linger.
+   */
+  useEffect(() => {
+    if (sheetItemId === null || sheetItem !== null) {
+      return;
+    }
+
+    rescueFocusRef.current = true;
+    setSheetItemId(null);
+  }, [sheetItemId, sheetItem]);
 
   /**
    * Consumes the rescue armed by a removal, once the card has actually gone.
@@ -247,35 +273,38 @@ export function MenuScreen() {
         // server's older number underneath it.
         patchItem(variables.id, {
           portions:
-            askedPortionsRef.current.get(variables.id) ?? variables.portions,
+            portionsQueue.current.asked.get(variables.id) ?? variables.portions,
         });
       },
-      onError: (error, variables) => {
-        // Back to where this card stood before the run of taps began — per
-        // row, never a whole-list snapshot, because nudging two cards in the
-        // same second is ordinary and a snapshot taken before the first tap
-        // knows nothing about the second.
-        const baseline = baselinePortionsRef.current.get(variables.id);
-        if (baseline !== undefined) {
-          patchItem(variables.id, { portions: baseline });
-        }
-        forgetPortionsRun(variables.id);
+      // Only the sentence: the ledger decides the rollback, in `onSettled`,
+      // so the three maps are read and written in exactly one place.
+      onError: (error) => {
         announce(isGone(error) ? t("notFound") : t("portionsError"));
       },
       onSettled: (_data, error, variables) => {
-        inFlightPortionsRef.current.delete(variables.id);
         markSettled(error, variables.id);
 
-        const asked = askedPortionsRef.current.get(variables.id);
-        if (error === null && asked !== undefined && asked !== variables.portions) {
+        const next = settleWrite(
+          portionsQueue.current,
+          variables.id,
+          variables.portions,
+          error === null,
+        );
+
+        if (next.rollbackTo !== null) {
+          // Per row, never a whole-list snapshot: nudging two cards in the
+          // same second is ordinary, and a snapshot taken before the first
+          // tap knows nothing about the second.
+          patchItem(variables.id, { portions: next.rollbackTo });
+        }
+        if (next.send !== null) {
           // Taps landed while this one was on the wire. One follow-up carries
           // all of them, and because it is dispatched only now, two requests
           // for this card can never race each other into the wrong order.
-          sendPortions(variables.id, asked);
+          sendPortions(variables.id, next.send);
           return;
         }
 
-        forgetPortionsRun(variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
@@ -293,26 +322,38 @@ export function MenuScreen() {
           HIGHLIGHT_MS,
         );
 
-        const previous = queryClient
-          .getQueryData(menuKey)
-          ?.items.find((row) => row.id === variables.id)?.cookedAt;
-
         // The placeholder `Date` is only ever read as "is it null" — the
-        // invalidate below replaces it with the server's own stamp.
-        patchItem(variables.id, {
-          cookedAt: variables.cooked ? new Date() : null,
-        });
-
-        return { previous };
+        // invalidate below replaces it with the server's own stamp. The
+        // freshest intent wins over the value on the wire, exactly as above.
+        patchCooked(
+          variables.id,
+          cookedQueue.current.asked.get(variables.id) ?? variables.cooked,
+        );
       },
-      onError: (error, variables, context) => {
-        if (context?.previous !== undefined) {
-          patchItem(variables.id, { cookedAt: context.previous });
-        }
+      onError: (error) => {
         announce(isGone(error) ? t("notFound") : t("cookedError"));
       },
       onSettled: (_data, error, variables) => {
         markSettled(error, variables.id);
+
+        const next = settleWrite(
+          cookedQueue.current,
+          variables.id,
+          variables.cooked,
+          error === null,
+        );
+
+        if (next.rollbackTo !== null) {
+          patchCooked(variables.id, next.rollbackTo);
+        }
+        if (next.send !== null) {
+          // A tick and an untick inside one round trip: without this the two
+          // writes would race, and `setCooked` carries no expected-state
+          // predicate, so the box could come back ticked after the untick.
+          sendCooked(variables.id, next.send);
+          return;
+        }
+
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
@@ -359,55 +400,74 @@ export function MenuScreen() {
         }
         announce(t("removeError"));
       },
-      onSettled: () => {
-        removePendingRef.current = false;
+      onSettled: (_data, _error, variables) => {
+        removePendingRef.current.delete(variables.id);
         void queryClient.invalidateQueries(menuFilter);
       },
     }),
   );
 
-  /** Drops every ledger entry for a card once its run of taps is over. */
-  function forgetPortionsRun(id: string) {
-    askedPortionsRef.current.delete(id);
-    inFlightPortionsRef.current.delete(id);
-    baselinePortionsRef.current.delete(id);
+  /**
+   * «Приготовлено» as the cache holds it. The stamp is a placeholder — every
+   * reader of this column on this screen asks only whether it is null.
+   */
+  function patchCooked(id: string, cooked: boolean) {
+    patchItem(id, { cookedAt: cooked ? new Date() : null });
   }
 
   function sendPortions(id: string, portions: number) {
-    inFlightPortionsRef.current.set(id, portions);
     setPortions.mutate({ id, portions });
   }
 
-  function changePortions(item: MenuItemOutput, delta: number) {
-    const bounds = portionsRange(item.portionsBase);
-    const from = askedPortionsRef.current.get(item.id) ?? item.portions;
-    const next = Math.min(bounds.max, Math.max(bounds.min, from + delta));
+  function sendCooked(id: string, cooked: boolean) {
+    setCooked.mutate({ id, cooked });
+  }
 
-    if (next === from) {
-      return;
-    }
+  function changePortions(
+    item: MenuItemOutput,
+    delta: number,
+    bounds: PortionsBounds,
+  ) {
+    const tap = tapPortions(
+      portionsQueue.current,
+      item.id,
+      item.portions,
+      delta,
+      bounds,
+    );
 
-    if (!baselinePortionsRef.current.has(item.id)) {
-      baselinePortionsRef.current.set(item.id, item.portions);
-    }
-    askedPortionsRef.current.set(item.id, next);
     // Patched here, synchronously, rather than only in `onMutate`: a tap that
     // is coalesced into the outstanding write dispatches nothing of its own,
     // and the number still has to move under the finger.
-    patchItem(item.id, { portions: next });
-
-    if (inFlightPortionsRef.current.has(item.id)) {
-      return;
+    if (tap.patch !== null) {
+      patchItem(item.id, { portions: tap.patch });
     }
+    if (tap.send !== null) {
+      sendPortions(item.id, tap.send);
+    }
+  }
 
-    sendPortions(item.id, next);
+  function changeCooked(item: MenuItemOutput, cooked: boolean) {
+    const tap = queueWrite(
+      cookedQueue.current,
+      item.id,
+      item.cookedAt !== null,
+      cooked,
+    );
+
+    if (tap.patch !== null) {
+      patchCooked(item.id, tap.patch);
+    }
+    if (tap.send !== null) {
+      sendCooked(item.id, tap.send);
+    }
   }
 
   function confirmRemove(item: MenuItemOutput) {
-    if (removePendingRef.current) {
+    if (removePendingRef.current.has(item.id)) {
       return;
     }
-    removePendingRef.current = true;
+    removePendingRef.current.add(item.id);
     setSheetItemId(null);
     // The card — and the «…» button inside the sheet that is closing — is
     // about to unmount. Armed before the write, consumed by the effect above
@@ -515,21 +575,26 @@ export function MenuScreen() {
 
       {items === undefined || items.length === 0 ? null : (
         <ul className={styles.pool}>
-          {items.map((item) => (
-            <MenuCard
-              key={item.id}
-              item={item}
-              changed={changedIds.has(item.id)}
-              onPortions={(delta) => changePortions(item, delta)}
-              onCooked={(cooked) =>
-                setCooked.mutate({ id: item.id, cooked })
-              }
-              onMore={(element) => {
-                cardSheetOpener.captureOpener(element);
-                setSheetItemId(item.id);
-              }}
-            />
-          ))}
+          {items.map((item) => {
+            // Computed once per card and handed to both readers: the buttons
+            // that gate themselves on it and the handler that steps within it.
+            const bounds = portionsRange(item.portionsBase);
+
+            return (
+              <MenuCard
+                key={item.id}
+                item={item}
+                bounds={bounds}
+                changed={changedIds.has(item.id)}
+                onPortions={(delta) => changePortions(item, delta, bounds)}
+                onCooked={(cooked) => changeCooked(item, cooked)}
+                onMore={(element) => {
+                  cardSheetOpener.captureOpener(element);
+                  setSheetItemId(item.id);
+                }}
+              />
+            );
+          })}
         </ul>
       )}
 
@@ -580,6 +645,18 @@ export function MenuScreen() {
         onClose={() => setPickerOpen(false)}
         restoreFocusTo={pickerOpener.restoreFocusTo}
         inMenuDishIds={inMenuDishIds}
+        // The row the picker just wrote is this client's own change, so the
+        // refetch its invalidate triggers must not wash the new card as
+        // «партнёр что-то поменял» — the same mute every write on this
+        // screen takes, reaching one file further.
+        onAdded={(menuItemId) =>
+          markOwnChange(
+            ownChangesRef.current,
+            menuItemId,
+            Date.now(),
+            HIGHLIGHT_MS,
+          )
+        }
       />
 
       <BottomSheet
@@ -624,12 +701,14 @@ export function MenuScreen() {
  */
 function MenuCard({
   item,
+  bounds,
   changed,
   onPortions,
   onCooked,
   onMore,
 }: {
   item: MenuItemOutput;
+  bounds: PortionsBounds;
   changed: boolean;
   onPortions: (delta: number) => void;
   onCooked: (cooked: boolean) => void;
@@ -638,7 +717,6 @@ function MenuCard({
   const t = useTranslations("menu");
   const [photoFailed, setPhotoFailed] = useState(false);
 
-  const bounds = portionsRange(item.portionsBase);
   const portions = cardPortionsMessage(item);
   const cooked = item.cookedAt !== null;
   const showPhoto = item.photoUrl !== null && !photoFailed;
@@ -695,12 +773,18 @@ function MenuCard({
 
         <div className={styles.controls}>
           <div className={styles.stepper}>
+            {/* `aria-disabled` with no handler, never `disabled`: a disabled
+                control cannot hold focus, and the handler has to go with the
+                label or a stored value above the range — a partner lowered
+                the recipe's yield — would let the visually inert «+» write. */}
             <button
               type="button"
               className={styles.stepButton}
               aria-label={t("portionsDecreaseAria", { title: item.title })}
               aria-disabled={item.portions <= bounds.min || undefined}
-              onClick={() => onPortions(-1)}
+              onClick={
+                item.portions <= bounds.min ? undefined : () => onPortions(-1)
+              }
             >
               −
             </button>
@@ -713,7 +797,9 @@ function MenuCard({
               className={styles.stepButton}
               aria-label={t("portionsIncreaseAria", { title: item.title })}
               aria-disabled={item.portions >= bounds.max || undefined}
-              onClick={() => onPortions(1)}
+              onClick={
+                item.portions >= bounds.max ? undefined : () => onPortions(1)
+              }
             >
               +
             </button>

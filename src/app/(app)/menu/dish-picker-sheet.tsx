@@ -56,12 +56,18 @@ export function DishPickerSheet({
   onClose,
   restoreFocusTo,
   inMenuDishIds,
+  onAdded,
 }: {
   open: boolean;
   onClose: () => void;
   restoreFocusTo?: RefObject<HTMLElement | null>;
   /** Dish ids already in this week's pool, from `menu.current`. */
   inMenuDishIds: ReadonlySet<string>;
+  /**
+   * The menu-item id the server just wrote, so the screen can mute the soft
+   * highlight for a card this client added itself.
+   */
+  onAdded?: (menuItemId: string) => void;
 }) {
   const t = useTranslations("menu");
   // The portions label goes through S7's own four `dish.portions*` messages,
@@ -95,9 +101,18 @@ export function DishPickerSheet({
    * and thrown away when the sheet closes.
    */
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-  /** Synchronous mutex — render state lands a re-render too late for a double tap. */
-  const pendingRef = useRef(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  /**
+   * Synchronous mutex, **keyed by dish** — render state lands a re-render too
+   * late for a double tap on one row, while a sheet-wide flag would silently
+   * swallow a tap on a *different* row for the length of a round trip. The
+   * sheet's documented flow is «вечером выбираем в пул 4–5 блюд», so those
+   * are exactly the taps that matter. The mirrored state set is what renders
+   * «Добавляем…»; the ref is what a second tap is actually tested against.
+   */
+  const pendingRef = useRef(new Set<string>());
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   const dishes = useQuery(trpc.dish.list.queryOptions());
   const items = useMemo(() => dishes.data ?? [], [dishes.data]);
@@ -115,17 +130,36 @@ export function DishPickerSheet({
     setFeedback({ text, seq: feedbackSeq.current, kind });
   }
 
-  /** A fresh open starts with a clean search, no stale answer and no locks. */
+  function markPending(dishId: string, pending: boolean) {
+    if (pending) {
+      pendingRef.current.add(dishId);
+    } else {
+      pendingRef.current.delete(dishId);
+    }
+    setPendingIds(new Set(pendingRef.current));
+  }
+
+  /**
+   * A fresh open starts with a clean search, no stale answer and no locks.
+   *
+   * On the **open** edge, not the close one: `addDish`'s callbacks carry no
+   * open-guard and still fire after the sheet has closed (the component stays
+   * mounted), so a response landing after a close would repopulate exactly
+   * what a close-edge reset had just cleared — a stale sentence rendered into
+   * the next open, and a row stuck on «✓ в меню» that cannot be re-added.
+   * Dropping `picked` here is safe: the invalidated `menu.current` supplies
+   * `inMenuDishIds` for everything that actually landed.
+   */
   useEffect(() => {
-    if (open) {
+    if (!open) {
       return;
     }
 
     setQuery("");
     setFeedback(null);
     setPicked(new Set());
-    setPendingId(null);
-    pendingRef.current = false;
+    pendingRef.current.clear();
+    setPendingIds(new Set());
   }, [open]);
 
   const nothingFoundText = t("pickerNothingFound");
@@ -168,24 +202,27 @@ export function DishPickerSheet({
             ? t("pickerAdded", { title: result.item.title })
             : t("pickerAlready", { title: result.item.title }),
         );
+        // Before the invalidate, so the refetch it triggers already sees the
+        // row marked as this client's own and does not wash the new card.
+        // Marked on `alreadyInMenu` too: nothing changed server-side, so
+        // marking an id that was not written is harmless.
+        onAdded?.(result.item.id);
         void queryClient.invalidateQueries(trpc.menu.current.queryFilter());
       },
       onError: () => {
         announce(t("pickerError"));
       },
-      onSettled: () => {
-        pendingRef.current = false;
-        setPendingId(null);
+      onSettled: (_data, _error, variables) => {
+        markPending(variables.dishId, false);
       },
     }),
   );
 
   function pick(dish: DishListItemOutput) {
-    if (pendingRef.current) {
+    if (pendingRef.current.has(dish.id)) {
       return;
     }
-    pendingRef.current = true;
-    setPendingId(dish.id);
+    markPending(dish.id, true);
     addDish.mutate({ dishId: dish.id, portions: dish.portionsBase });
   }
 
@@ -267,7 +304,7 @@ export function DishPickerSheet({
           <ul className={styles.list}>
             {visible.map((dish) => {
               const inMenu = inMenuDishIds.has(dish.id) || picked.has(dish.id);
-              const pending = pendingId === dish.id;
+              const pending = pendingIds.has(dish.id);
 
               return (
                 <li key={dish.id}>
