@@ -904,9 +904,39 @@ describe("cart.receiveOrder", () => {
     ).rejects.toSatisfy(hasCode("BAD_REQUEST"));
   });
 
+  it("takes the household's advisory lock as the very first statement of the transaction", async () => {
+    // `receiveOrder` locks every `ordered` row in one `UPDATE` and has no
+    // `ORDER BY` to give, so it cannot be ordered out of a cycle with
+    // `trip.close` (every `bought` row, also unordered) or with
+    // `menu.applyCart` (a chosen set, ordered by product). Serializing on the
+    // household is the only fix, and nothing else in this suite fails if the
+    // call moves or disappears — which is exactly why this test exists.
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [],
+      [{ id: ITEM_ID }],
+    ]);
+
+    await caller.cart.receiveOrder({});
+
+    const lock = stub.statements[1];
+    expect(lock).toMatchObject({ kind: "execute", txDepth: 1 });
+    const compiled = compileWithParams(lock?.query);
+    expect(compiled.sql).toContain("pg_advisory_xact_lock");
+    expect(compiled.params).toEqual([HOUSEHOLD_ID]);
+
+    // The write comes after it, inside the same transaction.
+    expect(stub.statements[2]).toMatchObject({
+      kind: "update",
+      table: "cart_items",
+      txDepth: 1,
+    });
+  });
+
   it("moves every ordered line to bought, clearing the delivery service", async () => {
     const { caller, stub } = callerWith([
       [membershipRow],
+      [],
       [{ id: ITEM_ID }, { id: OTHER_ITEM_ID }],
     ]);
 
@@ -915,18 +945,18 @@ describe("cart.receiveOrder", () => {
       ids: [ITEM_ID, OTHER_ITEM_ID],
     });
 
-    expect(stub.statements[1]).toMatchObject({
+    expect(stub.statements[2]).toMatchObject({
       kind: "update",
       table: "cart_items",
     });
-    expect(stub.statements[1]?.values).toMatchObject({
+    expect(stub.statements[2]?.values).toMatchObject({
       status: "bought",
       orderedVia: null,
     });
   });
 
   it("is a no-op when nothing is ordered — count 0, no error", async () => {
-    const { caller } = callerWith([[membershipRow], []]);
+    const { caller } = callerWith([[membershipRow], [], []]);
 
     await expect(caller.cart.receiveOrder({})).resolves.toEqual({
       count: 0,
@@ -935,31 +965,35 @@ describe("cart.receiveOrder", () => {
   });
 
   it("does not filter by service when none is given", async () => {
-    const { caller, stub } = callerWith([[membershipRow], []]);
+    const { caller, stub } = callerWith([[membershipRow], [], []]);
 
     await caller.cart.receiveOrder({});
 
-    expect(compile(stub.statements[1]?.wheres[0])).not.toContain(
+    expect(compile(stub.statements[2]?.wheres[0])).not.toContain(
       '"ordered_via"',
     );
   });
 
   it("reads an explicit null the same as omitted — every service", async () => {
-    const { caller, stub } = callerWith([[membershipRow], []]);
+    const { caller, stub } = callerWith([[membershipRow], [], []]);
 
     await caller.cart.receiveOrder({ orderedVia: null });
 
-    expect(compile(stub.statements[1]?.wheres[0])).not.toContain(
+    expect(compile(stub.statements[2]?.wheres[0])).not.toContain(
       '"ordered_via"',
     );
   });
 
   it("narrows to the one service given, binding it as a parameter", async () => {
-    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [],
+      [{ id: ITEM_ID }],
+    ]);
 
     await caller.cart.receiveOrder({ orderedVia: "wolt" });
 
-    const compiled = compileWithParams(stub.statements[1]?.wheres[0]);
+    const compiled = compileWithParams(stub.statements[2]?.wheres[0]);
     expect(compiled.sql).toContain('"ordered_via"');
     expect(compiled.params).toContain("wolt");
   });
@@ -969,31 +1003,39 @@ describe("cart.receiveOrder", () => {
     // value bound — this is what actually proves the filter reads the
     // input, since a hardcoded `eq(cartItems.orderedVia, "wolt")` would pass
     // the "wolt" test above by coincidence and only fail here.
-    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [],
+      [{ id: ITEM_ID }],
+    ]);
 
     await caller.cart.receiveOrder({ orderedVia: "carrefour" });
 
-    const compiled = compileWithParams(stub.statements[1]?.wheres[0]);
+    const compiled = compileWithParams(stub.statements[2]?.wheres[0]);
     expect(compiled.params).toContain("carrefour");
     expect(compiled.params).not.toContain("wolt");
   });
 
   it("scopes the write to this household's active, ordered lines", async () => {
-    const { caller, stub } = callerWith([[membershipRow], []]);
+    const { caller, stub } = callerWith([[membershipRow], [], []]);
 
     await caller.cart.receiveOrder({});
 
-    expectScopedByHousehold(stub.statements[1]);
-    expectActiveOnly(stub.statements[1]);
-    expect(compile(stub.statements[1]?.wheres[0])).toContain('"status"');
+    expectScopedByHousehold(stub.statements[2]);
+    expectActiveOnly(stub.statements[2]);
+    expect(compile(stub.statements[2]?.wheres[0])).toContain('"status"');
   });
 
   it("bumps updatedAt on every receipted line", async () => {
-    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [],
+      [{ id: ITEM_ID }],
+    ]);
 
     await caller.cart.receiveOrder({});
 
-    const values = stub.statements[1]?.values as Record<string, unknown>;
+    const values = stub.statements[2]?.values as Record<string, unknown>;
     expect(compile(values.updatedAt)).toContain("now()");
   });
 
@@ -1010,11 +1052,15 @@ describe("cart.receiveOrder", () => {
     // back to the existing buyer only when the caller's id is itself null,
     // which it never is). Pinning both the column-then-parameter order in
     // `sql` and the single-element `params` array rules that out.
-    const { caller, stub } = callerWith([[membershipRow], [{ id: ITEM_ID }]]);
+    const { caller, stub } = callerWith([
+      [membershipRow],
+      [],
+      [{ id: ITEM_ID }],
+    ]);
 
     await caller.cart.receiveOrder({});
 
-    const values = stub.statements[1]?.values as Record<string, unknown>;
+    const values = stub.statements[2]?.values as Record<string, unknown>;
     const compiled = compileWithParams(values.buyerId);
 
     expect(compiled.sql).toBe('coalesce("cart_items"."buyer_id", $1)');

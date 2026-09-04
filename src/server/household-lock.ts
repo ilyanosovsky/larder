@@ -37,6 +37,16 @@ import { sql, type SQL } from "drizzle-orm";
  * two households are possible in principle and harmless in practice: the
  * consequence is that two unrelated households briefly serialize with each
  * other, not that either sees the other's data.
+ *
+ * **The club has four members now, and the second cycle is not about the
+ * pantry at all.** `cart.receiveOrder` locks every `ordered` line in one
+ * multi-row `UPDATE` with no order to give; `trip.close` locks every `bought`
+ * line in one `SELECT … FOR UPDATE`, also unordered; and `menu.applyCart`
+ * (task 5.2) locks a chosen set of active lines ordered by `product_id`. Any
+ * two of those overlapping on two products can deadlock, and — unlike the
+ * pantry cycle — no amount of reordering fixes it, because two of the three
+ * statements have no order to impose. Taking the household lock first is what
+ * makes them serialize instead.
  */
 export function householdLockStatement(householdId: string): SQL {
   return sql`select pg_advisory_xact_lock(hashtextextended(${householdId}::text, 0))`;
@@ -53,8 +63,15 @@ export interface SqlExecutor {
 
 /**
  * Takes the household's advisory lock. **Must be the first statement of any
- * transaction that writes both `cart_items` and `pantry_items`** — a lock
- * taken after the first row lock does not order anything.
+ * transaction that writes both `cart_items` and `pantry_items`, or that takes
+ * more than one `cart_items` row lock at a time** — a lock taken after the
+ * first row lock does not order anything.
+ *
+ * The four transactions that take it: `trip.close`, `pantry.ranOut`,
+ * `cart.receiveOrder` and `menu.applyCart`. The single-row lockers
+ * (`cart.add`, `setStatus`, `updateItem`, `remove`) stay lock-free on purpose —
+ * one row cannot form a cycle, and paying for the lock on the cart's most
+ * frequent taps would slow the shared screen for nothing.
  */
 export function lockHousehold(
   tx: SqlExecutor,

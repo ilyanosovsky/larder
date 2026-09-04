@@ -20,6 +20,7 @@ import {
 } from "@/server/api/trpc";
 import { decideCartAdd, MAX_QTY, MIN_QTY } from "@/server/cart/merge";
 import { isUniqueViolation } from "@/server/db-errors";
+import { lockHousehold } from "@/server/household-lock";
 
 type Database = TRPCContext["db"];
 /** The handle drizzle hands a `db.transaction` callback. */
@@ -32,8 +33,13 @@ const FALLBACK_UNIT: Unit = "шт";
  * At most two passes through the add rules: the second one runs against the
  * row that won the unique index, and by then an active row provably exists,
  * so it cannot come back "insert" a second time.
+ *
+ * Exported for `menu.applyCart` (task 5.2), which writes many products in one
+ * transaction and therefore runs this same recovery loop per line. A second
+ * constant there could drift from this one, and the number is the *reason* the
+ * loop terminates — not a tuning knob.
  */
-const ADD_ATTEMPTS = 2;
+export const ADD_ATTEMPTS = 2;
 
 /**
  * Output schemas live next to the router so the S3 cart, the S4 sheet and
@@ -741,13 +747,26 @@ export const cartRouter = createTRPCRouter({
    * A household with nothing ordered (or nothing ordered through the given
    * service) is a no-op: `count: 0`, `ids: []`, no error — the control simply
    * had nothing to do, the same idea as `remove`'s idempotence.
+   *
+   * **The advisory lock is what keeps it out of a deadlock cycle.** The single
+   * `UPDATE … WHERE status = 'ordered'` takes a row lock on every ordered line
+   * at once, in whatever order Postgres happens to walk them; `menu.applyCart`
+   * (task 5.2) locks a chosen set of active lines ordered by `product_id`, and
+   * `trip.close` locks every bought line with no `ORDER BY` at all. Any two of
+   * those overlapping on two products is a 40P01 waiting for the moment a
+   * partner taps «Заказ получен» while the other builds the cart from the
+   * week's menu — and no ordering rule fixes it, because this statement has no
+   * order to give. Serializing on the household first does, at the cost of one
+   * statement on a control pressed once per delivery.
    */
   receiveOrder: householdProcedure
     .input(receiveOrderInput)
     .output(receiveOrderOutput)
     .mutation(async ({ ctx, input }) => {
+      const householdId = ctx.household.id;
+
       const scope = and(
-        eq(cartItems.householdId, ctx.household.id),
+        eq(cartItems.householdId, householdId),
         isNull(cartItems.tripId),
         eq(cartItems.status, "ordered"),
         ...(input.orderedVia === undefined || input.orderedVia === null
@@ -755,17 +774,23 @@ export const cartRouter = createTRPCRouter({
           : [eq(cartItems.orderedVia, input.orderedVia)]),
       );
 
-      const received = await ctx.db
-        .update(cartItems)
-        .set({
-          status: "bought",
-          orderedVia: null,
-          buyerId: sql`coalesce(${cartItems.buyerId}, ${ctx.user.id})`,
-          updatedAt: sql`now()`,
-        })
-        .where(scope)
-        .returning({ id: cartItems.id });
+      return ctx.db.transaction(async (tx) => {
+        // First statement, before a single row is touched — see the lock's own
+        // module for why a lock taken later orders nothing.
+        await lockHousehold(tx, householdId);
 
-      return { count: received.length, ids: received.map((row) => row.id) };
+        const received = await tx
+          .update(cartItems)
+          .set({
+            status: "bought",
+            orderedVia: null,
+            buyerId: sql`coalesce(${cartItems.buyerId}, ${ctx.user.id})`,
+            updatedAt: sql`now()`,
+          })
+          .where(scope)
+          .returning({ id: cartItems.id });
+
+        return { count: received.length, ids: received.map((row) => row.id) };
+      });
     }),
 });

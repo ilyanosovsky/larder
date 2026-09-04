@@ -306,8 +306,14 @@ export type DishDetailOutput = z.infer<typeof dishDetailOutput>;
 export type DishIngredientOutput = z.infer<typeof dishIngredientOutput>;
 export type DishStepOutput = z.infer<typeof dishStepOutput>;
 
-/** A stored unit the app no longer recognizes reads back as "unstated". */
-function toRecipeUnit(value: string | null): RecipeUnit | null {
+/**
+ * A stored unit the app no longer recognizes reads back as "unstated".
+ *
+ * Exported for `menu.previewCart` (task 5.2), which reads the same
+ * `recipe_ingredients.unit` column and must degrade it the same way: a value
+ * this app cannot name is not a quantity the build may sum.
+ */
+export function toRecipeUnit(value: string | null): RecipeUnit | null {
   if (value === null) {
     return null;
   }
