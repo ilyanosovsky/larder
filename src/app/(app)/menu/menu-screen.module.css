@@ -114,8 +114,12 @@
 }
 
 /* The soft highlight a partner's edit gets after a refetch (VISION §6.3) —
-   the same cue `cart.list` rows get through `useChangedRows`. */
-.cardChanged {
+   the same cue `cart.list` rows get through `useChangedRows`.
+
+   Written as `.card.cardChanged` on purpose: `:nth-child(even)` above scores
+   (0,1,1), so a single class would lose to the zebra stripe and the highlight
+   would silently never appear on every second row. */
+.card.cardChanged {
   background: var(--accent-soft);
 }
 
