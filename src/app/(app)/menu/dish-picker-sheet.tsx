@@ -73,9 +73,17 @@ export function DishPickerSheet({
   const online = useIsOnline();
 
   const [query, setQuery] = useState("");
+  /**
+   * The sheet's one feedback line. `kind` separates its two writers: an
+   * add outcome stands until the next one, while «ничего не нашлось» has to
+   * be withdrawn the moment the filter matches again — otherwise the region
+   * keeps contradicting the list under it (the bug S6 documents against its
+   * own hint slot).
+   */
   const [feedback, setFeedback] = useState<{
     text: string;
     seq: number;
+    kind: "result" | "empty";
   } | null>(null);
   const feedbackSeq = useRef(0);
   /**
@@ -102,9 +110,9 @@ export function DishPickerSheet({
   const isEmpty = hasList && items.length === 0;
   const nothingFound = hasList && items.length > 0 && visible.length === 0;
 
-  function announce(text: string) {
+  function announce(text: string, kind: "result" | "empty" = "result") {
     feedbackSeq.current += 1;
-    setFeedback({ text, seq: feedbackSeq.current });
+    setFeedback({ text, seq: feedbackSeq.current, kind });
   }
 
   /** A fresh open starts with a clean search, no stale answer and no locks. */
@@ -134,11 +142,14 @@ export function DishPickerSheet({
    */
   useEffect(() => {
     if (!nothingFound) {
+      // Withdraw only our own sentence: an «X — в меню недели» from a pick a
+      // moment ago is still true and must survive the next keystroke.
+      setFeedback((current) => (current?.kind === "empty" ? null : current));
       return;
     }
 
     const timer = setTimeout(() => {
-      announce(nothingFoundTextRef.current);
+      announce(nothingFoundTextRef.current, "empty");
     }, ANNOUNCE_DELAY_MS);
 
     return () => clearTimeout(timer);
@@ -330,7 +341,10 @@ export function DishPickerSheet({
         <p className={styles.srOnly} role="status">
           <span key={feedback?.seq ?? "empty"}>{feedback?.text ?? ""}</span>
         </p>
-        {feedback === null ? null : (
+        {/* The `empty` kind is deliberately not shown here: it is already on
+            screen as the paragraph above, and rendering it twice would put
+            «ничего не нашлось» in two places at once. */}
+        {feedback === null || feedback.kind === "empty" ? null : (
           <p className={styles.feedback} aria-hidden="true">
             {feedback.text}
           </p>
