@@ -4,8 +4,9 @@
 
 .quantityRow {
   display: flex;
-  /* The stepper is a fixed 144px; on a narrow phone the unit picker drops to
-     a line of its own rather than being squeezed to a few pixels. */
+  /* The stepper is a fixed 152px (two 44px buttons + the 64px value field);
+     on a narrow phone the unit picker drops to a line of its own rather than
+     being squeezed to a few pixels. */
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-3);
@@ -43,18 +44,51 @@
   outline-offset: 1px;
 }
 
-.stepperValue {
-  display: flex;
-  width: 56px;
+.stepperInput {
+  width: 64px;
   height: 44px;
   flex: none;
-  align-items: center;
-  justify-content: center;
+  border-top: 0;
   border-right: var(--bd-hair) solid var(--rule);
+  border-bottom: 0;
   border-left: var(--bd-hair) solid var(--rule);
+  background: transparent;
+  padding: 0 var(--s-1);
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--t-field);
+  text-align: center;
+  /* Reset native number-spinner remnants some browsers still apply to a
+     plain text input with `inputMode="decimal"`. */
+  appearance: none;
+}
+
+.stepperInput:focus-visible {
+  outline: var(--bd-ink) solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Same shape as the sr-only utility other components already ship
+   (`adaptation-sheet.module.css`, `dish-card.module.css`, …) — not
+   `display: none`, so assistive tech still reads it. */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.hint {
+  margin-top: var(--s-2);
+  border-left: var(--bd-ink) solid var(--null-rule);
+  background: var(--null);
+  padding: var(--s-2) var(--s-3);
+  color: var(--null-txt);
+  font-family: var(--font-sans);
+  font-size: var(--t-meta);
+  line-height: var(--lead-body);
 }
 
 .unitLabel {

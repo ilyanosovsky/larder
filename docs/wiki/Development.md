@@ -101,13 +101,13 @@ Both conditions have to be there. Dropping `used_at IS NULL` lets two people red
 
 ### Household routers
 
-| Procedure           | Boundary             | Notes                                                           |
-| ------------------- | -------------------- | --------------------------------------------------------------- |
-| `household.current` | `protectedProcedure` | `{ household, members } \| null` — null is normal, not an error |
-| `household.create`  | `protectedProcedure` | CONFLICT if the caller already has one                          |
+| Procedure           | Boundary             | Notes                                                                                   |
+| ------------------- | -------------------- | --------------------------------------------------------------------------------------- |
+| `household.current` | `protectedProcedure` | `{ household, members } \| null` — null is normal, not an error                         |
+| `household.create`  | `protectedProcedure` | CONFLICT if the caller already has one                                                  |
 | `invite.create`     | `householdProcedure` | Mints a link for the caller's own household; output is `{ url, expiresAt }` (task 7.1a) |
-| `invite.preview`    | `protectedProcedure` | Read-only, for rendering the join screen                        |
-| `invite.accept`     | `protectedProcedure` | Redeems the link and creates the membership                     |
+| `invite.preview`    | `protectedProcedure` | Read-only, for rendering the join screen                                                |
+| `invite.accept`     | `protectedProcedure` | Redeems the link and creates the membership                                             |
 
 The three `protectedProcedure` entries cannot use `householdProcedure`: their whole audience is people who have no household yet.
 
@@ -355,13 +355,27 @@ All of the actual branching lives in the two pure functions in `highlight-state.
 
 The four decisions the screen makes are pure modules under `src/lib/cart/`, for the same reason `src/lib/sync/` splits its hooks: vitest here runs in a **node** environment and collects `src/**/*.test.ts` only, so nothing that must be rendered can be covered.
 
-| File               | Exports                                     | What it decides                                              |
-| ------------------ | ------------------------------------------- | ------------------------------------------------------------ |
-| `sort-rows.ts`     | `sortBoughtLast`                            | Stable partition, bought last, `ordered` staying live        |
-| `status-toggle.ts` | `toggledCartStatus`, `applyStatusToggle`    | What the checkbox means, and the optimistic cache patch      |
-| `add-outcome.ts`   | `describeCartAddOutcome`, `CartAddToastKey` | `cart.add`'s five outcomes → toast / highlight / confirm     |
-| `qty-step.ts`      | `clampQty`, `stepQty`, `canStepQty`, bounds | The S4 stepper's arithmetic, pinned to the router's bounds   |
-| `own-changes.ts`   | `markOwnChange`, `withoutOwnChanges`        | Which rows _this_ client changed, so the highlight is honest |
+| File               | Exports                                                                                                        | What it decides                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `sort-rows.ts`     | `sortBoughtLast`                                                                                               | Stable partition, bought last, `ordered` staying live                |
+| `status-toggle.ts` | `toggledCartStatus`, `applyStatusToggle`                                                                       | What the checkbox means, and the optimistic cache patch              |
+| `add-outcome.ts`   | `describeCartAddOutcome`, `CartAddToastKey`                                                                    | `cart.add`'s five outcomes → toast / highlight / confirm             |
+| `qty-step.ts`      | `stepQty`, `canStepQty`, `parseTypedQty`, `qtyForUnitChange`, `qtyStepFor`, `defaultQtyFor`, `formatQtyNumber` | The S4/row-editor qty field's stepping, typing and unit-switch rules |
+| `own-changes.ts`   | `markOwnChange`, `withoutOwnChanges`                                                                           | Which rows _this_ client changed, so the highlight is honest         |
+
+**Quantity stepper: per-unit steps and typed values (task Б4).** Before this, «+»/«−» moved every unit by 1, so buying 250 g meant 250 taps — and the value could not be typed at all. `QtyStepper`'s value is now a real `<input type="text" inputmode="decimal">` between the two buttons, and `src/lib/cart/qty-step.ts` owns two independent rule sets for it:
+
+| Unit                             | Step (`qtyStepFor`) | Default on a fresh line (`defaultQtyFor`) |
+| -------------------------------- | ------------------- | ----------------------------------------- |
+| шт / уп / пучок / банка / плитка | 1                   | 1                                         |
+| г / мл                           | 50                  | 100                                       |
+| кг / л                           | 0.5                 | 1                                         |
+
+- **Stepping** (`stepQty`) snaps to the unit's own grid rather than adding the step outright, because the current value need not be on it (a typed «30 г» is not a multiple of 50): «+» moves to the next grid line **above** the current value, «−» to the next one **below**, floored at one whole step — never at `MIN_QTY` — and disabled there (`canStepQty`). A value sitting _below_ the floor already (that «30 г») has nowhere lower to go, so «−» on it snaps **up** to the floor, same place «+» would have reached.
+- **Typing** (`parseTypedQty`) is deliberately looser: it accepts a plain integer, either decimal separator («0,5» or «0.5» — the on-screen keyboard's own key), and space-grouped thousands («1 500»), and allows a value below one step or fractional (0,3 кг is a real quantity) — clamped only to `[MIN_QTY, MAX_QTY]`, the same bounds `addCartItemInput`/`updateCartItemInput` already enforce. A whole-item unit (шт/уп/пучок/банка/плитка) rounds a typed fraction to the nearest integer instead of accepting it («2,5 шт» → 3). Empty input, non-numeric text and non-positive values return `null`; the field reverts to the last valid value and shows an inline hint rather than passing anything on.
+- **Unit changes** (`qtyForUnitChange`) keep a shopper-set number exactly as typed — a person who typed 250 and then switched «г» → «кг» meant _their_ 250, not 250 kg. Only a line still showing its old unit's own default (untouched) swaps to the new unit's default.
+- The field commits on blur, on Enter, and — via `QtyStepperHandle.commitPending()`, an imperative ref both callers hold — right before «В корзину» / «Сохранить», so a fast tap that reaches the button before a blur event does is never lost.
+- `formatQtyNumber` (comma decimal, no thousands grouping) is the one place both the stepper's own field and `formatRecipeQty` (`src/lib/recipes/rescale.ts`) get a number's text from, so the two can never render the same value two different ways.
 
 **The optimistic checkbox** is the first optimistic mutation in the repo and the pattern the rest should copy. `onMutate` awaits `queryClient.cancelQueries(cartFilter)`, applies `applyStatusToggle`, and remembers the row's **previous status**; `onError` re-applies that one status; `onSettled` invalidates. Two fields are deliberately **not** patched: `updatedAt` (see the highlight note below) and `buyerId` (the server stamps the caller on `bought` and clears it on `needed`; guessing would render a «кто берёт» a failed request has to take back).
 
@@ -423,7 +437,7 @@ Every outcome highlights its row rather than leaving it to the refetch. For the 
 
 Sections:
 
-- **Qty/unit** reuse `QtyStepper` (`src/components/qty-stepper.tsx`), extracted out of `AutocompleteSheet` in this task so S4's stepper and the row sheet's editor can never quietly drift apart on step size or bounds. It takes its aria-label strings as props rather than calling `useTranslations` itself — S4 and the row sheet read different namespaces (`autocomplete`, `cart`), and a shared presentational component has no business picking one for the other.
+- **Qty/unit** reuse `QtyStepper` (`src/components/qty-stepper.tsx`), extracted out of `AutocompleteSheet` in this task so S4's stepper and the row sheet's editor can never quietly drift apart on step size or bounds. It takes its aria-label strings as props rather than calling `useTranslations` itself — S4 and the row sheet read different namespaces (`autocomplete`, `cart`), and a shared presentational component has no business picking one for the other. The row editor opens the field on the row's own stored `qty`/`unit` (`item.qty`/`item.unit`, seeded by the effect above) rather than a default — see «Quantity stepper: per-unit steps and typed values» above for the per-unit step/default table and the typing rules task Б4 added.
 - **Note** is a plain text input; saving trims it and maps an empty string to `null` (`updateItem`'s "clear it" reading), bundled into the same `updateItem` call as qty/unit.
 - **«Кто берёт»** is a chip row: «Никто» plus one chip per household member (`household.current`'s `members`, prefetched in `page.tsx` alongside `cart.list`/`category.list` — a plain client `useQuery` in the screen, not props threaded through the `(app)` layout, since a layout cannot hand a page anything but an opaque `children`). Tapping a chip calls `updateItem({ buyerId })` immediately.
 - **«Заказано»** shows the three services; tapping one calls `setStatus({ status: "ordered", orderedVia })` on a still-`needed` line or `updateItem({ orderedVia })` on one already `ordered` (re-picking the same service on an ordered line needs the latter — `setStatus`'s `ordered` branch only touches `orderedVia` when the _status_ is changing). Hidden entirely once a line is `bought` — nothing here un-buys a line; the checkbox does. «Вернуть в «нужно»» (`setStatus({ status: "needed" })`) only shows once the line actually is `ordered`.
@@ -681,9 +695,9 @@ Recognizing that typed text actually names a preset is a two-layer split:
 
 ### Screens
 
-| Route                      | What it is                                                                                                  |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `/onboarding/kitchen`      | S2 step, reached after a household exists — "Done" or a quiet "Skip", both land on `/`                      |
+| Route                            | What it is                                                                                                                                                                                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/onboarding/kitchen`            | S2 step, reached after a household exists — "Done" or a quiet "Skip", both land on `/`                                                                                                                                                                    |
 | `/settings` (S12, still growing) | Page title, then `HouseholdSection` («Дом»: name, members, invite link, signed-in identity + sign-out — task 7.1a), the kitchen-profile section, purchase history and dish archive below it — departments drag order, AI budget and language are task 7.1 |
 
 Both screens render the same `src/components/kitchen-profile-form.tsx` — checklist, free-form chips, a 1–10 household-size stepper — so the two can never drift. The form is a plain controlled component (no autosave): the caller owns the `kitchenProfile.update` mutation and passes `pending`/`onSubmit` in.

@@ -9,6 +9,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
+import { defaultQtyFor, qtyForUnitChange } from "@/lib/cart/qty-step";
 import { isRateLimitedError } from "@/lib/trpc-errors";
 import type { Unit } from "@/lib/units";
 import type { ProductSearchHitOutput } from "@/server/api/routers/product";
@@ -18,7 +19,7 @@ import { useTRPC } from "@/trpc/client";
 import styles from "./autocomplete-sheet.module.css";
 import { BottomSheet } from "./bottom-sheet";
 import { ProductEditForm, type EditableProduct } from "./product-edit-form";
-import { QtyStepper } from "./qty-stepper";
+import { QtyStepper, type QtyStepperHandle } from "./qty-stepper";
 
 /**
  * Long enough that a fast typist makes one request instead of six, short
@@ -137,6 +138,11 @@ export function AutocompleteSheet({
   const [qty, setQty] = useState(1);
   const [unit, setUnit] = useState<Unit>("шт");
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Flushed right before `onAdded` — see `QtyStepperHandle`'s own doc
+   * comment for why `submit` cannot just read the `qty` state instead.
+   */
+  const qtyStepperRef = useRef<QtyStepperHandle>(null);
 
   const create = useMutation(trpc.product.create.mutationOptions());
 
@@ -243,9 +249,22 @@ export function AutocompleteSheet({
     { created, aiFailed }: { created: boolean; aiFailed: boolean },
   ) {
     setError(null);
-    setQty(1);
+    // The default for the product's own unit (task Б4) — not a flat 1,
+    // which for «г»/«мл» would open the line looking like someone already
+    // tapped «+» twice for no reason.
+    setQty(defaultQtyFor(product.defaultUnit));
     setUnit(product.defaultUnit);
     setPhase({ kind: "quantity", product, created, aiFailed });
+  }
+
+  /**
+   * S4's unit select: `qtyForUnitChange` keeps a shopper-set number as-is
+   * and only swaps in the new unit's own default for a line nobody has
+   * touched yet — see that function's own doc comment for why.
+   */
+  function changeUnit(newUnit: Unit) {
+    setQty((current) => qtyForUnitChange(current, unit, newUnit));
+    setUnit(newUnit);
   }
 
   /**
@@ -365,7 +384,12 @@ export function AutocompleteSheet({
     busyRef.current = true;
     setSubmitting(true);
     try {
-      await onAdded({ product, qty, unit });
+      // Flushes whatever is still sitting in the qty field's own draft text
+      // — a tap on «В корзину» usually blurs the field first, but a fast
+      // touch tap is not guaranteed to, and `qty` state read here would
+      // still be the *previous* render's number even if it had.
+      const finalQty = qtyStepperRef.current?.commitPending() ?? qty;
+      await onAdded({ product, qty: finalQty, unit });
     } catch {
       setError(t("error"));
     } finally {
@@ -507,13 +531,16 @@ export function AutocompleteSheet({
           )}
 
           <QtyStepper
+            ref={qtyStepperRef}
             qty={qty}
             unit={unit}
             onQtyChange={setQty}
-            onUnitChange={setUnit}
+            onUnitChange={changeUnit}
             decreaseAria={t("qtyDecreaseAria")}
             increaseAria={t("qtyIncreaseAria")}
             unitLabel={t("unitLabel")}
+            qtyInputAria={t("qtyInputAria")}
+            invalidHint={t("qtyInvalid")}
           />
 
           <button
@@ -532,9 +559,14 @@ export function AutocompleteSheet({
           product={phase.product}
           onSaved={(saved) => {
             staleCatalogQueries();
-            // The quantity already dialled in survives — only the product
-            // changed. The unit follows the product's new default, which is
-            // usually the very thing the shopper came here to correct.
+            // The unit follows the product's new default, which is usually
+            // the very thing the shopper came here to correct — same
+            // `qtyForUnitChange` rule as the stepper's own unit select: an
+            // untouched default swaps to the new unit's default, anything
+            // the shopper actually set survives unchanged.
+            setQty((current) =>
+              qtyForUnitChange(current, unit, saved.defaultUnit),
+            );
             setUnit(saved.defaultUnit);
             setPhase({
               kind: "quantity",

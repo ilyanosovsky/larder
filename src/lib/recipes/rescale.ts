@@ -1,3 +1,4 @@
+import { formatQtyNumber } from "@/lib/cart/qty-step";
 import { MAX_PORTIONS } from "@/lib/recipes/draft";
 import { MIN_QTY, roundQty } from "@/server/cart/merge";
 
@@ -104,22 +105,6 @@ export function rescaleQty(
 }
 
 /**
- * Formats a Russian number without grouping — «1000», not «1 000».
- *
- * The locale is named rather than inherited: the app ships a single locale
- * (`src/i18n/request.ts`), and a decimal comma that depended on the ambient
- * environment would differ between the server render and the browser.
- * Grouping is off because a recipe quantity is never large enough to need it,
- * and the separator is a non-breaking space that only costs layout.
- */
-function formatNumber(value: number): string {
-  return value.toLocaleString("ru-RU", {
-    maximumFractionDigits: 3,
-    useGrouping: false,
-  });
-}
-
-/**
  * «285 г» · «¾ ч.л.» · «1½» · «2 шт» · «—».
  *
  * The unit is rendered verbatim because a unit **is data**, not copy: it is a
@@ -152,8 +137,8 @@ export function formatRecipeQty(
 
   const number =
     glyph === undefined
-      ? formatNumber(rounded)
-      : `${whole === 0 ? "" : formatNumber(whole)}${glyph}`;
+      ? formatQtyNumber(rounded)
+      : `${whole === 0 ? "" : formatQtyNumber(whole)}${glyph}`;
 
   return unit === null ? number : `${number} ${unit}`;
 }

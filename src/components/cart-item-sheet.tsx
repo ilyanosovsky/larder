@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
+import { qtyForUnitChange } from "@/lib/cart/qty-step";
 import { cx } from "@/lib/cx";
 import { ORDERED_VIA_OPTIONS, type OrderedVia } from "@/lib/ordered-via";
 import type { Unit } from "@/lib/units";
@@ -12,7 +13,7 @@ import { useTRPC } from "@/trpc/client";
 
 import { BottomSheet } from "./bottom-sheet";
 import styles from "./cart-item-sheet.module.css";
-import { QtyStepper } from "./qty-stepper";
+import { QtyStepper, type QtyStepperHandle } from "./qty-stepper";
 
 /** One household member, as the buyer chips need it. */
 export interface CartItemSheetMember {
@@ -78,6 +79,11 @@ export function CartItemSheet({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
+  /**
+   * Flushed right before «Сохранить» — see `QtyStepperHandle`'s own doc
+   * comment for why `handleSave` cannot just read the `qty` state instead.
+   */
+  const qtyStepperRef = useRef<QtyStepperHandle>(null);
 
   // Closed whenever there is no row to show — including the rare instant a
   // refetch removes the row out from under an open sheet (a partner deleted
@@ -107,6 +113,17 @@ export function CartItemSheet({
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetOpen, itemId]);
+
+  /**
+   * The editor's own unit select: same `qtyForUnitChange` rule the S4
+   * stepper uses — a shopper-set value survives a unit change unchanged,
+   * and only a line still showing its unit's own default gets swapped to
+   * the new one.
+   */
+  function changeUnit(newUnit: Unit) {
+    setQty((current) => qtyForUnitChange(current, unit, newUnit));
+    setUnit(newUnit);
+  }
 
   const updateItem = useMutation(trpc.cart.updateItem.mutationOptions());
   const setStatus = useMutation(trpc.cart.setStatus.mutationOptions());
@@ -243,13 +260,16 @@ export function CartItemSheet({
           <div className={styles.section}>
             <span className={styles.sectionLabel}>{t("editQtyLabel")}</span>
             <QtyStepper
+              ref={qtyStepperRef}
               qty={qty}
               unit={unit}
               onQtyChange={setQty}
-              onUnitChange={setUnit}
+              onUnitChange={changeUnit}
               decreaseAria={t("editQtyDecreaseAria")}
               increaseAria={t("editQtyIncreaseAria")}
               unitLabel={t("editUnitLabel")}
+              qtyInputAria={t("editQtyInputAria")}
+              invalidHint={t("editQtyInvalid")}
             />
 
             <label className={styles.sectionLabel} htmlFor={noteFieldId}>
@@ -269,19 +289,23 @@ export function CartItemSheet({
               type="button"
               className={styles.saveButton}
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                // Flushes the qty field's own draft text before it is read
+                // — see `qtyStepperRef`'s doc comment for why `qty` state
+                // alone is not guaranteed to reflect it here yet.
+                const finalQty = qtyStepperRef.current?.commitPending() ?? qty;
                 void run(
                   () =>
                     updateItem.mutateAsync({
                       id: item.id,
-                      qty,
+                      qty: finalQty,
                       unit,
                       note: note.trim() === "" ? null : note.trim(),
                     }),
                   t("editSaveError"),
                   item.id,
-                )
-              }
+                );
+              }}
             >
               {busy ? t("editSavePending") : t("editSave")}
             </button>
