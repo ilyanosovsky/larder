@@ -9,27 +9,29 @@
 /**
  * The zone a week starts in.
  *
- * **A code constant, and its value is UTC.** MVP is one household
- * (VISION §5), so a second source of truth would be one more thing to keep in
- * step; an env var would mean the same stored week silently means a different
- * Monday after a deploy, plus three registration sites (AGENTS.md) for a
- * string only this module reads.
+ * **A code constant, and its value is the household's own zone.** MVP is one
+ * household (VISION §5) and it lives in Batumi, so the week turns over at
+ * midnight where the people planning it are — not at 04:00 local, which is
+ * what UTC would have meant here. `Asia/Tbilisi` is UTC+4 all year (Georgia
+ * dropped DST in 2005), so the boundary never moves; the functions below
+ * still handle a DST zone correctly, because task 7.1 may put any zone here.
  *
- * UTC rather than a guess: nothing in this repo names a zone, and
- * `src/app/(app)/settings/trip-history-section.tsx` states in so many words
- * that no global `timeZone` is configured and that pinning the household's
- * own zone «is a settings question for task 7.1, not something to invent
- * here». The accepted cost is stated plainly: a household three hours east of
- * UTC sees the new week begin at 03:00 local on Monday rather than at
- * midnight. Nothing is lost — the menu they built on Sunday stays current a
- * few hours longer — and both partners always agree, which a client-computed
- * week could not guarantee.
+ * A constant rather than an env var: an env var would mean the same stored
+ * week silently names a different Monday after a deploy, plus three
+ * registration sites (AGENTS.md) for a string only this module reads. And a
+ * constant rather than the browser's zone: the menu and the cart are shared,
+ * so two partners must never disagree about which week is current
+ * (`weekStartOf`'s own comment).
+ *
+ * `src/app/(app)/settings/trip-history-section.tsx` still stands: a
+ * `households.time_zone` column, and a UI for it, is task 7.1's. This is the
+ * value that column will be seeded with, not a guess standing in for it.
  *
  * Every function below takes the zone as an argument, so task 7.1 turning
  * this into `households.time_zone` changes one constant and no call site's
  * logic.
  */
-export const MENU_TIME_ZONE = "UTC";
+export const MENU_TIME_ZONE = "Asia/Tbilisi";
 
 /**
  * How many past weeks `menu.history` (task 5.3) reads. A flat list, no
@@ -145,4 +147,67 @@ export function addDays(isoDate: string, days: number): string {
 /** The Sunday that closes the week `weekStart` opens — «YYYY-MM-DD». */
 export function weekEndOf(weekStart: string): string {
   return addDays(weekStart, 6);
+}
+
+/**
+ * How far `timeZone` was ahead of UTC at `instant`, in milliseconds.
+ *
+ * The wall clock the zone showed, read back as if it were UTC, minus the
+ * instant itself — the one way to get an offset out of `Intl` without a
+ * tz database of our own. `hourCycle: "h23"` because some ICU builds render
+ * midnight as «24» under a bare `hour12: false`, which would put the offset a
+ * day out.
+ */
+function zoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+
+  const read = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((part) => part.type === type)?.value);
+
+  const wallClock = Date.UTC(
+    read("year"),
+    read("month") - 1,
+    read("day"),
+    read("hour") % 24,
+    read("minute"),
+    read("second"),
+  );
+
+  return wallClock - instant.getTime();
+}
+
+/**
+ * **The instant the week opens** — midnight of its Monday, in `timeZone`.
+ *
+ * `weekStart` is a calendar label, and every comparison against a stored
+ * *instant* (`week_menus.last_built_at`, and 5.3's history cut) has to know
+ * which midnight it means. Reading it as UTC midnight is wrong by exactly the
+ * zone's offset: in `Asia/Tbilisi` the week opens at 20:00 UTC on the Sunday,
+ * so a cart built at 01:00 Monday local would otherwise be reported as last
+ * week's.
+ *
+ * Two passes over the offset, because the first one is read at a guess that
+ * may sit on the wrong side of a DST change happening that very night; the
+ * second reads it at the corrected instant. `Asia/Tbilisi` has had no DST
+ * since 2005, so today the second pass is a no-op — it is here because task
+ * 7.1 may put any zone in the constant above.
+ */
+export function weekStartInstant(
+  weekStart: string,
+  timeZone: string = MENU_TIME_ZONE,
+): Date {
+  // Also the shape/calendar check: `utcMidnight` refuses «2026-02-30».
+  const naive = utcMidnight(weekStart).getTime();
+  const firstPass = new Date(naive - zoneOffsetMs(new Date(naive), timeZone));
+
+  return new Date(naive - zoneOffsetMs(firstPass, timeZone));
 }

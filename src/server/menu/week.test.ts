@@ -4,30 +4,49 @@ import {
   addDays,
   MENU_TIME_ZONE,
   weekEndOf,
+  weekStartInstant,
   weekStartOf,
   WEEK_HISTORY_LIMIT,
   WEEK_HISTORY_TITLES,
 } from "./week";
 
 describe("MENU_TIME_ZONE", () => {
-  it("is UTC — the shipped value task 7.1 replaces with the household's own", () => {
-    expect(MENU_TIME_ZONE).toBe("UTC");
+  it("is the household's own zone — the value task 7.1 moves into a column", () => {
+    // Batumi (2026-09-04). Pinned as a literal rather than derived, because
+    // the whole point of the constant is that it does not drift: a silent
+    // change here re-buckets every stored week's boundary.
+    expect(MENU_TIME_ZONE).toBe("Asia/Tbilisi");
+  });
+
+  it("is a zone Intl knows, and one that is UTC+4 with no DST", () => {
+    // Georgia dropped DST in 2005, which is why the constant needs no
+    // seasonal caveat anywhere. Read in January and in July.
+    for (const instant of ["2026-01-15T00:00:00.000Z", "2026-07-15T00:00:00.000Z"]) {
+      const opens = weekStartInstant(
+        weekStartOf(new Date(instant)),
+        MENU_TIME_ZONE,
+      );
+      // Midnight Monday in UTC+4 is 20:00 UTC on the Sunday.
+      expect(opens.toISOString()).toMatch(/T20:00:00\.000Z$/);
+    }
   });
 });
 
 describe("weekStartOf", () => {
   it("maps every day of one week to the same Monday", () => {
     // 2026-08-03 is a Monday; DESIGN_BRIEF S10's own «4–10 августа» sits in
-    // the week after it.
+    // the week after it. Written as UTC instants, read in `MENU_TIME_ZONE`
+    // (UTC+4), so the first entry is 04:00 Monday local and the last is
+    // 23:59 Sunday local — the two ends of one Batumi week.
     const days = [
+      "2026-08-02T20:00:00.000Z",
       "2026-08-03T00:00:00.000Z",
-      "2026-08-03T23:59:59.999Z",
       "2026-08-04T12:00:00.000Z",
       "2026-08-05T12:00:00.000Z",
       "2026-08-06T12:00:00.000Z",
       "2026-08-07T12:00:00.000Z",
       "2026-08-08T12:00:00.000Z",
-      "2026-08-09T23:00:00.000Z",
+      "2026-08-09T19:59:59.999Z",
     ];
 
     for (const day of days) {
@@ -43,6 +62,19 @@ describe("weekStartOf", () => {
       "2026-08-03",
     );
     expect(weekStartOf(new Date("2026-08-10T00:00:00.000Z"))).toBe(
+      "2026-08-10",
+    );
+  });
+
+  it("turns the week over at midnight in MENU_TIME_ZONE, not at midnight UTC", () => {
+    // The regression the zone change exists to prevent, at its own boundary:
+    // 19:59 and 20:00 UTC on the Sunday are 23:59 Sunday and 00:00 Monday in
+    // Batumi, so they are different weeks — while UTC would have kept both in
+    // the week that is ending and only rolled over at 04:00 local.
+    expect(weekStartOf(new Date("2026-08-09T19:59:59.999Z"))).toBe(
+      "2026-08-03",
+    );
+    expect(weekStartOf(new Date("2026-08-09T20:00:00.000Z"))).toBe(
       "2026-08-10",
     );
   });
@@ -125,17 +157,19 @@ describe("weekStartOf", () => {
       const instant = new Date("2026-08-10T00:30:00.000Z");
 
       process.env.TZ = "UTC";
-      const inUtc = weekStartOf(instant);
+      const underUtc = weekStartOf(instant);
 
       process.env.TZ = "America/New_York";
-      const inNewYork = weekStartOf(instant);
+      const underNewYork = weekStartOf(instant);
 
       process.env.TZ = "Asia/Tokyo";
-      const inTokyo = weekStartOf(instant);
+      const underTokyo = weekStartOf(instant);
 
-      expect(inUtc).toBe("2026-08-10");
-      expect(inNewYork).toBe(inUtc);
-      expect(inTokyo).toBe(inUtc);
+      // 04:30 on the Monday in `MENU_TIME_ZONE` — the same answer whatever
+      // the process thinks its own zone is.
+      expect(underUtc).toBe("2026-08-10");
+      expect(underNewYork).toBe(underUtc);
+      expect(underTokyo).toBe(underUtc);
     });
   });
 });
@@ -158,6 +192,43 @@ describe("weekEndOf", () => {
       // it too) the closing day is a Sunday.
       expect(new Date(`${end}T00:00:00.000Z`).getUTCDay()).toBe(0);
     }
+  });
+});
+
+describe("weekStartInstant", () => {
+  it("opens the Batumi week at 20:00 UTC on the Sunday", () => {
+    // UTC+4: the moment «this week» begins for the household is four hours
+    // before UTC would have said so, and `isBuiltInWeek` compares against
+    // exactly this instant.
+    expect(weekStartInstant("2026-08-03").toISOString()).toBe(
+      "2026-08-02T20:00:00.000Z",
+    );
+  });
+
+  it("agrees with weekStartOf on both sides of its own boundary", () => {
+    const opens = weekStartInstant("2026-08-03").getTime();
+
+    expect(weekStartOf(new Date(opens))).toBe("2026-08-03");
+    expect(weekStartOf(new Date(opens - 1))).toBe("2026-07-27");
+    expect(weekStartOf(new Date(opens + 7 * 86_400_000 - 1))).toBe("2026-08-03");
+  });
+
+  it("reads the offset that was actually in force, DST and all", () => {
+    // Europe/Madrid is UTC+1 in March and UTC+2 from the 29th, so two
+    // consecutive weeks open at different UTC times. A single fixed offset —
+    // or one read only at the naive UTC-midnight guess — gets one of them
+    // wrong by an hour.
+    expect(weekStartInstant("2026-03-23", "Europe/Madrid").toISOString()).toBe(
+      "2026-03-22T23:00:00.000Z",
+    );
+    expect(weekStartInstant("2026-03-30", "Europe/Madrid").toISOString()).toBe(
+      "2026-03-29T22:00:00.000Z",
+    );
+  });
+
+  it("refuses anything that is not a real calendar date", () => {
+    expect(() => weekStartInstant("2026-08")).toThrow();
+    expect(() => weekStartInstant("2026-02-30")).toThrow();
   });
 });
 

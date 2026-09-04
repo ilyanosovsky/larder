@@ -70,8 +70,10 @@ describe("isBuiltInWeek", () => {
   });
 
   it("accepts the very first instant of the week", () => {
+    // Midnight on the Monday in `MENU_TIME_ZONE` — 20:00 UTC on the Sunday,
+    // because the household is at UTC+4.
     expect(
-      isBuiltInWeek(new Date("2026-08-03T00:00:00.000Z"), "2026-08-03"),
+      isBuiltInWeek(new Date("2026-08-02T20:00:00.000Z"), "2026-08-03"),
     ).toBe(true);
   });
 
@@ -81,11 +83,24 @@ describe("isBuiltInWeek", () => {
     ).toBe(true);
   });
 
+  it("accepts the four hours UTC would have thrown away", () => {
+    // The zone bug this gate had while `MENU_TIME_ZONE` was UTC: a cart built
+    // at 01:00 on Monday in Batumi is 21:00 UTC on the Sunday, so a UTC
+    // midnight boundary called it last week's and hid the line for the four
+    // hours it is most likely to be true. `weekStartOf` buckets that same
+    // instant into this week, so the two must agree.
+    const mondayOneAm = new Date("2026-08-02T21:00:00.000Z");
+
+    expect(weekStartOf(mondayOneAm)).toBe("2026-08-03");
+    expect(isBuiltInWeek(mondayOneAm, "2026-08-03")).toBe(true);
+  });
+
   it("rejects last week's stamp", () => {
     // The whole reason the line is gated: «Корзина собрана · 28 июля» over
-    // this week's pool says the opposite of what it looks like.
+    // this week's pool says the opposite of what it looks like. 19:59:59 UTC
+    // on the Sunday is 23:59:59 local — the last second of the week before.
     expect(
-      isBuiltInWeek(new Date("2026-08-02T23:59:59.999Z"), "2026-08-03"),
+      isBuiltInWeek(new Date("2026-08-02T19:59:59.999Z"), "2026-08-03"),
     ).toBe(false);
   });
 });

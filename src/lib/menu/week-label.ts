@@ -1,3 +1,5 @@
+import { weekStartInstant } from "@/server/menu/week";
+
 /**
  * «4–10 августа» · «28 июля – 3 августа» · «28 декабря 2026 г. – 3 января 2027 г.»
  *
@@ -19,8 +21,12 @@
  * the locale and `timeZone: "UTC"` are pinned. Pinning UTC is also mandatory
  * rather than cosmetic: the stored value is a calendar label parsed as UTC
  * midnight, and any other zone renders the previous day west of Greenwich.
- * Being a pure function is what makes it testable at all — vitest runs in a
- * node environment with no DOM, so a hook could not be.
+ * **Not `MENU_TIME_ZONE`, deliberately**, and the two are not in conflict:
+ * this formats a *calendar label* whose day must survive the round trip
+ * unchanged, while `isBuiltInWeek` below compares an *instant* and therefore
+ * does need the household's real zone. Being a pure function is what makes it
+ * testable at all — vitest runs in a node environment with no DOM, so a hook
+ * could not be.
  */
 const WEEK_RANGE_FORMAT = new Intl.DateTimeFormat("ru-RU", {
   day: "numeric",
@@ -74,10 +80,20 @@ export function formatWeekRange(weekStart: string, weekEnd: string): string {
  * habit; a stamp from *last* week says the opposite of what it looks like, so
  * the line has to be gated rather than merely rendered when non-null.
  *
- * The comparison is instant-against-instant: `weekStart` is a calendar label,
- * and the moment it opens is its UTC midnight — the same reading
- * `weekStartOf` produced it under. A string comparison against a formatted
- * `lastBuiltAt` would be the same answer computed twice, in two zones.
+ * The comparison is instant-against-instant, and the instant a week opens is
+ * **midnight in `MENU_TIME_ZONE`**, not UTC midnight — the same boundary
+ * `weekStartOf` bucketed the stamp under. Read as UTC this would be wrong by
+ * the zone's offset, and wrong in the direction that matters: `Asia/Tbilisi`
+ * is UTC+4, so a cart built at 01:00 on Monday local (21:00 UTC on the
+ * Sunday) would be reported as last week's and the line would vanish for the
+ * four hours it is most likely to be true. A string comparison against a
+ * formatted `lastBuiltAt` would be the same answer computed twice, in two
+ * zones.
+ *
+ * Reaching into `@/server/menu/week` from a module the browser bundles is the
+ * same move `src/lib/recipes/rescale.ts` makes for `roundQty`: it is a pure,
+ * dependency-free calendar with no env and no database in it, and one
+ * calendar is the whole point of that file.
  *
  * Here rather than inline in the screen for the reason every branch in this
  * app is: vitest runs in `node` with no DOM, so a ternary in a `.tsx` is
@@ -91,5 +107,5 @@ export function isBuiltInWeek(
     return false;
   }
 
-  return lastBuiltAt.getTime() >= utcMidnight(weekStart).getTime();
+  return lastBuiltAt.getTime() >= weekStartInstant(weekStart).getTime();
 }
